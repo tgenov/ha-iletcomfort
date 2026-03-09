@@ -52,15 +52,15 @@ MODE_MAP: dict[str, int] = {
 # Temperature validation ranges per mode (Celsius)
 TEMP_RANGES: dict[int, tuple[int, int]] = {
     MODE_HEAT: (10, 40),
-    MODE_COOL: (12, 30),
+    MODE_COOL: (12, 40),
     MODE_WATERPUMP: (15, 75),
 }
 
 # Query response mode → SET mode mapping
 QUERY_TO_SET_MODE: dict[int, int] = {
     0: MODE_OFF,
-    1: MODE_COOL,
-    2: MODE_HEAT,
+    1: MODE_HEAT,
+    2: MODE_COOL,
     4: MODE_WATERPUMP,
 }
 
@@ -273,7 +273,7 @@ def decode_its_status(body: bytearray) -> ITSStatus:
     status.pump_outdoor = bool(b0 & 0x01)
     status.pump_system = bool(b0 & 0x02)
 
-    modes = {0: "Off", 1: "Cool", 2: "Heat", 3: "Auto", 4: "Water Pump"}
+    modes = {0: "Off", 1: "Heat", 2: "Cool", 3: "Auto", 4: "Water Pump"}
     status.mode = body[d + 1]
     status.mode_name = modes.get(status.mode, f"Unknown({status.mode})")
 
@@ -368,7 +368,8 @@ class ITSSensors:
     idu_version: str = ""
     odu_version: str = ""
     hmi_version: str = ""
-    pumpi_total_run_hours: int = 0
+    ctrl_flag: int = 0  # d+41: 0=normal, 1=mute, 2=boost
+    mute_level: int = 0  # d+40: 0=Level 1 (or off), 1=Level 2
     dc_voltage: int = 0
     ibh1_total_run_hours: int = 0
     ibh2_total_run_hours: int = 0
@@ -435,7 +436,8 @@ def decode_its_sensors(body: bytearray) -> ITSSensors:
             body[d + 37], body[d + 38], body[d + 39],
         )
     if body_len > d + 48:
-        sensors.pumpi_total_run_hours = (body[d + 40] << 8) | body[d + 41]
+        sensors.mute_level = body[d + 40]  # 0=Level 1 (or off), 1=Level 2
+        sensors.ctrl_flag = body[d + 41]  # 0=normal, 1=mute, 2=boost
         sensors.dc_voltage = (body[d + 42] << 8) | body[d + 43]
         sensors.ibh1_total_run_hours = body[d + 44]
         sensors.ibh2_total_run_hours = body[d + 45]
@@ -695,7 +697,13 @@ class ILetComfortClient:
                 temperature = last_on_state[1]
 
         eff_mode = mode if mode is not None else current_set_mode
-        eff_temp = temperature if temperature is not None else status.set_temperature
+        # Use active mode setpoint (t5s_def, offset-decoded) not DHW target (set_temperature)
+        if temperature is not None:
+            eff_temp = temperature
+        elif status.t5s_def is not None:
+            eff_temp = int(status.t5s_def)
+        else:
+            eff_temp = status.set_temperature
         temp_explicitly_set = temperature is not None
 
         # Determine ctrl_flag and mute_level

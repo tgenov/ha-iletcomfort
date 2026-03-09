@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import timedelta
 from pathlib import Path
@@ -58,25 +59,72 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 return await self._poll()
             except (AuthError, ApiError) as err:
                 raise UpdateFailed(f"Re-auth failed: {err}") from err
-        except ApiError as err:
-            raise UpdateFailed(f"API error: {err}") from err
-        except Exception as err:
-            raise UpdateFailed(f"Unexpected error: {err}") from err
+        except (ApiError, Exception) as err:
+            if self.data is not None:
+                _LOGGER.warning("Poll error, using cached data: %s", err)
+                return self.data
+            raise UpdateFailed(f"Error: {err}") from err
 
     async def _poll(self) -> dict[str, Any]:
         """Run the actual polling calls in the executor."""
-        status: ITSStatus = await self.hass.async_add_executor_job(
-            self.client.query_status, self.appliance_code,
-        )
-        sensors: ITSSensors = await self.hass.async_add_executor_job(
-            self.client.query_sensors, self.appliance_code,
-        )
+        cached = self.data or {}
+
+        try:
+            status: ITSStatus = await self.hass.async_add_executor_job(
+                self.client.query_status, self.appliance_code,
+            )
+        except AuthError:
+            raise  # bubble up for re-auth
+        except Exception as err:
+            _LOGGER.warning("Status query failed, using cache: %s", err)
+            status = cached.get("status")
+            if status is None:
+                raise
+
+        await asyncio.sleep(2)
+
+        try:
+            sensors: ITSSensors = await self.hass.async_add_executor_job(
+                self.client.query_sensors, self.appliance_code,
+            )
+        except AuthError:
+            raise  # bubble up for re-auth
+        except Exception as err:
+            _LOGGER.warning("Sensors query failed, using cache: %s", err)
+            sensors = cached.get("sensors")
+            if sensors is None:
+                raise
+
+        # Temporary: log at WARNING so it always appears in logs
+        if status.raw_body:
+            _LOGGER.warning(
+                "STATUS RAW: %s",
+                ",".join(f"{b:02x}" for b in status.raw_body),
+            )
+            _LOGGER.warning(
+                "STATUS: mode=%d set_temp=%d tr_temp=%s trdh_def=%s "
+                "ef1=0x%02x ef2=0x%02x status_flags=0x%02x",
+                status.mode,
+                status.set_temperature,
+                status.tr_temperature,
+                status.trdh_def,
+                status.enable_flags_1,
+                status.enable_flags_2,
+                status.status_flags_raw,
+            )
+
+        if sensors.raw_body:
+            _LOGGER.warning(
+                "SENSORS RAW: %s",
+                ",".join(f"{b:02x}" for b in sensors.raw_body),
+            )
 
         # Track last on-state for power restore
         if status.mode != 0:
             set_mode = QUERY_TO_SET_MODE.get(status.mode)
             if set_mode is not None:
-                self._last_on_state = (set_mode, status.set_temperature)
+                temp = int(status.t5s_def) if status.t5s_def is not None else status.set_temperature
+                self._last_on_state = (set_mode, temp)
 
         return {"status": status, "sensors": sensors}
 
@@ -115,12 +163,23 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self.async_config_entry_first_refresh()
 
     async def async_set_device(self, **kwargs: Any) -> None:
-        """Send a SET command and refresh data."""
-        await self.hass.async_add_executor_job(
-            lambda: self.client.set_device(
-                self.appliance_code,
-                last_on_state=self._last_on_state,
-                **kwargs,
+        """Send a SET command with auto re-auth, then refresh data."""
+        try:
+            await self.hass.async_add_executor_job(
+                lambda: self.client.set_device(
+                    self.appliance_code,
+                    last_on_state=self._last_on_state,
+                    **kwargs,
+                )
             )
-        )
+        except AuthError:
+            _LOGGER.info("Auth error during set, re-authenticating")
+            await self._async_login()
+            await self.hass.async_add_executor_job(
+                lambda: self.client.set_device(
+                    self.appliance_code,
+                    last_on_state=self._last_on_state,
+                    **kwargs,
+                )
+            )
         await self.async_request_refresh()
