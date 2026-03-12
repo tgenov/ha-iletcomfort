@@ -65,8 +65,6 @@ class ILetComfortClimate(CoordinatorEntity[ILetComfortCoordinator], ClimateEntit
         | ClimateEntityFeature.TURN_ON
         | ClimateEntityFeature.TURN_OFF
     )
-    _attr_min_temp = 10.0
-    _attr_max_temp = 40.0
     _attr_target_temperature_step = 1.0
 
     def __init__(self, coordinator: ILetComfortCoordinator) -> None:
@@ -120,6 +118,20 @@ class ILetComfortClimate(CoordinatorEntity[ILetComfortCoordinator], ClimateEntit
         return float(self._status.set_temperature)
 
 
+
+    @property
+    def min_temp(self) -> float:
+        set_mode = _HVAC_TO_SET_MODE.get(self.hvac_mode)
+        if set_mode is not None and set_mode in TEMP_RANGES:
+            return float(TEMP_RANGES[set_mode][0])
+        return 10.0
+
+    @property
+    def max_temp(self) -> float:
+        set_mode = _HVAC_TO_SET_MODE.get(self.hvac_mode)
+        if set_mode is not None and set_mode in TEMP_RANGES:
+            return float(TEMP_RANGES[set_mode][1])
+        return 40.0
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
         set_mode = _HVAC_TO_SET_MODE.get(hvac_mode)

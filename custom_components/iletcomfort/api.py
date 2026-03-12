@@ -53,7 +53,7 @@ MODE_MAP: dict[str, int] = {
 TEMP_RANGES: dict[int, tuple[int, int]] = {
     MODE_HEAT: (10, 40),
     MODE_COOL: (12, 40),
-    MODE_WATERPUMP: (15, 75),
+    MODE_WATERPUMP: (15, 40),
 }
 
 # Query response mode → SET mode mapping
@@ -554,7 +554,7 @@ class ILetComfortClient:
         result = response.json()
 
         code = result.get("code")
-        if code == 14005:
+        if code in (14005, 12001):
             raise AuthError("Access token expired or invalid.")
 
         return result
