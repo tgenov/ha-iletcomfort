@@ -611,9 +611,14 @@ class ILetComfortClient:
             self._access_token = result["data"]["accessToken"]
             return result["data"]
 
-        raise ApiError(
-            f"Login failed: code={result.get('code')}, msg={result.get('msg')}"
-        )
+        # Codes in the 14xxx range are account/auth-related (wrong password,
+        # locked account, expired token, …). Everything else is an API-side
+        # failure (signature/region/transport-shaped errors).
+        code = result.get("code")
+        msg = f"Login failed: code={code}, msg={result.get('msg')}"
+        if isinstance(code, int) and 14000 <= code < 15000:
+            raise AuthError(msg)
+        raise ApiError(msg)
 
     def list_appliances(self) -> list[dict[str, Any]]:
         """List all appliances linked to the account."""

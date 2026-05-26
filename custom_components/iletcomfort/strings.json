@@ -3,20 +3,37 @@
     "step": {
       "user": {
         "title": "iLetComfort Heat Pump",
-        "description": "Enter your iLetComfort / Dollin cloud credentials.",
+        "description": "Enter your iLetComfort / Dollin cloud credentials and pick the region your account is registered in.",
         "data": {
           "email": "Email",
-          "password": "Password"
+          "password": "Password",
+          "region": "Region"
+        }
+      },
+      "device": {
+        "title": "Select device",
+        "description": "Choose the appliance to add. Re-run the integration to add additional devices on the same account.",
+        "data": {
+          "appliance_code": "Device"
         }
       }
     },
     "error": {
       "invalid_auth": "Invalid email or password.",
-      "cannot_connect": "Unable to connect to the Dollin cloud API.",
+      "cannot_connect": "Unable to connect to the Dollin cloud API. If your account is registered in Europe, switch the Region to Europe. Check Home Assistant logs for details.",
+      "no_devices": "Login succeeded but no devices were found on this account.",
       "unknown": "An unexpected error occurred."
     },
     "abort": {
-      "already_configured": "This account is already configured."
+      "already_configured": "This device is already configured."
+    }
+  },
+  "selector": {
+    "region": {
+      "options": {
+        "us": "United States",
+        "eu": "Europe"
+      }
     }
   }
 }

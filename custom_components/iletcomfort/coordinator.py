@@ -22,7 +22,14 @@ from .api import (
     QUERY_TO_SET_MODE,
     MODE_OFF,
 )
-from .const import CONF_APPLIANCE_CODE, DEFAULT_SCAN_INTERVAL, DOMAIN
+from .const import (
+    CONF_APPLIANCE_CODE,
+    CONF_REGION,
+    DEFAULT_REGION,
+    DEFAULT_SCAN_INTERVAL,
+    DOMAIN,
+    REGION_URLS,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -38,9 +45,14 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             update_interval=timedelta(seconds=DEFAULT_SCAN_INTERVAL),
         )
         self.entry = entry
-        self.client = ILetComfortClient()
+        region = entry.data.get(CONF_REGION, DEFAULT_REGION)
+        api_base = REGION_URLS.get(region, REGION_URLS[DEFAULT_REGION])
+        self.client = ILetComfortClient(api_base=api_base)
         self.appliance_code: str = entry.data.get(CONF_APPLIANCE_CODE, "")
-        self._token_file = Path(hass.config.path(".storage")) / "iletcomfort_token"
+        self._token_file = (
+            Path(hass.config.path(".storage"))
+            / f"iletcomfort_token_{entry.entry_id}"
+        )
         self._last_on_state: tuple[int, int] | None = None
 
     @property
