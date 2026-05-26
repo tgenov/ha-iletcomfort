@@ -107,13 +107,12 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if sensors is None:
                 raise
 
-        # Temporary: log at WARNING so it always appears in logs
         if status.raw_body:
-            _LOGGER.warning(
+            _LOGGER.debug(
                 "STATUS RAW: %s",
                 ",".join(f"{b:02x}" for b in status.raw_body),
             )
-            _LOGGER.warning(
+            _LOGGER.debug(
                 "STATUS: mode=%d set_temp=%d tr_temp=%s trdh_def=%s "
                 "ef1=0x%02x ef2=0x%02x status_flags=0x%02x",
                 status.mode,
@@ -126,7 +125,7 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
 
         if sensors.raw_body:
-            _LOGGER.warning(
+            _LOGGER.debug(
                 "SENSORS RAW: %s",
                 ",".join(f"{b:02x}" for b in sensors.raw_body),
             )

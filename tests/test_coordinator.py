@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
 from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from custom_components.iletcomfort.api import ApiError, ITSSensors, ITSStatus
 from custom_components.iletcomfort.const import (
     CONF_APPLIANCE_CODE,
     CONF_REGION,
@@ -87,3 +88,35 @@ async def test_token_file_is_scoped_per_entry(hass: HomeAssistant):
     assert entry_a.entry_id in str(coord_a._token_file)
     assert entry_b.entry_id in str(coord_b._token_file)
     assert coord_a._token_file.name.startswith("iletcomfort_token_")
+
+
+async def test_poll_falls_back_to_cache_on_truncated_frame(hass: HomeAssistant):
+    """A truncated-frame ApiError must keep cached data, not blank the entities.
+
+    Issue #5: the device intermittently returns empty frames; the coordinator
+    should preserve the last good ITSStatus/ITSSensors rather than overwriting
+    them with all-defaults.
+    """
+    entry = _entry(REGION_US)
+    entry.add_to_hass(hass)
+    with patch(
+        "custom_components.iletcomfort.coordinator.ILetComfortClient"
+    ) as mock_cls:
+        coord = ILetComfortCoordinator(hass, entry)
+
+    client = mock_cls.return_value
+    cached_status = ITSStatus(mode=1)
+    cached_sensors = ITSSensors()
+    coord.data = {"status": cached_status, "sensors": cached_sensors}
+
+    client.query_status.side_effect = ApiError("truncated frame")
+    client.query_sensors.side_effect = ApiError("truncated frame")
+
+    with patch(
+        "custom_components.iletcomfort.coordinator.asyncio.sleep",
+        new=AsyncMock(),
+    ):
+        result = await coord._poll()
+
+    assert result["status"] is cached_status
+    assert result["sensors"] is cached_sensors

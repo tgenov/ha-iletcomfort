@@ -10,6 +10,7 @@ import base64
 import hashlib
 import hmac
 import json
+import logging
 import random as random_module
 import time
 from dataclasses import dataclass, field
@@ -19,6 +20,8 @@ from typing import Any
 import requests
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives import padding as crypto_padding
+
+_LOGGER = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # App constants extracted from the iLetComfort iOS binary
@@ -36,6 +39,13 @@ DEVICE_TYPE_C3 = 0xC3
 
 TEMP_OFFSET = 35
 SENSOR_DISCONNECTED = 204
+
+# A substantive C3 query response body must be long enough for the decoder to
+# extract its primary fields. Shorter bodies are echo-only / empty frames
+# (see issue #5) and are treated as a transient device/cloud failure rather
+# than real data, so we don't overwrite good entity state with all-defaults.
+STATUS_MIN_BODY_LEN = 6   # decode_its_status needs body_len >= d+5
+SENSORS_MIN_BODY_LEN = 14  # decode_its_sensors first data block needs body_len > d+13
 
 # SET command operating modes
 MODE_OFF = 0x00
@@ -655,16 +665,30 @@ class ILetComfortClient:
         """Query heat pump status (subtype 0x01)."""
         command = build_c3_query(0x01)
         response_hex = self.send_hex_command(appliance_code, command)
+        _LOGGER.debug("query_status raw response: %s", response_hex)
         raw = parse_hex_response(response_hex)
         _body_type, body = extract_c3_body(raw)
+        if len(body) < STATUS_MIN_BODY_LEN:
+            raise ApiError(
+                f"Status query returned a truncated frame "
+                f"({len(body)} body bytes); device may be offline or "
+                f"unsupported. Raw: {response_hex}"
+            )
         return decode_its_status(body)
 
     def query_sensors(self, appliance_code: str) -> ITSSensors:
         """Query heat pump sensors (subtype 0x02)."""
         command = build_c3_query(0x02)
         response_hex = self.send_hex_command(appliance_code, command)
+        _LOGGER.debug("query_sensors raw response: %s", response_hex)
         raw = parse_hex_response(response_hex)
         _body_type, body = extract_c3_body(raw)
+        if len(body) < SENSORS_MIN_BODY_LEN:
+            raise ApiError(
+                f"Sensors query returned a truncated frame "
+                f"({len(body)} body bytes); device may be offline or "
+                f"unsupported. Raw: {response_hex}"
+            )
         return decode_its_sensors(body)
 
     def set_device(
@@ -688,6 +712,7 @@ class ILetComfortClient:
         # Query current status for echo bytes
         command = build_c3_query(0x01)
         response_hex = self.send_hex_command(appliance_code, command)
+        _LOGGER.debug("set_device status raw response: %s", response_hex)
         raw = parse_hex_response(response_hex)
         _body_type, status_body = extract_c3_body(raw)
         status = decode_its_status(status_body)
