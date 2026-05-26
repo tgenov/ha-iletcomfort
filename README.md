@@ -24,3 +24,7 @@ A custom Home Assistant integration for iLetComfort (ITS) heat pumps using the M
 2. Search for "iLetComfort Heat Pump".
 3. Enter your iLetComfort account email and password.
 4. The integration will automatically discover your heat pump appliance.
+
+## Contributing
+
+This project uses [Conventional Commits](https://www.conventionalcommits.org/) and `release-please` to drive versioning, changelogs, and HACS releases. PR titles must follow the format (e.g. `feat: ...`, `fix: ...`) — see [CONTRIBUTING.md](CONTRIBUTING.md).
