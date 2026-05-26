@@ -41,11 +41,19 @@ TEMP_OFFSET = 35
 SENSOR_DISCONNECTED = 204
 
 # A substantive C3 query response body must be long enough for the decoder to
-# extract its primary fields. Shorter bodies are echo-only / empty frames
-# (see issue #5) and are treated as a transient device/cloud failure rather
-# than real data, so we don't overwrite good entity state with all-defaults.
-STATUS_MIN_BODY_LEN = 6   # decode_its_status decodes its primary fields at body_len >= d+5
-SENSORS_MIN_BODY_LEN = 15  # decode_its_sensors first data block needs body_len > d+13 (>= 15)
+# populate every field surfaced as an entity. Shorter bodies are echo-only /
+# partial frames (see issue #5) and are treated as a transient device/cloud
+# failure rather than real data, so we don't overwrite good entity state with
+# all-defaults.
+#
+# Status keeps a low threshold on purpose: its primary role is the climate
+# entity (mode/setpoint, decoded at body_len >= d+5), so a partial status frame
+# is still usable and must not be rejected. Sensors are monitoring-only, and the
+# highest offset among the entities sensor.py exposes from ITSSensors is
+# odu_voltage, decoded only when body_len > d+30 (>= 32); below that, temps
+# and/or odu_voltage would be blanked, so require the full sensor data block.
+STATUS_MIN_BODY_LEN = 6
+SENSORS_MIN_BODY_LEN = 32
 
 # SET command operating modes
 MODE_OFF = 0x00

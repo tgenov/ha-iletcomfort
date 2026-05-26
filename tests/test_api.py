@@ -112,28 +112,31 @@ def test_query_sensors_raises_on_echo_only_frame():
     assert "truncated" in str(exc_info.value)
 
 
-def test_query_sensors_raises_on_14_byte_frame():
-    """A 14-byte sensor body decodes only status_byte, so it must be rejected.
+def test_query_sensors_raises_on_partial_frame():
+    """A 31-byte sensor body leaves odu_voltage (and temps) undecoded.
 
-    decode_its_sensors does not read its first data block until body_len > d+13
-    (>= 15 bytes); a 14-byte body would otherwise blank every sensor entity.
+    The highest offset among sensor.py's ITSSensors entities is odu_voltage,
+    decoded only when body_len > d+30 (>= 32). A 31-byte body would replace
+    cached values for those entities with 0/None, so it must be rejected.
     """
     client = _make_client()
-    fourteen = _c3_frame(bytes(14))
-    with patch.object(client, "send_hex_command", return_value=fourteen):
+    thirty_one = _c3_frame(bytes(31))
+    with patch.object(client, "send_hex_command", return_value=thirty_one):
         with pytest.raises(ApiError):
             client.query_sensors("APPL1")
 
 
-def test_query_sensors_accepts_15_byte_frame():
-    """A 15-byte sensor body reaches the first data block and must not raise."""
+def test_query_sensors_accepts_full_data_block():
+    """A 32-byte sensor body populates every exposed entity (incl. odu_voltage)."""
     client = _make_client()
-    # d=1, so status_byte is body[d+0] = body[1]; body[0] is the subtype echo.
-    fifteen = _c3_frame(bytes([0x02, 0x07]) + bytes(13))
-    with patch.object(client, "send_hex_command", return_value=fifteen):
+    body = bytearray(32)
+    body[1] = 0x07   # status_byte = body[d+0]
+    body[30] = 230   # odu_voltage = body[d+29]
+    with patch.object(client, "send_hex_command", return_value=_c3_frame(bytes(body))):
         sensors = client.query_sensors("APPL1")
 
     assert sensors.status_byte == 0x07
+    assert sensors.odu_voltage == 230
 
 
 def test_query_status_raises_on_truncated_frame():
