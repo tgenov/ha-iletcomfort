@@ -49,7 +49,10 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         api_base = REGION_URLS.get(region, REGION_URLS[DEFAULT_REGION])
         self.client = ILetComfortClient(api_base=api_base)
         self.appliance_code: str = entry.data.get(CONF_APPLIANCE_CODE, "")
-        self._token_file = Path(hass.config.path(".storage")) / "iletcomfort_token"
+        self._token_file = (
+            Path(hass.config.path(".storage"))
+            / f"iletcomfort_token_{entry.entry_id}"
+        )
         self._last_on_state: tuple[int, int] | None = None
 
     @property

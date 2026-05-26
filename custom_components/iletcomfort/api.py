@@ -611,7 +611,7 @@ class ILetComfortClient:
             self._access_token = result["data"]["accessToken"]
             return result["data"]
 
-        raise ApiError(
+        raise AuthError(
             f"Login failed: code={result.get('code')}, msg={result.get('msg')}"
         )
 

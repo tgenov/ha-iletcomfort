@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import logging
+
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import CONF_EMAIL
 from homeassistant.core import HomeAssistant
 
-from .const import DOMAIN, PLATFORMS
+from .const import CONF_APPLIANCE_CODE, CONF_REGION, DEFAULT_REGION, DOMAIN, PLATFORMS
 from .coordinator import ILetComfortCoordinator
+
+_LOGGER = logging.getLogger(__name__)
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -26,3 +31,27 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id)
     return unload_ok
+
+
+async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Migrate config entries from older formats."""
+    if entry.version == 1:
+        data = {**entry.data}
+        data.setdefault(CONF_REGION, DEFAULT_REGION)
+
+        email = data.get(CONF_EMAIL, "")
+        appliance_code = data.get(CONF_APPLIANCE_CODE, "")
+        new_unique_id = f"{email.lower()}:{appliance_code}"
+
+        hass.config_entries.async_update_entry(
+            entry,
+            data=data,
+            unique_id=new_unique_id,
+            version=2,
+        )
+        _LOGGER.info(
+            "Migrated entry %s to v2 (unique_id=%s, region=%s)",
+            entry.entry_id, new_unique_id, data[CONF_REGION],
+        )
+
+    return True

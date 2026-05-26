@@ -5,10 +5,16 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+import requests
 import voluptuous as vol
 
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
+from homeassistant.helpers.selector import (
+    SelectSelector,
+    SelectSelectorConfig,
+    SelectSelectorMode,
+)
 
 from .api import ApiError, AuthError, ILetComfortClient
 from .const import (
@@ -27,8 +33,12 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
     {
         vol.Required(CONF_EMAIL): str,
         vol.Required(CONF_PASSWORD): str,
-        vol.Required(CONF_REGION, default=DEFAULT_REGION): vol.In(
-            [REGION_US, REGION_EU]
+        vol.Required(CONF_REGION, default=DEFAULT_REGION): SelectSelector(
+            SelectSelectorConfig(
+                options=[REGION_US, REGION_EU],
+                mode=SelectSelectorMode.DROPDOWN,
+                translation_key="region",
+            )
         ),
     }
 )
@@ -46,7 +56,7 @@ def _appliance_label(appliance: dict[str, Any]) -> str:
 class ILetComfortConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for iLetComfort."""
 
-    VERSION = 1
+    VERSION = 2
 
     def __init__(self) -> None:
         self._email: str | None = None
@@ -74,9 +84,11 @@ class ILetComfortConfigFlow(ConfigFlow, domain=DOMAIN):
                 appliances = await self.hass.async_add_executor_job(
                     client.list_appliances,
                 )
-            except AuthError:
+            except AuthError as err:
+                _LOGGER.warning("Auth error during login: %s", err)
                 errors["base"] = "invalid_auth"
-            except (ConnectionError, TimeoutError):
+            except requests.exceptions.RequestException as err:
+                _LOGGER.warning("Network error during login: %s", err)
                 errors["base"] = "cannot_connect"
             except ApiError as err:
                 _LOGGER.warning("API error during login: %s", err)
