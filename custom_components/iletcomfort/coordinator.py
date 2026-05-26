@@ -54,6 +54,11 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             / f"iletcomfort_token_{entry.entry_id}"
         )
         self._last_on_state: tuple[int, int] | None = None
+        # Track per-query cache-fallback state so a persistently failing
+        # device (e.g. the truncated frames in issue #5) warns once on entry
+        # and stays quiet at DEBUG afterwards instead of spamming every poll.
+        self._status_degraded = False
+        self._sensors_degraded = False
 
     @property
     def last_on_state(self) -> tuple[int, int] | None:
@@ -77,6 +82,22 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 return self.data
             raise UpdateFailed(f"Error: {err}") from err
 
+    @staticmethod
+    def _log_cache_fallback(what: str, err: Exception, already_degraded: bool) -> bool:
+        """Log a query cache-fallback, warning only on entry into the degraded state.
+
+        Returns the new degraded flag (always True). The first failure logs at
+        WARNING; while the condition persists subsequent polls log at DEBUG so an
+        expected, repeating transient (e.g. issue #5 truncated frames) does not
+        spam the log every poll.
+        """
+        msg = "%s query failed, using cache: %s"
+        if already_degraded:
+            _LOGGER.debug(msg, what, err)
+        else:
+            _LOGGER.warning(msg, what, err)
+        return True
+
     async def _poll(self) -> dict[str, Any]:
         """Run the actual polling calls in the executor."""
         cached = self.data or {}
@@ -85,13 +106,16 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             status: ITSStatus = await self.hass.async_add_executor_job(
                 self.client.query_status, self.appliance_code,
             )
+            self._status_degraded = False
         except AuthError:
             raise  # bubble up for re-auth
         except Exception as err:
-            _LOGGER.warning("Status query failed, using cache: %s", err)
             status = cached.get("status")
             if status is None:
                 raise
+            self._status_degraded = self._log_cache_fallback(
+                "Status", err, self._status_degraded,
+            )
 
         await asyncio.sleep(2)
 
@@ -99,13 +123,16 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             sensors: ITSSensors = await self.hass.async_add_executor_job(
                 self.client.query_sensors, self.appliance_code,
             )
+            self._sensors_degraded = False
         except AuthError:
             raise  # bubble up for re-auth
         except Exception as err:
-            _LOGGER.warning("Sensors query failed, using cache: %s", err)
             sensors = cached.get("sensors")
             if sensors is None:
                 raise
+            self._sensors_degraded = self._log_cache_fallback(
+                "Sensors", err, self._sensors_degraded,
+            )
 
         if status.raw_body:
             _LOGGER.debug(

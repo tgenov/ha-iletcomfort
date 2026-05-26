@@ -120,3 +120,41 @@ async def test_poll_falls_back_to_cache_on_truncated_frame(hass: HomeAssistant):
 
     assert result["status"] is cached_status
     assert result["sensors"] is cached_sensors
+
+
+async def test_repeated_truncated_polls_warn_once_then_debug(
+    hass: HomeAssistant, caplog
+):
+    """A persistently failing device must warn once, then stay quiet at DEBUG.
+
+    Issue #5: without this, every 60s poll logged a WARNING for the same
+    expected transient condition, reproducing the warning spam this change
+    set out to remove.
+    """
+    import logging
+
+    entry = _entry(REGION_US)
+    entry.add_to_hass(hass)
+    with patch(
+        "custom_components.iletcomfort.coordinator.ILetComfortClient"
+    ) as mock_cls:
+        coord = ILetComfortCoordinator(hass, entry)
+
+    client = mock_cls.return_value
+    coord.data = {"status": ITSStatus(mode=1), "sensors": ITSSensors()}
+    client.query_status.side_effect = ApiError("truncated frame")
+    client.query_sensors.side_effect = ApiError("truncated frame")
+
+    with patch(
+        "custom_components.iletcomfort.coordinator.asyncio.sleep",
+        new=AsyncMock(),
+    ):
+        with caplog.at_level(logging.WARNING):
+            await coord._poll()
+        first_warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(first_warnings) == 2  # one each for status + sensors
+
+        caplog.clear()
+        with caplog.at_level(logging.WARNING):
+            await coord._poll()
+        assert not [r for r in caplog.records if r.levelno == logging.WARNING]

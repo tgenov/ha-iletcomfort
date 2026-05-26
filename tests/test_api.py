@@ -112,6 +112,30 @@ def test_query_sensors_raises_on_echo_only_frame():
     assert "truncated" in str(exc_info.value)
 
 
+def test_query_sensors_raises_on_14_byte_frame():
+    """A 14-byte sensor body decodes only status_byte, so it must be rejected.
+
+    decode_its_sensors does not read its first data block until body_len > d+13
+    (>= 15 bytes); a 14-byte body would otherwise blank every sensor entity.
+    """
+    client = _make_client()
+    fourteen = _c3_frame(bytes(14))
+    with patch.object(client, "send_hex_command", return_value=fourteen):
+        with pytest.raises(ApiError):
+            client.query_sensors("APPL1")
+
+
+def test_query_sensors_accepts_15_byte_frame():
+    """A 15-byte sensor body reaches the first data block and must not raise."""
+    client = _make_client()
+    # d=1, so status_byte is body[d+0] = body[1]; body[0] is the subtype echo.
+    fifteen = _c3_frame(bytes([0x02, 0x07]) + bytes(13))
+    with patch.object(client, "send_hex_command", return_value=fifteen):
+        sensors = client.query_sensors("APPL1")
+
+    assert sensors.status_byte == 0x07
+
+
 def test_query_status_raises_on_truncated_frame():
     """A status body shorter than the primary fields must raise ApiError."""
     client = _make_client()

@@ -44,8 +44,8 @@ SENSOR_DISCONNECTED = 204
 # extract its primary fields. Shorter bodies are echo-only / empty frames
 # (see issue #5) and are treated as a transient device/cloud failure rather
 # than real data, so we don't overwrite good entity state with all-defaults.
-STATUS_MIN_BODY_LEN = 6   # decode_its_status needs body_len >= d+5
-SENSORS_MIN_BODY_LEN = 14  # decode_its_sensors first data block needs body_len > d+13
+STATUS_MIN_BODY_LEN = 6   # decode_its_status decodes its primary fields at body_len >= d+5
+SENSORS_MIN_BODY_LEN = 15  # decode_its_sensors first data block needs body_len > d+13 (>= 15)
 
 # SET command operating modes
 MODE_OFF = 0x00
