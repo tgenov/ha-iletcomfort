@@ -76,13 +76,12 @@ class ILetComfortConfigFlow(ConfigFlow, domain=DOMAIN):
             region = user_input[CONF_REGION]
             api_base = REGION_URLS.get(region, REGION_URLS[DEFAULT_REGION])
 
+            client = ILetComfortClient(api_base=api_base)
+            appliances: list[dict[str, Any]] | None = None
+
             try:
-                client = ILetComfortClient(api_base=api_base)
                 await self.hass.async_add_executor_job(
                     client.login, email, password,
-                )
-                appliances = await self.hass.async_add_executor_job(
-                    client.list_appliances,
                 )
             except AuthError as err:
                 _LOGGER.warning("Auth error during login: %s", err)
@@ -94,9 +93,25 @@ class ILetComfortConfigFlow(ConfigFlow, domain=DOMAIN):
                 _LOGGER.warning("API error during login: %s", err)
                 errors["base"] = "cannot_connect"
             except Exception:
-                _LOGGER.exception("Unexpected error during config flow")
+                _LOGGER.exception("Unexpected error during login")
                 errors["base"] = "unknown"
-            else:
+
+            if not errors:
+                try:
+                    appliances = await self.hass.async_add_executor_job(
+                        client.list_appliances,
+                    )
+                except requests.exceptions.RequestException as err:
+                    _LOGGER.warning("Network error during device discovery: %s", err)
+                    errors["base"] = "cannot_connect"
+                except ApiError as err:
+                    _LOGGER.warning("API error during device discovery: %s", err)
+                    errors["base"] = "cannot_connect"
+                except Exception:
+                    _LOGGER.exception("Unexpected error during device discovery")
+                    errors["base"] = "unknown"
+
+            if not errors:
                 if not appliances:
                     errors["base"] = "no_devices"
                 else:

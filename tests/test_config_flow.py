@@ -192,6 +192,55 @@ async def test_api_error_maps_to_cannot_connect(hass: HomeAssistant):
     assert result["errors"] == {"base": "cannot_connect"}
 
 
+async def test_discovery_request_exception_maps_to_cannot_connect(
+    hass: HomeAssistant,
+):
+    """Login OK but list_appliances raises RequestException → cannot_connect."""
+    patcher, _, mock_instance = _patch_client()
+    # Override discovery to raise after login succeeds.
+    mock_instance.list_appliances.side_effect = (
+        requests.exceptions.ConnectionError("transient")
+    )
+    with patcher:
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": config_entries.SOURCE_USER}
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            user_input={
+                CONF_EMAIL: EMAIL,
+                CONF_PASSWORD: PASSWORD,
+                CONF_REGION: REGION_US,
+            },
+        )
+
+    assert result["step_id"] == "user"
+    assert result["errors"] == {"base": "cannot_connect"}
+
+
+async def test_discovery_api_error_maps_to_cannot_connect(hass: HomeAssistant):
+    """Login OK but list_appliances raises ApiError → cannot_connect."""
+    patcher, _, mock_instance = _patch_client()
+    mock_instance.list_appliances.side_effect = ApiError(
+        "code=1214, msg=Unsupported"
+    )
+    with patcher:
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": config_entries.SOURCE_USER}
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            user_input={
+                CONF_EMAIL: EMAIL,
+                CONF_PASSWORD: PASSWORD,
+                CONF_REGION: REGION_US,
+            },
+        )
+
+    assert result["step_id"] == "user"
+    assert result["errors"] == {"base": "cannot_connect"}
+
+
 async def test_empty_appliance_list_shows_no_devices(hass: HomeAssistant):
     """Login succeeds but no appliances on account → 'no_devices'."""
     patcher, _, _ = _patch_client(appliances=[])

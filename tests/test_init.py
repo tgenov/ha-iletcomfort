@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
 from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -76,6 +78,58 @@ async def test_migrate_v1_lowercases_email_in_unique_id(hass: HomeAssistant):
     await async_migrate_entry(hass, entry)
 
     assert entry.unique_id == "user@example.com:APPL1"
+
+
+async def test_migrate_v1_renames_shared_token_file_to_per_entry_path(
+    hass: HomeAssistant,
+):
+    """The old shared token file must be renamed to the per-entry path.
+
+    Before this fix, bumping the token filename to include entry_id left the
+    old `.storage/iletcomfort_token` orphaned and forced a re-login.
+    """
+    storage = Path(hass.config.path(".storage"))
+    storage.mkdir(parents=True, exist_ok=True)
+    old_path = storage / "iletcomfort_token"
+    old_path.write_text('{"access_token": "legacy"}', encoding="utf-8")
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="user@example.com",
+        data={
+            CONF_EMAIL: "user@example.com",
+            CONF_PASSWORD: "secret",
+            CONF_APPLIANCE_CODE: "APPL1",
+        },
+        version=1,
+    )
+    entry.add_to_hass(hass)
+
+    await async_migrate_entry(hass, entry)
+
+    new_path = storage / f"iletcomfort_token_{entry.entry_id}"
+    assert new_path.exists()
+    assert new_path.read_text(encoding="utf-8") == '{"access_token": "legacy"}'
+    assert not old_path.exists()
+
+
+async def test_migrate_v1_handles_missing_token_file(hass: HomeAssistant):
+    """Migration must not fail if no old token file exists (fresh installs)."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="user@example.com",
+        data={
+            CONF_EMAIL: "user@example.com",
+            CONF_PASSWORD: "secret",
+            CONF_APPLIANCE_CODE: "APPL1",
+        },
+        version=1,
+    )
+    entry.add_to_hass(hass)
+
+    # Should not raise.
+    assert await async_migrate_entry(hass, entry) is True
+    assert entry.version == 2
 
 
 async def test_migrate_v2_is_noop(hass: HomeAssistant):

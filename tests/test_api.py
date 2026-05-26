@@ -45,16 +45,41 @@ def test_login_raises_auth_error_on_non_zero_code():
     assert "14000" in str(exc_info.value)
 
 
-def test_login_auth_error_is_not_api_error():
-    """AuthError must be distinguishable from ApiError so callers can branch."""
-    client = _make_client()
-    with patch.object(
-        client, "_v1_request", return_value={"code": 1, "msg": "fail"}
-    ):
-        with pytest.raises(AuthError):
-            client.login("user@example.com", "x")
+def test_login_raises_api_error_for_signature_failure():
+    """Non-auth API failures (e.g. code 3301 Signature Failed) must raise ApiError.
 
-        try:
-            client.login("user@example.com", "x")
-        except AuthError as err:
-            assert not isinstance(err, ApiError)
+    Earlier this raised AuthError for any non-zero code, which made wrong-region
+    / signature failures look like bad passwords in the UI.
+    """
+    client = _make_client()
+    sig_failed = {"code": 3301, "msg": "Signature Failed"}
+    with patch.object(client, "_v1_request", return_value=sig_failed):
+        with pytest.raises(ApiError) as exc_info:
+            client.login("user@example.com", "secret")
+
+    # And it must not be an AuthError, so the config flow's
+    # invalid_auth branch is not taken for non-auth failures.
+    assert not isinstance(exc_info.value, AuthError)
+    assert "3301" in str(exc_info.value)
+
+
+def test_login_raises_auth_error_only_for_auth_code_range():
+    """Codes in the 14xxx range are account/auth-related; others are API errors."""
+    client = _make_client()
+
+    for auth_code in (14000, 14001, 14002, 14005):
+        with patch.object(
+            client, "_v1_request",
+            return_value={"code": auth_code, "msg": "auth failure"},
+        ):
+            with pytest.raises(AuthError):
+                client.login("user@example.com", "x")
+
+    for api_code in (1, 3301, 9999):
+        with patch.object(
+            client, "_v1_request",
+            return_value={"code": api_code, "msg": "api failure"},
+        ):
+            with pytest.raises(ApiError) as exc_info:
+                client.login("user@example.com", "x")
+            assert not isinstance(exc_info.value, AuthError)
