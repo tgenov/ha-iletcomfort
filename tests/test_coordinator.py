@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import issue_registry as ir
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.iletcomfort.api import ApiError, ITSSensors, ITSStatus
@@ -16,7 +17,11 @@ from custom_components.iletcomfort.const import (
     REGION_EU,
     REGION_US,
 )
-from custom_components.iletcomfort.coordinator import ILetComfortCoordinator
+from custom_components.iletcomfort.coordinator import (
+    OFFLINE_REPAIR_ID,
+    OFFLINE_REPAIR_THRESHOLD,
+    ILetComfortCoordinator,
+)
 
 
 def _entry(region: str | None) -> MockConfigEntry:
@@ -158,3 +163,127 @@ async def test_repeated_truncated_polls_warn_once_then_debug(
         with caplog.at_level(logging.WARNING):
             await coord._poll()
         assert not [r for r in caplog.records if r.levelno == logging.WARNING]
+
+
+def _degraded_coordinator(hass: HomeAssistant) -> tuple[ILetComfortCoordinator, MagicMock]:
+    """Build a coordinator wired so both queries fall back to cache."""
+    entry = _entry(REGION_US)
+    entry.add_to_hass(hass)
+    with patch(
+        "custom_components.iletcomfort.coordinator.ILetComfortClient"
+    ) as mock_cls:
+        coord = ILetComfortCoordinator(hass, entry)
+    client = mock_cls.return_value
+    coord.data = {"status": ITSStatus(mode=1), "sensors": ITSSensors()}
+    return coord, client
+
+
+def _issue_id(coord: ILetComfortCoordinator) -> str:
+    return OFFLINE_REPAIR_ID.format(entry_id=coord.entry.entry_id)
+
+
+async def test_offline_repair_card_created_after_threshold(hass: HomeAssistant):
+    """After OFFLINE_REPAIR_THRESHOLD consecutive both-degraded polls, a Repair appears."""
+    coord, client = _degraded_coordinator(hass)
+    client.query_status.side_effect = ApiError("truncated frame")
+    client.query_sensors.side_effect = ApiError("truncated frame")
+
+    registry = ir.async_get(hass)
+    issue_id = _issue_id(coord)
+
+    with patch(
+        "custom_components.iletcomfort.coordinator.asyncio.sleep",
+        new=AsyncMock(),
+    ):
+        for _ in range(OFFLINE_REPAIR_THRESHOLD - 1):
+            await coord._poll()
+            assert registry.async_get_issue(DOMAIN, issue_id) is None
+
+        await coord._poll()
+        issue = registry.async_get_issue(DOMAIN, issue_id)
+        assert issue is not None
+        assert issue.severity == ir.IssueSeverity.WARNING
+        assert issue.translation_key == "device_offline"
+
+
+async def test_offline_repair_card_not_created_when_only_one_query_fails(
+    hass: HomeAssistant,
+):
+    """Sensors-only failure (or status-only) must not surface the offline Repair."""
+    coord, client = _degraded_coordinator(hass)
+    client.query_status.return_value = ITSStatus(mode=1)
+    client.query_sensors.side_effect = ApiError("truncated frame")
+
+    registry = ir.async_get(hass)
+    issue_id = _issue_id(coord)
+
+    with patch(
+        "custom_components.iletcomfort.coordinator.asyncio.sleep",
+        new=AsyncMock(),
+    ):
+        for _ in range(OFFLINE_REPAIR_THRESHOLD + 2):
+            await coord._poll()
+
+    assert registry.async_get_issue(DOMAIN, issue_id) is None
+
+
+async def test_offline_repair_card_cleared_on_recovery(hass: HomeAssistant):
+    """A single healthy poll clears the Repair card."""
+    coord, client = _degraded_coordinator(hass)
+    client.query_status.side_effect = ApiError("truncated frame")
+    client.query_sensors.side_effect = ApiError("truncated frame")
+
+    registry = ir.async_get(hass)
+    issue_id = _issue_id(coord)
+
+    with patch(
+        "custom_components.iletcomfort.coordinator.asyncio.sleep",
+        new=AsyncMock(),
+    ):
+        for _ in range(OFFLINE_REPAIR_THRESHOLD):
+            await coord._poll()
+        assert registry.async_get_issue(DOMAIN, issue_id) is not None
+
+        client.query_status.side_effect = None
+        client.query_status.return_value = ITSStatus(mode=1)
+        client.query_sensors.side_effect = None
+        client.query_sensors.return_value = ITSSensors()
+        await coord._poll()
+
+    assert registry.async_get_issue(DOMAIN, issue_id) is None
+
+
+async def test_offline_repair_card_reraised_after_recovery_then_redegradation(
+    hass: HomeAssistant,
+):
+    """After clear → degraded again, the Repair card must reappear on threshold."""
+    coord, client = _degraded_coordinator(hass)
+    client.query_status.side_effect = ApiError("truncated frame")
+    client.query_sensors.side_effect = ApiError("truncated frame")
+
+    registry = ir.async_get(hass)
+    issue_id = _issue_id(coord)
+
+    with patch(
+        "custom_components.iletcomfort.coordinator.asyncio.sleep",
+        new=AsyncMock(),
+    ):
+        for _ in range(OFFLINE_REPAIR_THRESHOLD):
+            await coord._poll()
+        assert registry.async_get_issue(DOMAIN, issue_id) is not None
+
+        # Recover.
+        client.query_status.side_effect = None
+        client.query_status.return_value = ITSStatus(mode=1)
+        client.query_sensors.side_effect = None
+        client.query_sensors.return_value = ITSSensors()
+        await coord._poll()
+        assert registry.async_get_issue(DOMAIN, issue_id) is None
+
+        # Degrade again.
+        client.query_status.side_effect = ApiError("truncated frame")
+        client.query_sensors.side_effect = ApiError("truncated frame")
+        for _ in range(OFFLINE_REPAIR_THRESHOLD):
+            await coord._poll()
+
+    assert registry.async_get_issue(DOMAIN, issue_id) is not None

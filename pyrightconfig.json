@@ -1,0 +1,8 @@
+{
+  "venvPath": ".",
+  "venv": ".venv",
+  "pythonVersion": "3.12",
+  "include": ["custom_components", "tests"],
+  "exclude": [".venv", "**/__pycache__", ".pytest_cache"],
+  "reportMissingImports": "error"
+}

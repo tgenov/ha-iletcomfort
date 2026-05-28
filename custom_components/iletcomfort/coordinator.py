@@ -11,6 +11,7 @@ from typing import Any
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import (
@@ -20,7 +21,6 @@ from .api import (
     ITSSensors,
     ITSStatus,
     QUERY_TO_SET_MODE,
-    MODE_OFF,
 )
 from .const import (
     CONF_APPLIANCE_CODE,
@@ -32,6 +32,14 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+# Number of consecutive polls in which both status and sensors fall back to
+# cache before we surface a "device appears offline" Repair card. At the
+# default 60s poll interval this is ~5 minutes — long enough to ignore a
+# one-off cloud blip, short enough to be useful when the device is really
+# stuck (issue #5).
+OFFLINE_REPAIR_THRESHOLD = 5
+OFFLINE_REPAIR_ID = "device_offline_{entry_id}"
 
 
 class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
@@ -59,6 +67,8 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # and stays quiet at DEBUG afterwards instead of spamming every poll.
         self._status_degraded = False
         self._sensors_degraded = False
+        self._consecutive_both_degraded = 0
+        self._repair_issued = False
 
     @property
     def last_on_state(self) -> tuple[int, int] | None:
@@ -110,9 +120,10 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except AuthError:
             raise  # bubble up for re-auth
         except Exception as err:
-            status = cached.get("status")
-            if status is None:
+            cached_status = cached.get("status")
+            if cached_status is None:
                 raise
+            status = cached_status
             self._status_degraded = self._log_cache_fallback(
                 "Status", err, self._status_degraded,
             )
@@ -127,9 +138,10 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except AuthError:
             raise  # bubble up for re-auth
         except Exception as err:
-            sensors = cached.get("sensors")
-            if sensors is None:
+            cached_sensors = cached.get("sensors")
+            if cached_sensors is None:
                 raise
+            sensors = cached_sensors
             self._sensors_degraded = self._log_cache_fallback(
                 "Sensors", err, self._sensors_degraded,
             )
@@ -164,14 +176,56 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 temp = int(status.t5s_def) if status.t5s_def is not None else status.set_temperature
                 self._last_on_state = (set_mode, temp)
 
+        self._update_offline_repair()
+
         return {"status": status, "sensors": sensors}
+
+    def _update_offline_repair(self) -> None:
+        """Surface or clear the 'device appears offline' Repair card.
+
+        A user-visible Repair card is created once both queries have been
+        falling back to cache for OFFLINE_REPAIR_THRESHOLD consecutive polls
+        (issue #5 — vendor cloud / device-offline state). The card is cleared
+        on the first poll where either query succeeds, so transient blips
+        don't churn the Repairs panel.
+        """
+        both_degraded = self._status_degraded and self._sensors_degraded
+
+        if both_degraded:
+            self._consecutive_both_degraded += 1
+            if (
+                self._consecutive_both_degraded >= OFFLINE_REPAIR_THRESHOLD
+                and not self._repair_issued
+            ):
+                ir.async_create_issue(
+                    self.hass,
+                    DOMAIN,
+                    OFFLINE_REPAIR_ID.format(entry_id=self.entry.entry_id),
+                    is_fixable=False,
+                    severity=ir.IssueSeverity.WARNING,
+                    translation_key="device_offline",
+                    translation_placeholders={
+                        "appliance_code": self.appliance_code,
+                    },
+                )
+                self._repair_issued = True
+            return
+
+        self._consecutive_both_degraded = 0
+        if self._repair_issued:
+            ir.async_delete_issue(
+                self.hass,
+                DOMAIN,
+                OFFLINE_REPAIR_ID.format(entry_id=self.entry.entry_id),
+            )
+            self._repair_issued = False
 
     async def _async_login(self) -> None:
         """Authenticate and store the token."""
         email = self.entry.data[CONF_EMAIL]
         password = self.entry.data[CONF_PASSWORD]
 
-        data = await self.hass.async_add_executor_job(
+        await self.hass.async_add_executor_job(
             self.client.login, email, password,
         )
 
