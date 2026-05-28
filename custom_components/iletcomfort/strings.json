@@ -35,5 +35,11 @@
         "eu": "Europe"
       }
     }
+  },
+  "issues": {
+    "device_offline": {
+      "title": "Heat pump appears offline",
+      "description": "Home Assistant has been receiving empty responses from device `{appliance_code}` for several minutes, so entities are showing the last known values. This usually means the heat pump has lost its connection to the iLetComfort cloud, or has been powered off. Check the device in the official iLetComfort / BTRI mobile app — if it shows as offline there too, the issue is on the device or vendor cloud side, not Home Assistant. The card will clear automatically once the device starts responding again."
+    }
   }
 }

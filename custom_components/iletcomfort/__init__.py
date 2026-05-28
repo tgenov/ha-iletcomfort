@@ -8,9 +8,10 @@ from pathlib import Path
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_EMAIL
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import issue_registry as ir
 
 from .const import CONF_APPLIANCE_CODE, CONF_REGION, DEFAULT_REGION, DOMAIN, PLATFORMS
-from .coordinator import ILetComfortCoordinator
+from .coordinator import OFFLINE_REPAIR_ID, ILetComfortCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -31,6 +32,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id)
+        ir.async_delete_issue(
+            hass, DOMAIN, OFFLINE_REPAIR_ID.format(entry_id=entry.entry_id),
+        )
     return unload_ok
 
 
