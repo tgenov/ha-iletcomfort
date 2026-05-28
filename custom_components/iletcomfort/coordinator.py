@@ -21,7 +21,6 @@ from .api import (
     ITSSensors,
     ITSStatus,
     QUERY_TO_SET_MODE,
-    MODE_OFF,
 )
 from .const import (
     CONF_APPLIANCE_CODE,
@@ -121,9 +120,10 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except AuthError:
             raise  # bubble up for re-auth
         except Exception as err:
-            status = cached.get("status")
-            if status is None:
+            cached_status = cached.get("status")
+            if cached_status is None:
                 raise
+            status = cached_status
             self._status_degraded = self._log_cache_fallback(
                 "Status", err, self._status_degraded,
             )
@@ -138,9 +138,10 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except AuthError:
             raise  # bubble up for re-auth
         except Exception as err:
-            sensors = cached.get("sensors")
-            if sensors is None:
+            cached_sensors = cached.get("sensors")
+            if cached_sensors is None:
                 raise
+            sensors = cached_sensors
             self._sensors_degraded = self._log_cache_fallback(
                 "Sensors", err, self._sensors_degraded,
             )
@@ -224,7 +225,7 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         email = self.entry.data[CONF_EMAIL]
         password = self.entry.data[CONF_PASSWORD]
 
-        data = await self.hass.async_add_executor_job(
+        await self.hass.async_add_executor_job(
             self.client.login, email, password,
         )
 
