@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.0](https://github.com/tgenov/ha-iletcomfort/compare/v0.2.1...v0.3.0) (2026-05-28)
+
+
+### Features
+
+* surface device-offline state as a Home Assistant Repair card ([0578321](https://github.com/tgenov/ha-iletcomfort/commit/0578321f19214d934afca5dcaaac679e1d6c0986))
+* surface device-offline state as a Home Assistant Repair card ([153fd38](https://github.com/tgenov/ha-iletcomfort/commit/153fd38426c764c883a0efd3b185e20d8c89926e))
+
 ## [0.2.1](https://github.com/tgenov/ha-iletcomfort/compare/v0.2.0...v0.2.1) (2026-05-26)
 
 
