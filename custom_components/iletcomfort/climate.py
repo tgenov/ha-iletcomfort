@@ -25,6 +25,7 @@ from .api import (
 )
 from .const import DOMAIN
 from .coordinator import ILetComfortCoordinator
+from .entity import build_device_info
 
 # Query response mode (from device) → HA HVAC mode
 _QUERY_MODE_TO_HVAC: dict[int, HVACMode] = {
@@ -70,6 +71,7 @@ class ILetComfortClimate(CoordinatorEntity[ILetComfortCoordinator], ClimateEntit
     def __init__(self, coordinator: ILetComfortCoordinator) -> None:
         super().__init__(coordinator)
         self._attr_unique_id = f"{coordinator.appliance_code}_climate"
+        self._attr_device_info = build_device_info(coordinator)
 
     @property
     def _status(self):

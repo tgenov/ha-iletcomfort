@@ -17,6 +17,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
 from .coordinator import ILetComfortCoordinator
+from .entity import build_device_info
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -83,6 +84,7 @@ class ILetComfortBinarySensor(
         super().__init__(coordinator)
         self.entity_description = description
         self._attr_unique_id = f"{coordinator.appliance_code}_{description.key}"
+        self._attr_device_info = build_device_info(coordinator)
 
     @property
     def is_on(self) -> bool:
