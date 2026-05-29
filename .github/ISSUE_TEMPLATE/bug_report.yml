@@ -1,0 +1,90 @@
+name: 🐞 Other bug or unexpected behaviour
+description: Setup fails, the integration errors, entities are missing, or something else misbehaves.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For **wrong or empty sensor values**, please use the *Incorrect or empty entity data*
+        template instead — it collects the specific data needed for those.
+
+        For anything else, fill in the fields below. Diagnostics and debug logs make almost
+        every report actionable — see the
+        [Troubleshooting guide](https://github.com/tgenov/ha-iletcomfort/blob/main/docs/TROUBLESHOOTING.md).
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Describe the problem and what you expected instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Go to ...
+        2. Click ...
+        3. See error ...
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log output
+      description: >
+        Paste any errors from **Settings → System → Logs** (filter for `iletcomfort`).
+        For deeper detail, enable debug logging first — see the guide.
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics file (recommended)
+      description: >
+        **Settings → Devices & Services → iLetComfort → (your device) → ⋮ → Download
+        diagnostics**, then drag the redacted `.json` here.
+      placeholder: Drag the diagnostics .json file here.
+    validations:
+      required: false
+
+  - type: dropdown
+    id: region
+    attributes:
+      label: Region
+      options:
+        - US
+        - EU
+    validations:
+      required: true
+
+  - type: input
+    id: integration_version
+    attributes:
+      label: Integration version
+      placeholder: e.g. 0.2.1
+    validations:
+      required: true
+
+  - type: input
+    id: ha_version
+    attributes:
+      label: Home Assistant version
+      placeholder: e.g. 2026.5.0
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Before submitting
+      options:
+        - label: I read the [Troubleshooting guide](https://github.com/tgenov/ha-iletcomfort/blob/main/docs/TROUBLESHOOTING.md).
+          required: true
+        - label: I searched existing issues and this isn't a duplicate.
+          required: true
