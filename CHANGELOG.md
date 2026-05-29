@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.0](https://github.com/tgenov/ha-iletcomfort/compare/v0.4.0...v0.5.0) (2026-05-29)
+
+
+### Features
+
+* group entities under a Device and add ODU Current sensor ([f72727f](https://github.com/tgenov/ha-iletcomfort/commit/f72727faf3780ece70055dd0ddc0d36d5363164a))
+* group entities under a Device and add ODU Current sensor ([5afd917](https://github.com/tgenov/ha-iletcomfort/commit/5afd917d18f3b5fd37fa8316fa79f83a41f8090e))
+
 ## [0.4.0](https://github.com/tgenov/ha-iletcomfort/compare/v0.3.0...v0.4.0) (2026-05-29)
 
 
