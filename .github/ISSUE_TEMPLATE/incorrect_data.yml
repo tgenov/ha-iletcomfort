@@ -1,0 +1,104 @@
+name: 📉 Incorrect or empty entity data
+description: A sensor, binary sensor, or climate reading is wrong, stuck at 0, or empty.
+labels: ["bug", "data-accuracy"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! This integration decodes a binary protocol whose byte layout
+        was reverse-engineered from a handful of devices. **Different heat-pump models pack
+        the same readings at different positions**, which is the usual reason a value shows
+        up as `0` or empty on your model.
+
+        To fix it, the maintainer needs to line up your device's **raw data frames** against
+        the **real values shown in the official app**. The fields below collect exactly that.
+
+        👉 Before filling this in, please read the
+        [Troubleshooting guide](https://github.com/tgenov/ha-iletcomfort/blob/main/docs/TROUBLESHOOTING.md) —
+        it shows how to download diagnostics and read the app values.
+
+  - type: input
+    id: model
+    attributes:
+      label: Device brand & exact model
+      description: The single most important field. Copy the full model string from the unit's label or the app.
+      placeholder: e.g. "AQS Energie AQUAPURA split" or "Midea MSC-70D2N8-A"
+    validations:
+      required: true
+
+  - type: textarea
+    id: affected_entities
+    attributes:
+      label: Which entities are wrong or empty?
+      description: List the affected entity IDs and what they show vs. what you expect.
+      placeholder: |
+        sensor.heat_pump_total_energy — shows "Unknown", expected ~1234 kWh
+        binary_sensor.heat_pump_compressor_running — always "Off" even when running
+    validations:
+      required: true
+
+  - type: textarea
+    id: app_values
+    attributes:
+      label: Correct values from the official app (right now)
+      description: >
+        Open the official **iLetComfort / BTRI** mobile app and note what it shows for the
+        same readings at this moment. Screenshots are ideal — drag images in here. Without
+        these ground-truth values the data cannot be re-mapped for your model.
+      placeholder: |
+        App shows water temperature = 28 °C
+        App shows total energy = 1234 kWh
+        Compressor is currently running
+    validations:
+      required: true
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics file
+      description: >
+        In Home Assistant: **Settings → Devices & Services → iLetComfort → (your device) →
+        ⋮ → Download diagnostics**. Drag the downloaded `.json` file into this box. It is
+        already redacted — your email and password are removed.
+      placeholder: Drag the diagnostics .json file here.
+    validations:
+      required: true
+
+  - type: textarea
+    id: raw_log
+    attributes:
+      label: Debug-log excerpt (only if you can't attach diagnostics)
+      description: >
+        If the diagnostics download isn't available, enable debug logging (see the guide)
+        and paste a few `STATUS RAW:` and `SENSORS RAW:` lines here.
+      render: text
+    validations:
+      required: false
+
+  - type: dropdown
+    id: region
+    attributes:
+      label: Region
+      options:
+        - US
+        - EU
+    validations:
+      required: true
+
+  - type: input
+    id: integration_version
+    attributes:
+      label: Integration version
+      description: HACS → iLetComfort Heat Pump, or the `version` in manifest.json.
+      placeholder: e.g. 0.2.1
+    validations:
+      required: true
+
+  - type: input
+    id: ha_version
+    attributes:
+      label: Home Assistant version
+      description: Settings → About.
+      placeholder: e.g. 2026.5.0
+    validations:
+      required: true

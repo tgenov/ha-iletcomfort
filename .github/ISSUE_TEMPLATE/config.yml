@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 📖 Troubleshooting & data-collection guide
+    url: https://github.com/tgenov/ha-iletcomfort/blob/main/docs/TROUBLESHOOTING.md
+    about: How to download diagnostics and enable debug logging before you file a report. Please read this first.
