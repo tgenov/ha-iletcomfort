@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.0](https://github.com/tgenov/ha-iletcomfort/compare/v0.3.0...v0.4.0) (2026-05-29)
+
+
+### Features
+
+* add diagnostics download, issue forms, and troubleshooting guide ([f916f19](https://github.com/tgenov/ha-iletcomfort/commit/f916f1970ffaa106f3a961daa89c0e166d41396c))
+* add diagnostics download, issue forms, and troubleshooting guide ([e6df83d](https://github.com/tgenov/ha-iletcomfort/commit/e6df83de94d538564eca90e3dee96fad1e68ab79))
+
 ## [0.3.0](https://github.com/tgenov/ha-iletcomfort/compare/v0.2.1...v0.3.0) (2026-05-28)
 
 
