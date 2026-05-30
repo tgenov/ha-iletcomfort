@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.1](https://github.com/tgenov/ha-iletcomfort/compare/v0.5.0...v0.5.1) (2026-05-30)
+
+
+### Bug Fixes
+
+* correct ODU Current scaling and compressor detection for MSC-70D2N8-A ([#11](https://github.com/tgenov/ha-iletcomfort/issues/11)) ([dd9d862](https://github.com/tgenov/ha-iletcomfort/commit/dd9d8629cc747fe31d764dbd3eff3bbd9b01ac84))
+
 ## [0.5.0](https://github.com/tgenov/ha-iletcomfort/compare/v0.4.0...v0.5.0) (2026-05-29)
 
 
