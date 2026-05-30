@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.5.0](https://github.com/tgenov/ha-iletcomfort/compare/v0.4.0...v0.5.0) (2026-05-29)
+
+
+### Features
+
+* group entities under a Device and add ODU Current sensor ([f72727f](https://github.com/tgenov/ha-iletcomfort/commit/f72727faf3780ece70055dd0ddc0d36d5363164a))
+* group entities under a Device and add ODU Current sensor ([5afd917](https://github.com/tgenov/ha-iletcomfort/commit/5afd917d18f3b5fd37fa8316fa79f83a41f8090e))
+
+## [0.4.0](https://github.com/tgenov/ha-iletcomfort/compare/v0.3.0...v0.4.0) (2026-05-29)
+
+
+### Features
+
+* add diagnostics download, issue forms, and troubleshooting guide ([f916f19](https://github.com/tgenov/ha-iletcomfort/commit/f916f1970ffaa106f3a961daa89c0e166d41396c))
+* add diagnostics download, issue forms, and troubleshooting guide ([e6df83d](https://github.com/tgenov/ha-iletcomfort/commit/e6df83de94d538564eca90e3dee96fad1e68ab79))
+
 ## [0.3.0](https://github.com/tgenov/ha-iletcomfort/compare/v0.2.1...v0.3.0) (2026-05-28)
 
 

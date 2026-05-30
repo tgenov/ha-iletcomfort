@@ -12,6 +12,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
 from .coordinator import ILetComfortCoordinator
+from .entity import build_device_info
 
 
 async def async_setup_entry(
@@ -34,6 +35,7 @@ class ILetComfortBoostSwitch(CoordinatorEntity[ILetComfortCoordinator], SwitchEn
     def __init__(self, coordinator: ILetComfortCoordinator) -> None:
         super().__init__(coordinator)
         self._attr_unique_id = f"{coordinator.appliance_code}_boost"
+        self._attr_device_info = build_device_info(coordinator)
 
     @property
     def is_on(self) -> bool:

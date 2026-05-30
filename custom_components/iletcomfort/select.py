@@ -10,6 +10,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
 from .coordinator import ILetComfortCoordinator
+from .entity import build_device_info
 
 MUTE_OPTIONS = ["Off", "Level 1", "Level 2"]
 _MUTE_TO_API = {"Off": 0, "Level 1": 1, "Level 2": 2}
@@ -36,6 +37,7 @@ class ILetComfortMuteSelect(CoordinatorEntity[ILetComfortCoordinator], SelectEnt
     def __init__(self, coordinator: ILetComfortCoordinator) -> None:
         super().__init__(coordinator)
         self._attr_unique_id = f"{coordinator.appliance_code}_mute"
+        self._attr_device_info = build_device_info(coordinator)
 
     @property
     def current_option(self) -> str:

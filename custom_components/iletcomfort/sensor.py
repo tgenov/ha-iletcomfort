@@ -17,6 +17,7 @@ from homeassistant.const import (
     UnitOfFrequency,
     UnitOfTemperature,
     UnitOfTime,
+    UnitOfElectricCurrent,
     UnitOfElectricPotential,
 )
 from homeassistant.core import HomeAssistant
@@ -25,6 +26,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
 from .coordinator import ILetComfortCoordinator
+from .entity import build_device_info
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -167,6 +169,18 @@ SENSOR_DESCRIPTIONS: tuple[ILetComfortSensorDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         value_fn=_s("odu_voltage"),
     ),
+    # NOTE: odu_current is the raw 16-bit value from the device; its scale to
+    # Amperes is not yet confirmed for all models (issue #10). It is exposed
+    # as-is so it can be validated against the official app's Ampere reading.
+    # A derived Power (W) sensor will follow once the scale factor is known.
+    ILetComfortSensorDescription(
+        key="odu_current",
+        name="ODU Current",
+        native_unit_of_measurement=UnitOfElectricCurrent.AMPERE,
+        device_class=SensorDeviceClass.CURRENT,
+        state_class=SensorStateClass.MEASUREMENT,
+        value_fn=_s("odu_current"),
+    ),
 )
 
 
@@ -197,6 +211,7 @@ class ILetComfortSensor(CoordinatorEntity[ILetComfortCoordinator], SensorEntity)
         super().__init__(coordinator)
         self.entity_description = description
         self._attr_unique_id = f"{coordinator.appliance_code}_{description.key}"
+        self._attr_device_info = build_device_info(coordinator)
 
     @property
     def native_value(self) -> Any:

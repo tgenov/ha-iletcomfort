@@ -1,7 +1,7 @@
 {
   "domain": "iletcomfort",
   "name": "iLetComfort Heat Pump",
-  "version": "0.3.0",
+  "version": "0.5.0",
   "iot_class": "cloud_polling",
   "requirements": [
     "requests>=2.28",
