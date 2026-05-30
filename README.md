@@ -25,6 +25,15 @@ A custom Home Assistant integration for iLetComfort (ITS) heat pumps using the M
 3. Enter your iLetComfort account email and password.
 4. The integration will automatically discover your heat pump appliance.
 
+## Using alongside the official app
+
+The vendor cloud allows only **one active login per account**, so Home Assistant and
+the official iLetComfort / BTRI app signed in to the *same* account will keep logging
+each other out — the heat pump appears to flap offline. Give Home Assistant its own
+account and share the device to it; see
+[Heat pump keeps dropping offline (the "login war")](docs/TROUBLESHOOTING.md#2-heat-pump-keeps-dropping-offline-the-login-war)
+for the full walkthrough.
+
 ## Troubleshooting & reporting issues
 
 If a sensor reads `0`/empty, the integration errors, or something else
