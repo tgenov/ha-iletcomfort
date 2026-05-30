@@ -352,6 +352,11 @@ def decode_its_status(body: bytearray) -> ITSStatus:
         status.comp_total_run_hours = (body[d + 45] << 8) | body[d + 46]
         status.fan_total_run_hours = (body[d + 47] << 8) | body[d + 48]
 
+    # Some models (e.g. MSC-70D2N8-A, issue #11) leave the status-flag byte at 0
+    # even while running; a non-zero compressor frequency is an authoritative
+    # "running" signal, so honor it regardless of the flag bit.
+    status.comp_running = status.comp_running or status.comp_frq > 0
+
     return status
 
 
@@ -380,7 +385,7 @@ class ITSSensors:
     twin_temp: float | None = None
     twout_temp: float | None = None
     t1_temp: float | None = None
-    odu_current: int = 0
+    odu_current: float = 0.0
     odu_voltage: int = 0
     dc_current: int = 0
     idu_version: str = ""
@@ -440,7 +445,10 @@ def decode_its_sensors(body: bytearray) -> ITSSensors:
         sensors.twout_temp = _temp_offset(body[d + 25])
         sensors.t1_temp = _temp_offset(body[d + 26])
     if body_len > d + 30:
-        sensors.odu_current = (body[d + 27] << 8) | body[d + 28]
+        # Fixed-point current: high byte = integer amps, low byte = 1/256
+        # fraction. Raw 0x0400 (1024) -> 4.0 A, confirmed against the official
+        # app for the MSC-70D2N8-A (issue #11) and consistent with issue #10.
+        sensors.odu_current = round((((body[d + 27] << 8) | body[d + 28]) / 256), 2)
         sensors.odu_voltage = body[d + 29]
         sensors.dc_current = body[d + 30]
     if body_len > d + 39:

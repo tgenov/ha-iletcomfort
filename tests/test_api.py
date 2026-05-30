@@ -161,3 +161,71 @@ def test_query_status_decodes_full_frame():
     assert isinstance(status, ITSStatus)
     assert status.mode == 1
     assert status.mode_name == "Heat"
+
+
+# Real frames captured from a Midea MSC-70D2N8-A (issue #11), compressor running.
+ISSUE_11_SENSORS_BODY = bytes(
+    int(b, 16) for b in (
+        "02,01,00,00,00,00,00,00,00,00,00,00,01,02,00,29,49,12,00,01,00,33,"
+        "3e,41,69,40,42,ef,04,00,eb,03,31,37,0c,31,37,0c,31,67,23,00,00,01,"
+        "72,00,00,00,00,00,00"
+    ).split(",")
+)
+ISSUE_11_STATUS_BODY = bytes(
+    int(b, 16) for b in (
+        "01,01,01,42,4b,2d,3f,37,0f,23,37,25,28,c0,00,00,80,23,2d,3f,37,00,"
+        "23,37,00,3f,00,00,00,00,00,00,01,c2,00,00,01,00,0a,dc,04,e2,00,33,"
+        "00,00,00,16,00,00,01"
+    ).split(",")
+)
+
+
+def test_query_sensors_scales_odu_current_to_amps():
+    """ODU Current must be the fixed-point value (raw / 256), not the raw int.
+
+    In the real MSC-70D2N8-A frame (issue #11) the current bytes 0x04,0x00
+    decode big-endian to 1024, which the integration used to surface as
+    "1024 A". The official app shows 4 A, confirming a ÷256 scale.
+    """
+    client = _make_client()
+    with patch.object(
+        client, "send_hex_command",
+        return_value=_c3_frame(ISSUE_11_SENSORS_BODY),
+    ):
+        sensors = client.query_sensors("APPL1")
+
+    assert sensors.odu_current == 4.0
+    assert sensors.odu_voltage == 235
+    assert sensors.dc_current == 3
+
+
+def test_query_status_marks_compressor_running_from_frequency():
+    """Compressor Running must follow a non-zero frequency even if the flag is 0.
+
+    In the real MSC-70D2N8-A frame (issue #11) the status-flag byte is 0x00, so
+    the old bit-0 check reported "not running", but the compressor frequency is
+    51 Hz and the unit is clearly running.
+    """
+    client = _make_client()
+    with patch.object(
+        client, "send_hex_command",
+        return_value=_c3_frame(ISSUE_11_STATUS_BODY),
+    ):
+        status = client.query_status("APPL1")
+
+    assert status.comp_frq == 51
+    assert status.status_flags_raw == 0
+    assert status.comp_running is True
+
+
+def test_status_flag_zero_and_no_frequency_keeps_compressor_off():
+    """A genuinely idle unit (flag 0, comp_frq 0) must not report running."""
+    client = _make_client()
+    # 50-byte body so comp_frq is decoded (needs body_len > d+48); all zeros
+    # after the subtype leave both the flag byte and comp_frq at 0.
+    body = bytes([0x01]) + bytes(49)
+    with patch.object(client, "send_hex_command", return_value=_c3_frame(body)):
+        status = client.query_status("APPL1")
+
+    assert status.comp_frq == 0
+    assert status.comp_running is False

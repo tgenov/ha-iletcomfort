@@ -47,7 +47,7 @@ def _coordinator(hass: HomeAssistant) -> ILetComfortCoordinator:
         coord = ILetComfortCoordinator(hass, entry)
     coord.data = {
         "status": ITSStatus(mode=1),
-        "sensors": ITSSensors(odu_current=523, odu_version="1.2.3"),
+        "sensors": ITSSensors(odu_current=4.0, odu_version="1.2.3"),
     }
     return coord
 
@@ -80,10 +80,14 @@ def test_device_info_uses_entry_title_and_firmware(hass: HomeAssistant):
     assert info.get("sw_version") == "1.2.3"
 
 
-def test_odu_current_sensor_exists_and_reads_raw_value(hass: HomeAssistant):
-    """The ODU Current sensor (issue #10) must expose the raw odu_current value."""
+def test_odu_current_sensor_exists_and_reads_scaled_amps(hass: HomeAssistant):
+    """The ODU Current sensor (issue #10/#11) must expose the scaled Ampere value.
+
+    odu_current is decoded as fixed-point Amperes (raw / 256), so the sensor
+    surfaces the physical value directly rather than the raw 16-bit count.
+    """
     coord = _coordinator(hass)
     desc = next(d for d in SENSOR_DESCRIPTIONS if d.key == "odu_current")
 
     sensor = ILetComfortSensor(coord, desc)
-    assert sensor.native_value == 523
+    assert sensor.native_value == 4.0

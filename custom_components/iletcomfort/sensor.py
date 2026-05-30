@@ -169,16 +169,16 @@ SENSOR_DESCRIPTIONS: tuple[ILetComfortSensorDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         value_fn=_s("odu_voltage"),
     ),
-    # NOTE: odu_current is the raw 16-bit value from the device; its scale to
-    # Amperes is not yet confirmed for all models (issue #10). It is exposed
-    # as-is so it can be validated against the official app's Ampere reading.
-    # A derived Power (W) sensor will follow once the scale factor is known.
+    # odu_current is decoded as fixed-point Amperes (raw 16-bit value / 256).
+    # The ÷256 scale was confirmed against the official app for the MSC-70D2N8-A
+    # (issue #11): raw 1024 -> 4.0 A. See decode_its_sensors() in api.py.
     ILetComfortSensorDescription(
         key="odu_current",
         name="ODU Current",
         native_unit_of_measurement=UnitOfElectricCurrent.AMPERE,
         device_class=SensorDeviceClass.CURRENT,
         state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
         value_fn=_s("odu_current"),
     ),
 )
