@@ -168,6 +168,19 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "SENSORS RAW: %s",
                 ",".join(f"{b:02x}" for b in sensors.raw_body),
             )
+            _LOGGER.debug(
+                "SENSORS: t3=%s t4=%s t2=%s twin=%s twout=%s "
+                "th=%s tf=%s tp=%s t1=%s",
+                sensors.t3_temp,
+                sensors.t4_temp,
+                sensors.t2_temp,
+                sensors.twin_temp,
+                sensors.twout_temp,
+                sensors.th_temp,
+                sensors.tf_temp,
+                sensors.tp_temp,
+                sensors.t1_temp,
+            )
 
         # Track last on-state for power restore
         if status.mode != 0:

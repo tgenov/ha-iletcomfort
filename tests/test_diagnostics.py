@@ -18,6 +18,7 @@ from custom_components.iletcomfort.const import (
 )
 from custom_components.iletcomfort.coordinator import ILetComfortCoordinator
 from custom_components.iletcomfort.diagnostics import (
+    _sensors_temperature_scan,
     async_get_config_entry_diagnostics,
 )
 
@@ -93,4 +94,70 @@ async def test_diagnostics_handles_missing_coordinator_data(hass: HomeAssistant)
 
     assert result["status"] is None
     assert result["sensors"] is None
+    json.dumps(result)
+
+
+def test_sensors_temperature_scan_decodes_with_offset():
+    """Each byte must be decoded as raw_byte - TEMP_OFFSET (35)."""
+    # byte 35 → 35 - 35 = 0.0 (water temperature "showing 0 °C" scenario)
+    # byte 64 → 64 - 35 = 29.0 (actual water temperature for cross-reference)
+    raw = bytes([0x02, 35, 64])
+    scan = _sensors_temperature_scan(raw)
+
+    assert scan[0] == 0x02 - 35  # subtype byte: 2 - 35 = -33.0
+    assert scan[1] == 0.0         # raw 35 → 0 °C
+    assert scan[2] == 29.0        # raw 64 → 29 °C
+
+
+def test_sensors_temperature_scan_marks_sensor_disconnected_as_none():
+    """Byte 239 (35 + 204 = SENSOR_DISCONNECTED) must produce None."""
+    # TEMP_OFFSET=35, SENSOR_DISCONNECTED=204 → raw byte = 35 + 204 = 239
+    raw = bytes([239])
+    scan = _sensors_temperature_scan(raw)
+
+    assert scan[0] is None
+
+
+def test_sensors_temperature_scan_empty_body():
+    """An empty raw body must return an empty dict (no crash)."""
+    scan = _sensors_temperature_scan(b"")
+
+    assert scan == {}
+
+
+async def test_diagnostics_includes_temperature_scan(hass: HomeAssistant):
+    """Diagnostics must contain sensors_temperature_scan with correct entries."""
+    # raw_body=bytes([0xbb, 0x02, 0x10, 0xef]):
+    #   0xbb=187 → 152.0, 0x02=2 → -33.0, 0x10=16 → -19.0,
+    #   0xef=239 → 239-35=204=SENSOR_DISCONNECTED → None
+    entry = _entry()
+    entry.add_to_hass(hass)
+    with patch("custom_components.iletcomfort.coordinator.ILetComfortClient"):
+        coord = ILetComfortCoordinator(hass, entry)
+
+    status = ITSStatus(mode=1, total_kwh=42, raw_body=bytes([0xaa, 0x01, 0xff]))
+    sensors = ITSSensors(twin_temp=21.0, raw_body=bytes([0xbb, 0x02, 0x10, 0xef]))
+    coord.data = {"status": status, "sensors": sensors}
+    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coord
+
+    result = await async_get_config_entry_diagnostics(hass, entry)
+    scan = result["sensors_temperature_scan"]
+
+    assert scan[0] == 187 - 35   # 152.0
+    assert scan[1] == 2 - 35     # -33.0
+    assert scan[2] == 16 - 35    # -19.0
+    assert scan[3] is None        # 239 - 35 = 204 = SENSOR_DISCONNECTED
+
+
+async def test_diagnostics_temperature_scan_empty_without_sensors(hass: HomeAssistant):
+    """When the coordinator has no data, sensors_temperature_scan must be {}."""
+    entry = _entry()
+    entry.add_to_hass(hass)
+    with patch("custom_components.iletcomfort.coordinator.ILetComfortClient"):
+        coord = ILetComfortCoordinator(hass, entry)
+    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coord
+
+    result = await async_get_config_entry_diagnostics(hass, entry)
+
+    assert result["sensors_temperature_scan"] == {}
     json.dumps(result)
