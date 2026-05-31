@@ -17,6 +17,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
 from homeassistant.core import HomeAssistant
 
+from .api import SENSOR_DISCONNECTED, TEMP_OFFSET
 from .const import DOMAIN
 from .coordinator import ILetComfortCoordinator
 
@@ -24,6 +25,28 @@ from .coordinator import ILetComfortCoordinator
 # appliance_code are kept: appliance_code is already shown to the user in the
 # offline Repair card, and the maintainer needs it to correlate the model.
 TO_REDACT = {CONF_EMAIL, CONF_PASSWORD}
+
+
+def _sensors_temperature_scan(raw_body: bytes) -> dict[int, float | None]:
+    """Decode every byte of the sensors body as a ``_temp_offset`` temperature.
+
+    Returns a ``{body_index: decoded_celsius}`` mapping.  ``body[0]`` is the
+    subtype byte; data offsets begin at ``body[1]`` (``d+0`` in the decoder).
+    A ``None`` value means the byte encodes ``SENSOR_DISCONNECTED``.
+
+    When a maintainer receives a diagnostics file for a device model whose
+    water-temperature reading is wrong (e.g. always 0 °C), they can cross-
+    reference this scan against the real value shown in the official app to
+    quickly identify which byte position carries that temperature.
+    """
+    return {
+        i: (
+            None
+            if (raw_byte - TEMP_OFFSET) == SENSOR_DISCONNECTED
+            else float(raw_byte - TEMP_OFFSET)
+        )
+        for i, raw_byte in enumerate(raw_body)
+    }
 
 
 def _format_hex(raw: bytes) -> str:
@@ -75,4 +98,9 @@ async def async_get_config_entry_diagnostics(
         },
         "status": _serialize_frame(data.get("status")),
         "sensors": _serialize_frame(data.get("sensors")),
+        "sensors_temperature_scan": _sensors_temperature_scan(
+            sensors_obj.raw_body
+            if (sensors_obj := data.get("sensors")) is not None
+            else b""
+        ),
     }
