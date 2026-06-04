@@ -149,6 +149,57 @@ async def test_diagnostics_includes_temperature_scan(hass: HomeAssistant):
     assert scan[3] is None        # 239 - 35 = 204 = SENSOR_DISCONNECTED
 
 
+async def test_diagnostics_includes_appliance_meta_with_redaction(hass: HomeAssistant):
+    """appliance_meta is surfaced with owner/sn/name redacted, class fields intact.
+
+    Issue #22: a maintainer needs applianceType/modelNumber/sn8 to identify the
+    device class for model-specific decoding, but owner/sn/name are
+    account/device-identifying and must be redacted.
+    """
+    entry = _entry()
+    entry.add_to_hass(hass)
+    with patch("custom_components.iletcomfort.coordinator.ILetComfortClient"):
+        coord = ILetComfortCoordinator(hass, entry)
+    coord.appliance_meta = {
+        "applianceCode": "APPL1",
+        "applianceType": "0xC3",
+        "modelNumber": "0",
+        "sn8": "171H120F",
+        "online": "1",
+        "owner": "someone@example.com",
+        "sn": "SECRETSN",
+        "name": "Living Room",
+    }
+    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coord
+
+    result = await async_get_config_entry_diagnostics(hass, entry)
+    appliance = result["appliance"]
+
+    assert appliance["owner"] == "**REDACTED**"
+    assert appliance["sn"] == "**REDACTED**"
+    assert appliance["name"] == "**REDACTED**"
+    assert appliance["applianceType"] == "0xC3"
+    assert appliance["modelNumber"] == "0"
+    assert appliance["sn8"] == "171H120F"
+    assert appliance["applianceCode"] == "APPL1"
+    assert appliance["online"] == "1"
+    json.dumps(result)
+
+
+async def test_diagnostics_appliance_meta_none_is_graceful(hass: HomeAssistant):
+    """When appliance_meta is None, the appliance key must be None (no crash)."""
+    entry = _entry()
+    entry.add_to_hass(hass)
+    with patch("custom_components.iletcomfort.coordinator.ILetComfortClient"):
+        coord = ILetComfortCoordinator(hass, entry)
+    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coord
+
+    result = await async_get_config_entry_diagnostics(hass, entry)
+
+    assert result["appliance"] is None
+    json.dumps(result)
+
+
 async def test_diagnostics_temperature_scan_empty_without_sensors(hass: HomeAssistant):
     """When the coordinator has no data, sensors_temperature_scan must be {}."""
     entry = _entry()
