@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.0](https://github.com/tgenov/ha-iletcomfort/compare/v0.5.1...v0.6.0) (2026-06-04)
+
+
+### Features
+
+* surface appliance metadata in diagnostics to enable model-specific decoding ([90f6a98](https://github.com/tgenov/ha-iletcomfort/commit/90f6a98700b2252b5fcd6e5262afcdab8f79c4a3))
+* surface appliance metadata in diagnostics to enable model-specific decoding ([2cae197](https://github.com/tgenov/ha-iletcomfort/commit/2cae197ed935c5f498e828245853c7629de6b9ed))
+
 ## [0.5.1](https://github.com/tgenov/ha-iletcomfort/compare/v0.5.0...v0.5.1) (2026-05-30)
 
 
