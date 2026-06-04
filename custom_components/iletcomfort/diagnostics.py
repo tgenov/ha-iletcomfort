@@ -26,6 +26,12 @@ from .coordinator import ILetComfortCoordinator
 # offline Repair card, and the maintainer needs it to correlate the model.
 TO_REDACT = {CONF_EMAIL, CONF_PASSWORD}
 
+# Appliance metadata is surfaced to help maintainers identify the device class
+# for model-specific decoding (issue #22). Redact the account/device-identifying
+# fields; keep applianceType/modelNumber/sn8/online/etc. which are the
+# discriminators a maintainer needs.
+APPLIANCE_TO_REDACT = {"owner", "sn", "name"}
+
 
 def _sensors_temperature_scan(raw_body: bytes) -> dict[int, float | None]:
     """Decode every byte of the sensors body as a ``_temp_offset`` temperature.
@@ -96,6 +102,11 @@ async def async_get_config_entry_diagnostics(
             "sensors_degraded": coordinator._sensors_degraded,
             "repair_issued": coordinator._repair_issued,
         },
+        "appliance": (
+            async_redact_data(dict(coordinator.appliance_meta), APPLIANCE_TO_REDACT)
+            if coordinator.appliance_meta is not None
+            else None
+        ),
         "status": _serialize_frame(data.get("status")),
         "sensors": _serialize_frame(data.get("sensors")),
         "sensors_temperature_scan": _sensors_temperature_scan(

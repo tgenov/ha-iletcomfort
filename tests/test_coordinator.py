@@ -165,6 +165,69 @@ async def test_repeated_truncated_polls_warn_once_then_debug(
         assert not [r for r in caplog.records if r.levelno == logging.WARNING]
 
 
+async def test_first_refresh_populates_appliance_meta_by_code(hass: HomeAssistant):
+    """async_first_refresh_with_login caches the appliance whose code matches.
+
+    Diagnostic-only metadata (issue #22): given a mocked list_appliances the
+    coordinator stores the dict whose ``applianceCode`` equals appliance_code.
+    """
+    entry = _entry(REGION_US)
+    entry.add_to_hass(hass)
+    with patch(
+        "custom_components.iletcomfort.coordinator.ILetComfortClient"
+    ) as mock_cls:
+        coord = ILetComfortCoordinator(hass, entry)
+
+    client = mock_cls.return_value
+    client.load_token.return_value = True  # skip login path
+    matching = {
+        "applianceCode": "APPL1",
+        "applianceType": "0xC3",
+        "modelNumber": "0",
+        "sn8": "171H120F",
+        "owner": "someone@example.com",
+        "sn": "SECRETSN",
+        "name": "Living Room",
+        "online": "1",
+    }
+    other = {"applianceCode": "OTHER", "applianceType": "0x00"}
+    client.list_appliances.return_value = [other, matching]
+
+    with patch.object(
+        ILetComfortCoordinator, "async_config_entry_first_refresh", new=AsyncMock()
+    ):
+        await coord.async_first_refresh_with_login()
+
+    assert coord.appliance_meta == matching
+
+
+async def test_ensure_appliance_meta_failure_leaves_none_and_does_not_block(
+    hass: HomeAssistant,
+):
+    """A list_appliances error must not blank metadata-collection nor block refresh."""
+    entry = _entry(REGION_US)
+    entry.add_to_hass(hass)
+    with patch(
+        "custom_components.iletcomfort.coordinator.ILetComfortClient"
+    ) as mock_cls:
+        coord = ILetComfortCoordinator(hass, entry)
+
+    client = mock_cls.return_value
+    client.load_token.return_value = True  # skip login path
+    client.list_appliances.side_effect = ApiError("boom")
+
+    first_refresh = AsyncMock()
+    with patch.object(
+        ILetComfortCoordinator,
+        "async_config_entry_first_refresh",
+        new=first_refresh,
+    ):
+        await coord.async_first_refresh_with_login()
+
+    assert coord.appliance_meta is None
+    first_refresh.assert_awaited_once()
+
+
 def _degraded_coordinator(hass: HomeAssistant) -> tuple[ILetComfortCoordinator, MagicMock]:
     """Build a coordinator wired so both queries fall back to cache."""
     entry = _entry(REGION_US)
