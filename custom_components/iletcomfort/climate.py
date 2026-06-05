@@ -26,6 +26,7 @@ from .api import (
 from .const import DOMAIN
 from .coordinator import ILetComfortCoordinator
 from .entity import build_device_info
+from .model_profiles import ModelProfile, resolve_profile
 
 # Query response mode (from device) → HA HVAC mode
 _QUERY_MODE_TO_HVAC: dict[int, HVACMode] = {
@@ -92,9 +93,19 @@ class ILetComfortClimate(CoordinatorEntity[ILetComfortCoordinator], ClimateEntit
         return _QUERY_MODE_TO_HVAC.get(self._status.mode, HVACMode.OFF)
 
     @property
+    def _profile(self) -> ModelProfile:
+        """Resolve the decode profile from the coordinator's sn8 model code."""
+        return resolve_profile(self.coordinator.sn8)
+
+    @property
     def current_temperature(self) -> float | None:
         if self._sensors is None:
             return None
+        # Profile-aware: ATW/AQUAPURA have no real water-inlet reading, so the
+        # meaningful "current" value is the DHW tank temp the profiles surface on
+        # th_temp. STANDARD is unchanged: it reads the real inlet (twin_temp).
+        if self._profile in (ModelProfile.ATW, ModelProfile.AQUAPURA):
+            return self._sensors.th_temp
         return self._sensors.twin_temp
 
     @property

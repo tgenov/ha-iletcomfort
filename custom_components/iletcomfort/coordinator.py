@@ -30,6 +30,7 @@ from .const import (
     DOMAIN,
     REGION_URLS,
 )
+from .model_profiles import apply_profile_to_sensors, resolve_profile
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -79,6 +80,19 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Return the last known on-state (set_mode, temperature)."""
         return self._last_on_state
 
+    @property
+    def sn8(self) -> str | None:
+        """Return this appliance's sn8 model code, if known.
+
+        Read from the cached cloud metadata (``appliance_meta``); it selects the
+        model decode profile (issue #22 / #12). None when metadata is absent,
+        which resolves to the STANDARD profile.
+        """
+        if self.appliance_meta is None:
+            return None
+        sn8 = self.appliance_meta.get("sn8")
+        return str(sn8) if sn8 else None
+
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch status and sensors from the heat pump."""
         try:
@@ -115,10 +129,11 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _poll(self) -> dict[str, Any]:
         """Run the actual polling calls in the executor."""
         cached = self.data or {}
+        sn8 = self.sn8
 
         try:
             status: ITSStatus = await self.hass.async_add_executor_job(
-                self.client.query_status, self.appliance_code,
+                self.client.query_status, self.appliance_code, sn8,
             )
             self._status_degraded = False
         except AuthError:
@@ -192,6 +207,11 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if set_mode is not None:
                 temp = int(status.t5s_def) if status.t5s_def is not None else status.set_temperature
                 self._last_on_state = (set_mode, temp)
+
+        # Apply any model-specific sensors override (e.g. ATW/AQUAPURA route a
+        # tank/water temp into twin_temp, the field the climate
+        # current_temperature and Water Inlet sensor read). STANDARD is a no-op.
+        sensors = apply_profile_to_sensors(resolve_profile(sn8), sensors, status)
 
         self._update_offline_repair()
 

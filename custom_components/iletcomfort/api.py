@@ -677,8 +677,16 @@ class ILetComfortClient:
             f"msg={result.get('msg')}"
         )
 
-    def query_status(self, appliance_code: str) -> ITSStatus:
-        """Query heat pump status (subtype 0x01)."""
+    def query_status(
+        self, appliance_code: str, sn8: str | None = None,
+    ) -> ITSStatus:
+        """Query heat pump status (subtype 0x01).
+
+        ``sn8`` is the appliance's model-code serial prefix. When it maps to a
+        model-specific decode profile (see ``model_profiles``) the raw frame is
+        re-decoded via that profile's status layout; an unknown/None sn8 uses
+        the STANDARD decode unchanged.
+        """
         command = build_c3_query(0x01)
         response_hex = self.send_hex_command(appliance_code, command)
         _LOGGER.debug("query_status raw response: %s", response_hex)
@@ -690,7 +698,11 @@ class ILetComfortClient:
                 f"({len(body)} body bytes); device may be offline or "
                 f"unsupported. Raw: {response_hex}"
             )
-        return decode_its_status(body)
+        status = decode_its_status(body)
+        # Imported lazily to avoid a circular import (model_profiles imports api).
+        from .model_profiles import apply_profile_to_status, resolve_profile
+
+        return apply_profile_to_status(resolve_profile(sn8), status)
 
     def query_sensors(self, appliance_code: str) -> ITSSensors:
         """Query heat pump sensors (subtype 0x02)."""
