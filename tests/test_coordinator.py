@@ -228,6 +228,74 @@ async def test_ensure_appliance_meta_failure_leaves_none_and_does_not_block(
     first_refresh.assert_awaited_once()
 
 
+async def test_sn8_property_reads_appliance_meta(hass: HomeAssistant):
+    """The coordinator exposes the appliance sn8 used to select a decode profile."""
+    entry = _entry(REGION_US)
+    entry.add_to_hass(hass)
+    with patch("custom_components.iletcomfort.coordinator.ILetComfortClient"):
+        coord = ILetComfortCoordinator(hass, entry)
+
+    assert coord.sn8 is None  # no metadata yet
+    coord.appliance_meta = {"sn8": "171H120F"}
+    assert coord.sn8 == "171H120F"
+    coord.appliance_meta = {"sn8": ""}
+    assert coord.sn8 is None
+
+
+async def test_poll_passes_sn8_and_applies_atw_overrides(hass: HomeAssistant):
+    """An ATW (sn8 171H120F) poll passes sn8 to query_status and routes the
+    DHW tank temp into twin_temp so the climate/water entities read it."""
+    entry = _entry(REGION_US)
+    entry.add_to_hass(hass)
+    with patch(
+        "custom_components.iletcomfort.coordinator.ILetComfortClient"
+    ) as mock_cls:
+        coord = ILetComfortCoordinator(hass, entry)
+
+    coord.appliance_meta = {"sn8": "171H120F"}
+    client = mock_cls.return_value
+    # The client already applies the ATW status profile, so its query_status
+    # returns box_bottom_temp=46 with twin_temp still 0 from the sensors decode.
+    atw_status = ITSStatus(box_bottom_temp=46.0, set_temperature=50, t5s_def=21.0)
+    client.query_status.return_value = atw_status
+    client.query_sensors.return_value = ITSSensors(twin_temp=0.0)
+
+    with patch(
+        "custom_components.iletcomfort.coordinator.asyncio.sleep",
+        new=AsyncMock(),
+    ):
+        result = await coord._poll()
+
+    # sn8 must be forwarded to the status query.
+    assert client.query_status.call_args.args == ("APPL1", "171H120F")
+    # twin_temp (climate current_temperature / Water Inlet) now reflects the tank.
+    assert result["sensors"].twin_temp == 46.0
+
+
+async def test_poll_standard_leaves_sensors_untouched(hass: HomeAssistant):
+    """With no sn8 the poll resolves STANDARD and never rewrites twin_temp."""
+    entry = _entry(REGION_US)
+    entry.add_to_hass(hass)
+    with patch(
+        "custom_components.iletcomfort.coordinator.ILetComfortClient"
+    ) as mock_cls:
+        coord = ILetComfortCoordinator(hass, entry)
+
+    client = mock_cls.return_value
+    client.query_status.return_value = ITSStatus(box_bottom_temp=99.0, mode=1)
+    sensors = ITSSensors(twin_temp=12.0)
+    client.query_sensors.return_value = sensors
+
+    with patch(
+        "custom_components.iletcomfort.coordinator.asyncio.sleep",
+        new=AsyncMock(),
+    ):
+        result = await coord._poll()
+
+    assert client.query_status.call_args.args == ("APPL1", None)
+    assert result["sensors"].twin_temp == 12.0  # unchanged by STANDARD
+
+
 def _degraded_coordinator(hass: HomeAssistant) -> tuple[ILetComfortCoordinator, MagicMock]:
     """Build a coordinator wired so both queries fall back to cache."""
     entry = _entry(REGION_US)
