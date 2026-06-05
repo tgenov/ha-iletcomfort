@@ -24,9 +24,15 @@ ATW (sn8 ``171H120F``, Italtherm air-to-water, issue #22)
     field map below).
 
 AQUAPURA (sn8 ``171000AU``, AQS Energie AQUAPURA split HPWH, issue #12)
-    Standard status/sensor decode, except the water/current-temperature entity
-    must read ``status.box_bottom_temp`` (status byte[17], offset-decoded)
-    instead of ``sensors.twin_temp`` (which is null-filled to 0 on this model).
+    Standard status/sensor decode, except the tank temperature must read
+    ``status.box_bottom_temp`` (status byte[17], offset-decoded) and is surfaced
+    on ``th_temp`` (the "DHW Tank Temperature" sensor) instead of
+    ``sensors.twin_temp`` (which is null-filled to 0 on this model).
+
+For both ATW and AQUAPURA the tank temperature is routed to ``th_temp`` and the
+"Water Inlet Temperature" sensor (``twin_temp``) is left honest (no real inlet
+reading). Climate ``current_temperature`` is profile-aware and returns
+``th_temp`` for these profiles (``twin_temp`` for STANDARD).
 """
 
 from __future__ import annotations
@@ -85,8 +91,10 @@ def resolve_profile(sn8: str | None) -> ModelProfile:
 #   - set_temperature  ← byte[8]   (no DHW-setpoint entity today; kept for SET
 #                                    echo / future use)
 #   - t5s_def          ← byte[9]/2 (climate target_temperature reads t5s_def)
-#   - box_bottom_temp  ← byte[22]  (routed to the water/current temp; see
-#                                    apply_profile_to_sensors)
+#   - box_bottom_temp  ← byte[22]  (routed to th_temp / "DHW Tank Temperature";
+#                                    see apply_profile_to_sensors. Climate
+#                                    current_temperature is profile-aware and
+#                                    reads th_temp for ATW.)
 #
 # CONSERVATIVE / ASSUMED (await hardware validation by the reporter):
 #   - comp_running is forced False: none of the five frames carries a confirmed
@@ -133,7 +141,7 @@ def decode_atw_status(body: bytearray | bytes) -> ITSStatus:
     # so the climate entity's target_temperature reads it without changes.
     status.t5s_def = body[ATW_ZONE1_SETPOINT_X2_INDEX] / 2
     # DHW tank current temp — direct °C value. Surfaced via box_bottom_temp,
-    # which apply_profile_to_sensors routes to the water/current-temp entity.
+    # which apply_profile_to_sensors routes to th_temp ("DHW Tank Temperature").
     status.box_bottom_temp = float(body[ATW_DHW_TANK_TEMP_INDEX])
 
     # byte[24] is a flags/MSB byte, not a fault → no error. Conservative: no
@@ -162,20 +170,24 @@ def apply_profile_to_sensors(
 ) -> ITSSensors:
     """Return the profile-canonical ITSSensors for the decoded sensors object.
 
-    STANDARD returns ``sensors`` untouched. ATW and AQUAPURA both route a tank /
-    water temperature into ``twin_temp`` — the field the climate
-    ``current_temperature`` and the "Water Inlet Temperature" sensor read — so
-    those entities show the meaningful value without entity-wiring changes:
+    STANDARD returns ``sensors`` untouched. ATW and AQUAPURA both route a tank
+    temperature into ``th_temp`` — the field the "DHW Tank Temperature" sensor
+    reads — so that entity shows the meaningful value without entity-wiring
+    changes. ``twin_temp`` (the "Water Inlet Temperature" sensor) is deliberately
+    left untouched: these units expose no real inlet reading, so it stays honest
+    (None/0) rather than being mislabeled with the tank temperature.
 
-    - ATW: ``status.box_bottom_temp`` carries the DHW tank temp (byte[22]); the
-      "current" reading for this unit is the tank temperature.
+    Climate ``current_temperature`` is made profile-aware separately (it returns
+    ``th_temp`` for ATW/AQUAPURA) so the climate card still shows the tank temp.
+
+    - ATW: ``status.box_bottom_temp`` carries the DHW tank temp (byte[22]).
     - AQUAPURA: ``status.box_bottom_temp`` (status byte[17], offset-decoded) is
       the water tank temperature the app shows; the STANDARD ``twin_temp`` source
       is null-filled to 0 on this model (issue #12).
     """
     if profile in (ModelProfile.ATW, ModelProfile.AQUAPURA):
         if status is not None and status.box_bottom_temp is not None:
-            return dataclasses.replace(sensors, twin_temp=status.box_bottom_temp)
+            return dataclasses.replace(sensors, th_temp=status.box_bottom_temp)
     return sensors
 
 

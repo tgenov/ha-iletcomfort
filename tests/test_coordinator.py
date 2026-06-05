@@ -244,7 +244,8 @@ async def test_sn8_property_reads_appliance_meta(hass: HomeAssistant):
 
 async def test_poll_passes_sn8_and_applies_atw_overrides(hass: HomeAssistant):
     """An ATW (sn8 171H120F) poll passes sn8 to query_status and routes the
-    DHW tank temp into twin_temp so the climate/water entities read it."""
+    DHW tank temp into th_temp (the "DHW Tank Temperature" sensor) while leaving
+    twin_temp (Water Inlet) honest."""
     entry = _entry(REGION_US)
     entry.add_to_hass(hass)
     with patch(
@@ -268,12 +269,14 @@ async def test_poll_passes_sn8_and_applies_atw_overrides(hass: HomeAssistant):
 
     # sn8 must be forwarded to the status query.
     assert client.query_status.call_args.args == ("APPL1", "171H120F")
-    # twin_temp (climate current_temperature / Water Inlet) now reflects the tank.
-    assert result["sensors"].twin_temp == 46.0
+    # th_temp (DHW Tank Temperature sensor) now reflects the tank reading.
+    assert result["sensors"].th_temp == 46.0
+    # Water Inlet (twin_temp) stays honest — never the tank value.
+    assert result["sensors"].twin_temp != 46.0
 
 
 async def test_poll_standard_leaves_sensors_untouched(hass: HomeAssistant):
-    """With no sn8 the poll resolves STANDARD and never rewrites twin_temp."""
+    """With no sn8 the poll resolves STANDARD and never rewrites the sensors."""
     entry = _entry(REGION_US)
     entry.add_to_hass(hass)
     with patch(
@@ -293,6 +296,7 @@ async def test_poll_standard_leaves_sensors_untouched(hass: HomeAssistant):
         result = await coord._poll()
 
     assert client.query_status.call_args.args == ("APPL1", None)
+    assert result["sensors"] is sensors  # STANDARD is a no-op (object identity)
     assert result["sensors"].twin_temp == 12.0  # unchanged by STANDARD
 
 

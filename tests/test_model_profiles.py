@@ -9,8 +9,9 @@ serial prefix, so model-specific decoding is gated on an sn8 lookup table.
 These tests pin:
 - STANDARD (unknown / None sn8): byte-for-byte identical to the legacy decode.
 - ATW (sn8 ``171H120F``, issue #22): the 25-byte status layout.
-- AQUAPURA (sn8 ``171000AU``, issue #12): water temp sourced from
-  ``status.box_bottom_temp`` instead of ``sensors.twin_temp``.
+- AQUAPURA (sn8 ``171000AU``, issue #12): tank temp sourced from
+  ``status.box_bottom_temp`` and surfaced on ``th_temp`` (the "DHW Tank
+  Temperature" sensor) instead of ``sensors.twin_temp``.
 """
 
 from __future__ import annotations
@@ -137,16 +138,37 @@ def test_atw_profile_applied_to_status_object():
     assert not atw.comp_running
 
 
-def test_atw_current_temperature_reflects_dhw_tank():
-    """For ATW the climate current temperature is the DHW tank reading (byte[22]).
+def test_atw_tank_temp_routed_to_th_temp_not_twin_temp():
+    """For ATW the DHW tank reading (byte[22]) surfaces on ``th_temp``.
 
-    The climate entity reads ``sensors.twin_temp``; the ATW sensors override
-    routes the tank temp there so the meaningful "current" value is shown.
+    ``th_temp`` backs the "DHW Tank Temperature" sensor. ``twin_temp`` (the
+    "Water Inlet Temperature" sensor) must be left honest — these units have no
+    real inlet reading — so the override must NOT populate it.
     """
     sensors = decode_its_sensors(bytes([0x02]) + bytes(48))
     status = decode_atw_status(ATW_FRAMES["state1"])
     out = apply_profile_to_sensors(ModelProfile.ATW, sensors, status)
-    assert out.twin_temp == 46.0
+    assert out.th_temp == 46.0
+    # Water Inlet stays untouched (None/0); never the tank value.
+    assert out.twin_temp != 46.0
+    assert out.twin_temp == sensors.twin_temp
+
+
+@pytest.mark.parametrize("name", list(ATW_FRAMES))
+def test_atw_dhw_tank_sensor_value_fn_returns_tank_temp(name):
+    """The ``dhw_tank`` sensor ``value_fn`` (th_temp) returns the tank temp."""
+    from custom_components.iletcomfort.sensor import SENSOR_DESCRIPTIONS
+
+    _, _, tank = ATW_EXPECTED[name]
+    sensors = decode_its_sensors(bytes([0x02]) + bytes(48))
+    status = decode_atw_status(ATW_FRAMES[name])
+    out = apply_profile_to_sensors(ModelProfile.ATW, sensors, status)
+
+    dhw = next(d for d in SENSOR_DESCRIPTIONS if d.key == "dhw_tank")
+    assert dhw.value_fn({"sensors": out, "status": status}) == tank
+    # The Water Inlet sensor must not carry the tank value.
+    water_inlet = next(d for d in SENSOR_DESCRIPTIONS if d.key == "water_inlet")
+    assert water_inlet.value_fn({"sensors": out, "status": status}) != tank
 
 
 # ---------------------------------------------------------------------------
@@ -173,17 +195,24 @@ def _aquapura_sensors_body() -> bytes:
     return bytes(body)
 
 
-def test_aquapura_water_temp_from_box_bottom_temp():
-    """AQUAPURA water/current temp must source box_bottom_temp, not twin_temp."""
+def test_aquapura_tank_temp_from_box_bottom_temp_on_th_temp():
+    """AQUAPURA tank temp must source box_bottom_temp and surface on th_temp.
+
+    The "DHW Tank Temperature" sensor reads ``th_temp``; ``twin_temp`` (Water
+    Inlet) must stay honest — this model has no real inlet reading.
+    """
     status = decode_its_status(_aquapura_status_body())
     sensors = decode_its_sensors(_aquapura_sensors_body())
 
-    # Baseline bug: twin_temp decodes to 0 while box_bottom_temp holds 40 °C.
+    # Baseline: twin_temp decodes to 0 while box_bottom_temp holds 40 °C.
     assert sensors.twin_temp == 0.0
     assert status.box_bottom_temp == 40.0
 
     out = apply_profile_to_sensors(ModelProfile.AQUAPURA, sensors, status)
-    assert out.twin_temp == 40.0
+    assert out.th_temp == 40.0
+    # Water Inlet left honest (not populated with the tank value).
+    assert out.twin_temp == sensors.twin_temp
+    assert out.twin_temp != 40.0
 
 
 def test_aquapura_ambient_unchanged():
