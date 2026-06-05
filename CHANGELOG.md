@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.0](https://github.com/tgenov/ha-iletcomfort/compare/v0.6.0...v0.7.0) (2026-06-05)
+
+
+### Features
+
+* sn8 model-decode profiles (ATW status [#22](https://github.com/tgenov/ha-iletcomfort/issues/22), AQUAPURA water temp [#12](https://github.com/tgenov/ha-iletcomfort/issues/12)) ([#25](https://github.com/tgenov/ha-iletcomfort/issues/25)) ([b74a9b8](https://github.com/tgenov/ha-iletcomfort/commit/b74a9b84fd600b8d8d88d0e6febcc5f96d2b8a20))
+
 ## [0.6.0](https://github.com/tgenov/ha-iletcomfort/compare/v0.5.1...v0.6.0) (2026-06-04)
 
 
