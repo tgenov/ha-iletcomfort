@@ -2,6 +2,12 @@
 
 A custom Home Assistant integration for iLetComfort (ITS) heat pumps using the Midea Dollin cloud API.
 
+## What this integration is
+
+This integration **emulates the iLetComfort app**: it talks to the iLetComfort (Midea **Dollin**) cloud using the same protocol the app does. If your heat pump works in the **iLetComfort / BTRI app**, it's the right target for this integration.
+
+Some heat pumps can *also* be controlled by other vendor apps — for example **SMARTHOME** (the Midea **MSmartHome** cloud). Those apps use a **different cloud protocol**, even though the heat pump itself may speak the same protocol underneath. This integration does **not** emulate those other clouds. If your device works *only* in a Midea/MSmartHome-style app and not in iLetComfort, a Midea-focused integration such as [midea_ac_lan](https://github.com/georgezhao2010/midea_ac_lan) or [midea-local](https://github.com/midea-lan/midea-local) is the better fit.
+
 ## Installation
 
 ### HACS (Recommended)
