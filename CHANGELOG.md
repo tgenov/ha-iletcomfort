@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.2](https://github.com/tgenov/ha-iletcomfort/compare/v0.7.1...v0.7.2) (2026-06-07)
+
+
+### Bug Fixes
+
+* send short query command for KJRH-120L (sn8 17100003) so it connects ([#21](https://github.com/tgenov/ha-iletcomfort/issues/21), [#5](https://github.com/tgenov/ha-iletcomfort/issues/5)) ([#31](https://github.com/tgenov/ha-iletcomfort/issues/31)) ([bd75839](https://github.com/tgenov/ha-iletcomfort/commit/bd75839e0400f0a51991f8222d307d253681da43))
+
 ## [0.7.1](https://github.com/tgenov/ha-iletcomfort/compare/v0.7.0...v0.7.1) (2026-06-07)
 
 
