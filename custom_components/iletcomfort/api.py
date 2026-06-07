@@ -84,6 +84,24 @@ QUERY_TO_SET_MODE: dict[int, int] = {
 
 
 # ---------------------------------------------------------------------------
+# Privacy helpers
+# ---------------------------------------------------------------------------
+
+def mask_identifier(value: str | None, *, keep: int = 5) -> str:
+    """Suffix-mask a device identifier for safe display/logging.
+
+    Keeps the first ``keep`` characters and replaces the remainder with ``…`` so
+    a value can still be loosely correlated without exposing the full ID. Short
+    or empty values are fully masked.
+    """
+    if not value:
+        return ""
+    if len(value) <= keep:
+        return "…"
+    return value[:keep] + "…"
+
+
+# ---------------------------------------------------------------------------
 # Signing algorithms
 # ---------------------------------------------------------------------------
 
