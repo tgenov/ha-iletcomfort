@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.1](https://github.com/tgenov/ha-iletcomfort/compare/v0.7.0...v0.7.1) (2026-06-07)
+
+
+### Bug Fixes
+
+* suffix-mask appliance_code in diagnostics, logs, and repair card to avoid leaking device IDs ([#28](https://github.com/tgenov/ha-iletcomfort/issues/28)) ([ff48084](https://github.com/tgenov/ha-iletcomfort/commit/ff480849f63f2df106a9804c2ff59a658d3e9cb3))
+
 ## [0.7.0](https://github.com/tgenov/ha-iletcomfort/compare/v0.6.0...v0.7.0) (2026-06-05)
 
 
