@@ -704,8 +704,21 @@ class ILetComfortClient:
         model-specific decode profile (see ``model_profiles``) the raw frame is
         re-decoded via that profile's status layout; an unknown/None sn8 uses
         the STANDARD decode unchanged.
+
+        The query command itself is also profile-aware: the KJRH-120L's cloud
+        rejects the standard long C3 query frame (code 1214) and needs a short
+        ``ffff<ss><ss><ss>ff`` form, so the command is built via
+        ``build_query_command``. Other profiles keep the standard frame.
         """
-        command = build_c3_query(0x01)
+        # Imported lazily to avoid a circular import (model_profiles imports api).
+        from .model_profiles import (
+            apply_profile_to_status,
+            build_query_command,
+            resolve_profile,
+        )
+
+        profile = resolve_profile(sn8)
+        command = build_query_command(profile, 0x01)
         response_hex = self.send_hex_command(appliance_code, command)
         _LOGGER.debug("query_status raw response: %s", response_hex)
         raw = parse_hex_response(response_hex)
@@ -717,14 +730,21 @@ class ILetComfortClient:
                 f"unsupported. Raw: {response_hex}"
             )
         status = decode_its_status(body)
+        return apply_profile_to_status(profile, status)
+
+    def query_sensors(
+        self, appliance_code: str, sn8: str | None = None,
+    ) -> ITSSensors:
+        """Query heat pump sensors (subtype 0x02).
+
+        ``sn8`` selects the query-command encoding: the KJRH-120L's cloud
+        rejects the standard long C3 query frame (code 1214) and needs a short
+        ``ffff<ss><ss><ss>ff`` form. Unknown/None sn8 uses the standard frame.
+        """
         # Imported lazily to avoid a circular import (model_profiles imports api).
-        from .model_profiles import apply_profile_to_status, resolve_profile
+        from .model_profiles import build_query_command, resolve_profile
 
-        return apply_profile_to_status(resolve_profile(sn8), status)
-
-    def query_sensors(self, appliance_code: str) -> ITSSensors:
-        """Query heat pump sensors (subtype 0x02)."""
-        command = build_c3_query(0x02)
+        command = build_query_command(resolve_profile(sn8), 0x02)
         response_hex = self.send_hex_command(appliance_code, command)
         _LOGGER.debug("query_sensors raw response: %s", response_hex)
         raw = parse_hex_response(response_hex)

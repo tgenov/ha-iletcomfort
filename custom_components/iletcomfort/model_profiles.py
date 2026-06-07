@@ -45,6 +45,7 @@ from .api import ITSSensors, ITSStatus
 # sn8 model codes (8-char serial prefixes) → profile.
 ATW_SN8 = "171H120F"
 AQUAPURA_SN8 = "171000AU"
+KJRH120L_SN8 = "17100003"
 
 
 class ModelProfile(Enum):
@@ -53,11 +54,13 @@ class ModelProfile(Enum):
     STANDARD = "standard"
     ATW = "atw"
     AQUAPURA = "aquapura"
+    KJRH120L = "kjrh120l"
 
 
 _SN8_PROFILES: dict[str, ModelProfile] = {
     ATW_SN8: ModelProfile.ATW,
     AQUAPURA_SN8: ModelProfile.AQUAPURA,
+    KJRH120L_SN8: ModelProfile.KJRH120L,
 }
 
 
@@ -69,6 +72,22 @@ def resolve_profile(sn8: str | None) -> ModelProfile:
     if not sn8:
         return ModelProfile.STANDARD
     return _SN8_PROFILES.get(sn8, ModelProfile.STANDARD)
+
+
+def build_query_command(profile: ModelProfile, subtype: int) -> str:
+    """Return the cloud query command for a status/sensors subtype.
+
+    KJRH-120L's cloud rejects the standard long C3 query frame (1214); its
+    app uses a short ``ffff<ss><ss><ss>ff`` form. STANDARD/other profiles use
+    the normal build_c3_query frame, unchanged.
+    """
+    if profile is ModelProfile.KJRH120L:
+        return "ffff%02x%02x%02xff" % (subtype, subtype, subtype)
+    # Lazy import: api.py imports model_profiles, so importing build_c3_query at
+    # module level would risk a circular import.
+    from .api import build_c3_query
+
+    return build_c3_query(subtype)
 
 
 # ---------------------------------------------------------------------------
@@ -194,9 +213,11 @@ def apply_profile_to_sensors(
 __all__ = [
     "AQUAPURA_SN8",
     "ATW_SN8",
+    "KJRH120L_SN8",
     "ModelProfile",
     "apply_profile_to_sensors",
     "apply_profile_to_status",
+    "build_query_command",
     "decode_atw_status",
     "resolve_profile",
 ]

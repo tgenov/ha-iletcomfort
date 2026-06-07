@@ -20,15 +20,18 @@ import pytest
 
 from custom_components.iletcomfort.api import (
     ILetComfortClient,
+    build_c3_query,
     decode_its_sensors,
     decode_its_status,
 )
 from custom_components.iletcomfort.model_profiles import (
     AQUAPURA_SN8,
     ATW_SN8,
+    KJRH120L_SN8,
     ModelProfile,
     apply_profile_to_sensors,
     apply_profile_to_status,
+    build_query_command,
     decode_atw_status,
     resolve_profile,
 )
@@ -90,6 +93,36 @@ def test_resolve_profile_unknown_or_none_falls_back_to_standard():
     assert resolve_profile("") is ModelProfile.STANDARD
     assert resolve_profile("UNKNOWN8") is ModelProfile.STANDARD
     assert resolve_profile("00000000") is ModelProfile.STANDARD
+
+
+def test_resolve_profile_kjrh120l_sn8():
+    """The KJRH-120L sn8 (17100003, issues #21/#5) resolves to its profile."""
+    assert KJRH120L_SN8 == "17100003"
+    assert resolve_profile(KJRH120L_SN8) is ModelProfile.KJRH120L
+
+
+# ---------------------------------------------------------------------------
+# Query command encoding (KJRH-120L short form, issues #21 / #5)
+# ---------------------------------------------------------------------------
+
+def test_build_query_command_kjrh120l_short_form():
+    """KJRH-120L's cloud rejects the long C3 query (code 1214); its app uses a
+    short ``ffff<ss><ss><ss>ff`` form (subtype byte repeated 3×)."""
+    assert build_query_command(ModelProfile.KJRH120L, 0x01) == "ffff010101ff"
+    assert build_query_command(ModelProfile.KJRH120L, 0x02) == "ffff020202ff"
+
+
+@pytest.mark.parametrize("subtype", [0x01, 0x02])
+def test_build_query_command_standard_matches_build_c3_query(subtype):
+    """STANDARD must emit the legacy long C3 query frame, byte-for-byte."""
+    assert build_query_command(ModelProfile.STANDARD, subtype) == build_c3_query(subtype)
+
+
+@pytest.mark.parametrize("profile", [ModelProfile.ATW, ModelProfile.AQUAPURA])
+@pytest.mark.parametrize("subtype", [0x01, 0x02])
+def test_build_query_command_other_profiles_use_long_frame(profile, subtype):
+    """Other model profiles keep the standard long C3 query frame, unchanged."""
+    assert build_query_command(profile, subtype) == build_c3_query(subtype)
 
 
 # ---------------------------------------------------------------------------

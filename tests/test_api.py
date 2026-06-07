@@ -11,6 +11,7 @@ from custom_components.iletcomfort.api import (
     AuthError,
     ILetComfortClient,
     ITSStatus,
+    build_c3_query,
     mask_identifier,
 )
 
@@ -240,6 +241,62 @@ def test_query_status_marks_compressor_running_from_frequency():
     assert status.comp_frq == 51
     assert status.status_flags_raw == 0
     assert status.comp_running is True
+
+
+KJRH120L_SN8 = "17100003"
+
+
+def test_query_status_uses_short_command_for_kjrh120l():
+    """KJRH-120L (sn8 17100003) must send the short ``ffff010101ff`` status query.
+
+    Its cloud rejects the standard long C3 frame with code 1214 (issues #21/#5).
+    """
+    client = _make_client()
+    body = bytes([0x01, 0x00, 0x00]) + bytes(17)
+    with patch.object(
+        client, "send_hex_command", return_value=_c3_frame(body),
+    ) as mock_send:
+        client.query_status("APPL1", sn8=KJRH120L_SN8)
+
+    assert mock_send.call_args.args[1] == "ffff010101ff"
+
+
+def test_query_status_uses_long_command_for_standard_sn8():
+    """An unknown/None sn8 must keep sending the legacy long C3 status query."""
+    client = _make_client()
+    body = bytes([0x01, 0x00, 0x00]) + bytes(17)
+    with patch.object(
+        client, "send_hex_command", return_value=_c3_frame(body),
+    ) as mock_send:
+        client.query_status("APPL1")
+
+    assert mock_send.call_args.args[1] == build_c3_query(0x01)
+
+
+def test_query_sensors_uses_short_command_for_kjrh120l():
+    """KJRH-120L (sn8 17100003) must send the short ``ffff020202ff`` sensors query."""
+    client = _make_client()
+    body = bytearray(32)
+    body[1] = 0x07
+    with patch.object(
+        client, "send_hex_command", return_value=_c3_frame(bytes(body)),
+    ) as mock_send:
+        client.query_sensors("APPL1", sn8=KJRH120L_SN8)
+
+    assert mock_send.call_args.args[1] == "ffff020202ff"
+
+
+def test_query_sensors_uses_long_command_for_standard_sn8():
+    """An unknown/None sn8 must keep sending the legacy long C3 sensors query."""
+    client = _make_client()
+    body = bytearray(32)
+    body[1] = 0x07
+    with patch.object(
+        client, "send_hex_command", return_value=_c3_frame(bytes(body)),
+    ) as mock_send:
+        client.query_sensors("APPL1")
+
+    assert mock_send.call_args.args[1] == build_c3_query(0x02)
 
 
 def test_status_flag_zero_and_no_frequency_keeps_compressor_off():

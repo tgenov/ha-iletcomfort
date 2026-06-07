@@ -152,7 +152,7 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         try:
             sensors: ITSSensors = await self.hass.async_add_executor_job(
-                self.client.query_sensors, self.appliance_code,
+                self.client.query_sensors, self.appliance_code, sn8,
             )
             self._sensors_degraded = False
         except AuthError:
