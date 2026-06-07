@@ -341,6 +341,31 @@ async def test_offline_repair_card_created_after_threshold(hass: HomeAssistant):
         assert issue.translation_key == "device_offline"
 
 
+async def test_offline_repair_card_masks_appliance_code_placeholder(
+    hass: HomeAssistant,
+):
+    """The offline Repair card must show a suffix-masked appliance_code, not the
+    full device-unique id (it surfaces in shareable screenshots/diagnostics)."""
+    coord, client = _degraded_coordinator(hass)
+    coord.appliance_code = "153931629126443"
+    client.query_status.side_effect = ApiError("truncated frame")
+    client.query_sensors.side_effect = ApiError("truncated frame")
+
+    registry = ir.async_get(hass)
+    issue_id = _issue_id(coord)
+
+    with patch(
+        "custom_components.iletcomfort.coordinator.asyncio.sleep",
+        new=AsyncMock(),
+    ):
+        for _ in range(OFFLINE_REPAIR_THRESHOLD):
+            await coord._poll()
+
+    issue = registry.async_get_issue(DOMAIN, issue_id)
+    assert issue is not None
+    assert issue.translation_placeholders == {"appliance_code": "15393…"}
+
+
 async def test_offline_repair_card_not_created_when_only_one_query_fails(
     hass: HomeAssistant,
 ):

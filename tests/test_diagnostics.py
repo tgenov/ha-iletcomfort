@@ -23,14 +23,17 @@ from custom_components.iletcomfort.diagnostics import (
 )
 
 
+APPLIANCE_CODE = "153931629126443"
+
+
 def _entry() -> MockConfigEntry:
     return MockConfigEntry(
         domain=DOMAIN,
-        unique_id="user@example.com:APPL1",
+        unique_id=f"user@example.com:{APPLIANCE_CODE}",
         data={
             CONF_EMAIL: "user@example.com",
             CONF_PASSWORD: "secret",
-            CONF_APPLIANCE_CODE: "APPL1",
+            CONF_APPLIANCE_CODE: APPLIANCE_CODE,
             CONF_REGION: REGION_US,
         },
         version=2,
@@ -53,14 +56,16 @@ async def _diagnostics(hass: HomeAssistant) -> dict:
 
 
 async def test_diagnostics_redacts_credentials(hass: HomeAssistant):
-    """Email and password must be redacted; region/appliance_code retained."""
+    """Email/password redacted; region retained; appliance_code suffix-masked."""
     result = await _diagnostics(hass)
 
     entry_data = result["entry"]["data"]
     assert entry_data[CONF_EMAIL] == "**REDACTED**"
     assert entry_data[CONF_PASSWORD] == "**REDACTED**"
     assert entry_data[CONF_REGION] == REGION_US
-    assert entry_data[CONF_APPLIANCE_CODE] == "APPL1"
+    # appliance_code is a device-unique id: suffix-masked, never the full value.
+    assert entry_data[CONF_APPLIANCE_CODE] == "15393…"
+    assert APPLIANCE_CODE not in json.dumps(result)
 
 
 async def test_diagnostics_serializes_raw_frames_as_hex(hass: HomeAssistant):
@@ -161,7 +166,7 @@ async def test_diagnostics_includes_appliance_meta_with_redaction(hass: HomeAssi
     with patch("custom_components.iletcomfort.coordinator.ILetComfortClient"):
         coord = ILetComfortCoordinator(hass, entry)
     coord.appliance_meta = {
-        "applianceCode": "APPL1",
+        "applianceCode": APPLIANCE_CODE,
         "applianceType": "0xC3",
         "modelNumber": "0",
         "sn8": "171H120F",
@@ -181,8 +186,10 @@ async def test_diagnostics_includes_appliance_meta_with_redaction(hass: HomeAssi
     assert appliance["applianceType"] == "0xC3"
     assert appliance["modelNumber"] == "0"
     assert appliance["sn8"] == "171H120F"
-    assert appliance["applianceCode"] == "APPL1"
+    # applianceCode is a device-unique id: suffix-masked, full value never leaked.
+    assert appliance["applianceCode"] == "15393…"
     assert appliance["online"] == "1"
+    assert APPLIANCE_CODE not in json.dumps(result)
     json.dumps(result)
 
 

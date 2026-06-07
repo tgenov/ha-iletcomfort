@@ -11,6 +11,7 @@ from custom_components.iletcomfort.api import (
     AuthError,
     ILetComfortClient,
     ITSStatus,
+    mask_identifier,
 )
 
 
@@ -26,6 +27,29 @@ def _c3_frame(body: bytes) -> str:
     """
     header = bytes([0xAA, 0x00, 0xC3, 0, 0, 0, 0, 0, 0, 0x04])
     return (header + body + b"\x00").hex()
+
+
+def test_mask_identifier_suffix_masks_long_value():
+    """A long device id keeps the first 5 chars and hides the rest."""
+    assert mask_identifier("153931629126443") == "15393…"
+
+
+def test_mask_identifier_fully_masks_short_value():
+    """A value no longer than ``keep`` is fully masked (don't expose it)."""
+    # len("APPL1") == 5 == keep → fully masked, not echoed back.
+    assert mask_identifier("APPL1") == "…"
+    assert mask_identifier("abc") == "…"
+
+
+def test_mask_identifier_empty_and_none_return_empty_string():
+    """None / empty values return an empty string."""
+    assert mask_identifier(None) == ""
+    assert mask_identifier("") == ""
+
+
+def test_mask_identifier_respects_custom_keep():
+    """A custom ``keep`` controls the visible prefix length."""
+    assert mask_identifier("153931629126443", keep=3) == "153…"
 
 
 def test_login_success_returns_data_and_stores_token():

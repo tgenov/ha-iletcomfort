@@ -21,6 +21,7 @@ from .api import (
     ITSSensors,
     ITSStatus,
     QUERY_TO_SET_MODE,
+    mask_identifier,
 )
 from .const import (
     CONF_APPLIANCE_CODE,
@@ -242,7 +243,7 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     severity=ir.IssueSeverity.WARNING,
                     translation_key="device_offline",
                     translation_placeholders={
-                        "appliance_code": self.appliance_code,
+                        "appliance_code": mask_identifier(self.appliance_code),
                     },
                 )
                 self._repair_issued = True
@@ -278,7 +279,10 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
             if appliances:
                 self.appliance_code = str(appliances[0].get("applianceCode", ""))
-                _LOGGER.info("Discovered appliance: %s", self.appliance_code)
+                _LOGGER.info(
+                    "Discovered appliance: %s",
+                    mask_identifier(self.appliance_code),
+                )
 
     async def _ensure_appliance_meta(self) -> None:
         """Cache this appliance's cloud metadata for diagnostics (best-effort).

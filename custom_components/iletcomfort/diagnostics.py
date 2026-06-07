@@ -17,13 +17,14 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
 from homeassistant.core import HomeAssistant
 
-from .api import SENSOR_DISCONNECTED, TEMP_OFFSET
-from .const import DOMAIN
+from .api import SENSOR_DISCONNECTED, TEMP_OFFSET, mask_identifier
+from .const import CONF_APPLIANCE_CODE, DOMAIN
 from .coordinator import ILetComfortCoordinator
 
-# Account credentials are the only secrets in the entry. Region and
-# appliance_code are kept: appliance_code is already shown to the user in the
-# offline Repair card, and the maintainer needs it to correlate the model.
+# Account credentials are the only secrets in the entry. Region is kept as-is.
+# appliance_code is a device-unique identifier, so it is suffix-masked (see
+# mask_identifier) rather than left intact — sn8 already covers model
+# correlation, so the maintainer loses nothing by not seeing the full code.
 TO_REDACT = {CONF_EMAIL, CONF_PASSWORD}
 
 # Appliance metadata is surfaced to help maintainers identify the device class
@@ -85,10 +86,27 @@ async def async_get_config_entry_diagnostics(
     coordinator: ILetComfortCoordinator = hass.data[DOMAIN][entry.entry_id]
     data = coordinator.data or {}
 
+    # async_redact_data leaves appliance_code intact (it is not a credential);
+    # suffix-mask the device-unique id so a shared diagnostics file can be
+    # loosely correlated without exposing the full identifier.
+    entry_data = async_redact_data(dict(entry.data), TO_REDACT)
+    if CONF_APPLIANCE_CODE in entry_data:
+        entry_data[CONF_APPLIANCE_CODE] = mask_identifier(
+            entry_data[CONF_APPLIANCE_CODE]
+        )
+
+    appliance = (
+        async_redact_data(dict(coordinator.appliance_meta), APPLIANCE_TO_REDACT)
+        if coordinator.appliance_meta is not None
+        else None
+    )
+    if appliance is not None and "applianceCode" in appliance:
+        appliance["applianceCode"] = mask_identifier(appliance["applianceCode"])
+
     return {
         "entry": {
             "version": entry.version,
-            "data": async_redact_data(dict(entry.data), TO_REDACT),
+            "data": entry_data,
             "options": async_redact_data(dict(entry.options), TO_REDACT),
         },
         "coordinator": {
@@ -102,11 +120,7 @@ async def async_get_config_entry_diagnostics(
             "sensors_degraded": coordinator._sensors_degraded,
             "repair_issued": coordinator._repair_issued,
         },
-        "appliance": (
-            async_redact_data(dict(coordinator.appliance_meta), APPLIANCE_TO_REDACT)
-            if coordinator.appliance_meta is not None
-            else None
-        ),
+        "appliance": appliance,
         "status": _serialize_frame(data.get("status")),
         "sensors": _serialize_frame(data.get("sensors")),
         "sensors_temperature_scan": _sensors_temperature_scan(
