@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.3](https://github.com/tgenov/ha-iletcomfort/compare/v0.7.2...v0.7.3) (2026-06-08)
+
+
+### Bug Fixes
+
+* clean KJRH-120L decode — correct DHW setpoint, suppress garbage status/temps ([#21](https://github.com/tgenov/ha-iletcomfort/issues/21), [#5](https://github.com/tgenov/ha-iletcomfort/issues/5)) ([#33](https://github.com/tgenov/ha-iletcomfort/issues/33)) ([ce714a0](https://github.com/tgenov/ha-iletcomfort/commit/ce714a0889c344b6f45a16ed06f5314e6924b4e1))
+
 ## [0.7.2](https://github.com/tgenov/ha-iletcomfort/compare/v0.7.1...v0.7.2) (2026-06-07)
 
 
