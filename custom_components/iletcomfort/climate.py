@@ -26,7 +26,12 @@ from .api import (
 from .const import DOMAIN
 from .coordinator import ILetComfortCoordinator
 from .entity import build_device_info
-from .model_profiles import ModelProfile, resolve_profile
+from .model_profiles import (
+    KJRH120L_TEMP_MAX,
+    KJRH120L_TEMP_MIN,
+    ModelProfile,
+    resolve_profile,
+)
 
 # Query response mode (from device) → HA HVAC mode
 _QUERY_MODE_TO_HVAC: dict[int, HVACMode] = {
@@ -134,6 +139,10 @@ class ILetComfortClimate(CoordinatorEntity[ILetComfortCoordinator], ClimateEntit
 
     @property
     def min_temp(self) -> float:
+        # KJRH-120L is a DHW heat-pump water heater; its setpoint range sits
+        # above the air-side HEAT range (issue #35).
+        if self._profile is ModelProfile.KJRH120L:
+            return float(KJRH120L_TEMP_MIN)
         set_mode = _HVAC_TO_SET_MODE.get(self.hvac_mode)
         if set_mode is not None and set_mode in TEMP_RANGES:
             return float(TEMP_RANGES[set_mode][0])
@@ -141,6 +150,8 @@ class ILetComfortClimate(CoordinatorEntity[ILetComfortCoordinator], ClimateEntit
 
     @property
     def max_temp(self) -> float:
+        if self._profile is ModelProfile.KJRH120L:
+            return float(KJRH120L_TEMP_MAX)
         set_mode = _HVAC_TO_SET_MODE.get(self.hvac_mode)
         if set_mode is not None and set_mode in TEMP_RANGES:
             return float(TEMP_RANGES[set_mode][1])
@@ -154,7 +165,11 @@ class ILetComfortClimate(CoordinatorEntity[ILetComfortCoordinator], ClimateEntit
     async def async_set_temperature(self, **kwargs: Any) -> None:
         temp = kwargs.get(ATTR_TEMPERATURE)
         if temp is not None:
-            await self.coordinator.async_set_device(temperature=int(temp))
+            # Clamp to the entity's min/max before sending. For the KJRH-120L
+            # this keeps the short DHW-setpoint write inside the valid range;
+            # for other profiles the value is already mode-constrained by HA.
+            clamped = max(self.min_temp, min(float(temp), self.max_temp))
+            await self.coordinator.async_set_device(temperature=int(clamped))
 
     async def async_turn_on(self) -> None:
         await self.coordinator.async_set_device(power_on=True)

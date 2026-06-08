@@ -7,11 +7,14 @@ from unittest.mock import patch
 import pytest
 
 from custom_components.iletcomfort.api import (
+    MODE_HEAT,
+    MODE_OFF,
     ApiError,
     AuthError,
     ILetComfortClient,
     ITSStatus,
     build_c3_query,
+    build_c3_set,
     mask_identifier,
 )
 
@@ -297,6 +300,107 @@ def test_query_sensors_uses_long_command_for_standard_sn8():
         client.query_sensors("APPL1")
 
     assert mock_send.call_args.args[1] == build_c3_query(0x02)
+
+
+# --- KJRH-120L SET path (issue #35) ---------------------------------------
+# The KJRH-120L's cloud rejects the standard 62-byte C3 SET frame, so for this
+# model set_device(sn8=KJRH120L_SN8, ...) sends the captured short write
+# commands directly via send_hex_command — NO status query, NO build_c3_set.
+# All other (unknown/None/ATW/AQUAPURA) sn8 keep the legacy build_c3_set path.
+
+
+def test_set_device_kjrh120l_set_temperature_sends_short_command():
+    """KJRH set-temperature sends 0007 01 <temp> ff and nothing else."""
+    client = _make_client()
+    with patch.object(client, "send_hex_command") as mock_send:
+        client.set_device("APPL1", sn8=KJRH120L_SN8, temperature=60)
+
+    # Exactly one transmit (no preliminary status query for this model).
+    assert mock_send.call_count == 1
+    assert mock_send.call_args.args == ("APPL1", "0007013cff")
+
+
+def test_set_device_kjrh120l_power_on_sends_dhw_on():
+    """KJRH turn-on (power_on=True) sends the captured DHW-ON command."""
+    client = _make_client()
+    with patch.object(client, "send_hex_command") as mock_send:
+        client.set_device("APPL1", sn8=KJRH120L_SN8, power_on=True)
+
+    assert mock_send.call_count == 1
+    assert mock_send.call_args.args == ("APPL1", "00020101ff")
+
+
+def test_set_device_kjrh120l_mode_off_sends_dhw_off():
+    """KJRH hvac-off (mode=MODE_OFF) sends the captured DHW-OFF command."""
+    client = _make_client()
+    with patch.object(client, "send_hex_command") as mock_send:
+        client.set_device("APPL1", sn8=KJRH120L_SN8, mode=MODE_OFF)
+
+    assert mock_send.call_count == 1
+    assert mock_send.call_args.args == ("APPL1", "00020100ff")
+
+
+def test_set_device_kjrh120l_mode_heat_powers_on():
+    """KJRH hvac_mode→heat (mode=MODE_HEAT) is treated as DHW power-on."""
+    client = _make_client()
+    with patch.object(client, "send_hex_command") as mock_send:
+        client.set_device("APPL1", sn8=KJRH120L_SN8, mode=MODE_HEAT)
+
+    assert mock_send.call_count == 1
+    assert mock_send.call_args.args == ("APPL1", "00020101ff")
+
+
+def test_set_device_standard_uses_build_c3_set_frame():
+    """STANDARD (unknown/None sn8) keeps the legacy build_c3_set path, unchanged.
+
+    The legacy path first queries status (one send) then transmits the 62-byte
+    C3 SET frame (a second send). Assert the SET frame equals build_c3_set's
+    output for the merged effective values.
+    """
+    client = _make_client()
+    status_body = bytes([0x01, 0x00, 0x01]) + bytes(17)  # mode=Heat
+    sent: list[str] = []
+
+    def _fake_send(_code, command):
+        sent.append(command)
+        return _c3_frame(status_body)
+
+    with patch.object(client, "send_hex_command", side_effect=_fake_send):
+        result = client.set_device("APPL1", temperature=30)
+
+    # Two transmits: status query, then the SET frame.
+    assert len(sent) == 2
+    assert sent[0] == build_c3_query(0x01)
+    set_frame = sent[1]
+    # 62-byte C3 SET frame → 124 hex chars, and equals build_c3_set's output.
+    assert len(set_frame) == 124
+    expected = build_c3_set(
+        mode=MODE_HEAT,
+        temperature=30,
+        status_body=status_body,
+        mute_level=0x00,
+        ctrl_flag=0x00,
+    )
+    assert set_frame == expected
+    assert result["sent"] == set_frame
+
+
+def test_set_device_atw_uses_build_c3_set_frame():
+    """ATW (sn8 171H120F) is unaffected by the KJRH branch — still build_c3_set."""
+    client = _make_client()
+    status_body = bytes([0x01, 0x00, 0x01]) + bytes(17)
+    sent: list[str] = []
+
+    def _fake_send(_code, command):
+        sent.append(command)
+        return _c3_frame(status_body)
+
+    with patch.object(client, "send_hex_command", side_effect=_fake_send):
+        client.set_device("APPL1", sn8="171H120F", temperature=30)
+
+    assert len(sent) == 2
+    assert sent[0] == build_c3_query(0x01)
+    assert len(sent[1]) == 124  # 62-byte C3 SET frame, unchanged
 
 
 def test_status_flag_zero_and_no_frequency_keeps_compressor_off():

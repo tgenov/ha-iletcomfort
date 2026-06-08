@@ -326,11 +326,18 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self.async_config_entry_first_refresh()
 
     async def async_set_device(self, **kwargs: Any) -> None:
-        """Send a SET command with auto re-auth, then refresh data."""
+        """Send a SET command with auto re-auth, then refresh data.
+
+        The appliance ``sn8`` is forwarded so the client can branch the write
+        encoding per model (e.g. the KJRH-120L's short commands vs the legacy
+        C3 SET frame); see ``model_profiles`` and ``ILetComfortClient.set_device``.
+        """
+        sn8 = self.sn8
         try:
             await self.hass.async_add_executor_job(
                 lambda: self.client.set_device(
                     self.appliance_code,
+                    sn8=sn8,
                     last_on_state=self._last_on_state,
                     **kwargs,
                 )
@@ -341,6 +348,7 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self.hass.async_add_executor_job(
                 lambda: self.client.set_device(
                     self.appliance_code,
+                    sn8=sn8,
                     last_on_state=self._last_on_state,
                     **kwargs,
                 )

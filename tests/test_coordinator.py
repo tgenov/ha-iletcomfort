@@ -302,6 +302,27 @@ async def test_poll_standard_leaves_sensors_untouched(hass: HomeAssistant):
     assert result["sensors"].twin_temp == 12.0  # unchanged by STANDARD
 
 
+async def test_async_set_device_threads_sn8_to_client(hass: HomeAssistant):
+    """The SET path must forward the appliance sn8 so the client can branch the
+    write encoding per model (KJRH-120L short commands vs the legacy C3 frame)."""
+    entry = _entry(REGION_US)
+    entry.add_to_hass(hass)
+    with patch(
+        "custom_components.iletcomfort.coordinator.ILetComfortClient"
+    ) as mock_cls:
+        coord = ILetComfortCoordinator(hass, entry)
+
+    coord.appliance_meta = {"sn8": "17100003"}
+    client = mock_cls.return_value
+    coord.async_request_refresh = AsyncMock()
+
+    await coord.async_set_device(temperature=60)
+
+    assert client.set_device.call_args.args == ("APPL1",)
+    assert client.set_device.call_args.kwargs["sn8"] == "17100003"
+    assert client.set_device.call_args.kwargs["temperature"] == 60
+
+
 def _degraded_coordinator(hass: HomeAssistant) -> tuple[ILetComfortCoordinator, MagicMock]:
     """Build a coordinator wired so both queries fall back to cache."""
     entry = _entry(REGION_US)
