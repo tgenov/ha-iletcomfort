@@ -243,6 +243,38 @@ def decode_kjrh120l_status(body: bytearray | bytes) -> ITSStatus:
     return status
 
 
+# ---------------------------------------------------------------------------
+# KJRH-120L WRITE / control commands (issue #35)
+# ---------------------------------------------------------------------------
+#
+# The KJRH-120L's cloud rejects the standard 62-byte C3 SET frame (build_c3_set)
+# for the same reason it rejected the standard long query: this controller only
+# accepts the short literal command strings the official app sends. These were
+# captured from the app's proxy traffic (code:0 responses, issues #35 / #21).
+#
+# General write shape: ``00 <field> 01 <value> ff`` — no checksum byte (the
+# cloud frames the command). Confirmed fields:
+#   field 0x07 = DHW setpoint  → ``0007 01 <T °C as 1-byte hex> ff``
+#                                (T=49 → 00070131ff, T=60 → 0007013cff)
+#   field 0x02 = DHW power     → ON ``00020101ff`` / OFF ``00020100ff``
+#
+# DHW setpoint range for this HPWH (captured 49/60/65 °C) sits above the air-side
+# HEAT range, so the climate entity uses a profile-specific min/max.
+KJRH120L_DHW_ON = "00020101ff"
+KJRH120L_DHW_OFF = "00020100ff"
+KJRH120L_TEMP_MIN = 35
+KJRH120L_TEMP_MAX = 65
+
+
+def build_kjrh120l_set_temperature(temp: int) -> str:
+    """Return the KJRH-120L short DHW-setpoint write command for ``temp`` °C.
+
+    Shape ``0007 01 <temp as 2-hex-digit byte> ff`` — e.g. 60 → ``0007013cff``,
+    49 → ``00070131ff`` (confirmed captures). No checksum; the cloud frames it.
+    """
+    return "000701%02xff" % temp
+
+
 def apply_profile_to_status(profile: ModelProfile, status: ITSStatus) -> ITSStatus:
     """Return the profile-canonical ITSStatus for a decoded status object.
 
@@ -294,10 +326,15 @@ def apply_profile_to_sensors(
 __all__ = [
     "AQUAPURA_SN8",
     "ATW_SN8",
+    "KJRH120L_DHW_OFF",
+    "KJRH120L_DHW_ON",
     "KJRH120L_SN8",
+    "KJRH120L_TEMP_MAX",
+    "KJRH120L_TEMP_MIN",
     "ModelProfile",
     "apply_profile_to_sensors",
     "apply_profile_to_status",
+    "build_kjrh120l_set_temperature",
     "build_query_command",
     "decode_atw_status",
     "decode_kjrh120l_status",

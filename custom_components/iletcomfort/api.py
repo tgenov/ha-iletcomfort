@@ -761,6 +761,7 @@ class ILetComfortClient:
         self,
         appliance_code: str,
         *,
+        sn8: str | None = None,
         mode: int | None = None,
         temperature: int | None = None,
         boost: bool | None = None,
@@ -771,10 +772,25 @@ class ILetComfortClient:
     ) -> dict[str, Any]:
         """Send a SET command to the heat pump.
 
-        Queries current status first to obtain echo bytes and current values,
-        merges the requested changes, validates temperature ranges, builds
-        the SET frame, and sends it.
+        ``sn8`` selects the write encoding per model. The KJRH-120L (sn8
+        17100003) rejects the standard 62-byte C3 SET frame, so for that profile
+        a captured short write command (``00 <field> 01 <value> ff``) is sent
+        directly. Every other (unknown/None/ATW/AQUAPURA) sn8 keeps the legacy
+        build_c3_set path unchanged: query current status for echo bytes, merge
+        the requested changes, validate temperature ranges, build and send the
+        SET frame.
         """
+        # Imported lazily to avoid a circular import (model_profiles imports api).
+        from .model_profiles import ModelProfile, resolve_profile
+
+        if resolve_profile(sn8) is ModelProfile.KJRH120L:
+            return self._set_device_kjrh120l(
+                appliance_code,
+                mode=mode,
+                temperature=temperature,
+                power_on=power_on,
+            )
+
         # Query current status for echo bytes
         command = build_c3_query(0x01)
         response_hex = self.send_hex_command(appliance_code, command)
@@ -845,3 +861,43 @@ class ILetComfortClient:
             "effective_mode": eff_mode,
             "effective_temp": eff_temp,
         }
+
+    def _set_device_kjrh120l(
+        self,
+        appliance_code: str,
+        *,
+        mode: int | None,
+        temperature: int | None,
+        power_on: bool,
+    ) -> dict[str, Any]:
+        """Send a KJRH-120L (sn8 17100003) control command (issue #35).
+
+        This controller rejects the standard C3 SET frame, so a single captured
+        short command is sent directly (no status query, no checksum). One of:
+          - temperature → DHW setpoint write (``0007 01 <temp> ff``)
+          - power_on / mode→heat → DHW power ON (``00020101ff``)
+          - mode→off → DHW power OFF (``00020100ff``)
+
+        The caller (climate entity) has already clamped ``temperature`` to the
+        DHW range. Temperature takes priority over a same-call mode change.
+        """
+        # Imported lazily to avoid a circular import (model_profiles imports api).
+        from .model_profiles import (
+            KJRH120L_DHW_OFF,
+            KJRH120L_DHW_ON,
+            build_kjrh120l_set_temperature,
+        )
+
+        if temperature is not None:
+            command = build_kjrh120l_set_temperature(int(temperature))
+            effective = {"effective_temp": int(temperature)}
+        elif power_on or (mode is not None and mode != MODE_OFF):
+            command = KJRH120L_DHW_ON
+            effective = {"effective_power": True}
+        else:
+            # mode is MODE_OFF (turn off / hvac_mode → off).
+            command = KJRH120L_DHW_OFF
+            effective = {"effective_power": False}
+
+        response_hex = self.send_hex_command(appliance_code, command)
+        return {"sent": command, "response": response_hex, **effective}

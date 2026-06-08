@@ -27,10 +27,13 @@ from custom_components.iletcomfort.api import (
 from custom_components.iletcomfort.model_profiles import (
     AQUAPURA_SN8,
     ATW_SN8,
+    KJRH120L_DHW_OFF,
+    KJRH120L_DHW_ON,
     KJRH120L_SN8,
     ModelProfile,
     apply_profile_to_sensors,
     apply_profile_to_status,
+    build_kjrh120l_set_temperature,
     build_query_command,
     decode_atw_status,
     decode_kjrh120l_status,
@@ -124,6 +127,34 @@ def test_build_query_command_standard_matches_build_c3_query(subtype):
 def test_build_query_command_other_profiles_use_long_frame(profile, subtype):
     """Other model profiles keep the standard long C3 query frame, unchanged."""
     assert build_query_command(profile, subtype) == build_c3_query(subtype)
+
+
+# --- KJRH-120L short WRITE commands (issue #35) ---------------------------
+# The KJRH-120L's cloud rejects the standard 62-byte C3 SET frame (same reason
+# its long query was rejected). The official app uses short literal write
+# commands of shape ``00 <field> 01 <value> ff`` (no checksum byte; the cloud
+# does the framing). Captured from the app's proxy traffic with code:0 replies:
+#   set DHW setpoint to T °C  → 0007 01 <T:1 byte hex> ff   (field 0x07)
+#   DHW power ON              → 00020101ff                  (field 0x02)
+#   DHW power OFF             → 00020100ff
+
+
+def test_build_kjrh120l_set_temperature_matches_captured_commands():
+    """Confirmed captures: T=60 → 0007013cff, T=49 → 00070131ff."""
+    assert build_kjrh120l_set_temperature(60) == "0007013cff"
+    assert build_kjrh120l_set_temperature(49) == "00070131ff"
+
+
+def test_build_kjrh120l_set_temperature_two_hex_digits():
+    """Single-digit values are zero-padded to two hex digits (e.g. 9 → 09)."""
+    assert build_kjrh120l_set_temperature(9) == "00070109ff"
+    assert build_kjrh120l_set_temperature(15) == "0007010fff"
+
+
+def test_kjrh120l_dhw_power_constants():
+    """DHW power on/off are the literal captured command strings."""
+    assert KJRH120L_DHW_ON == "00020101ff"
+    assert KJRH120L_DHW_OFF == "00020100ff"
 
 
 # ---------------------------------------------------------------------------
