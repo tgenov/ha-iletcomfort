@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.0](https://github.com/tgenov/ha-iletcomfort/compare/v0.7.3...v0.8.0) (2026-06-08)
+
+
+### Features
+
+* KJRH-120L power/setpoint control via short write commands ([#35](https://github.com/tgenov/ha-iletcomfort/issues/35)) ([#36](https://github.com/tgenov/ha-iletcomfort/issues/36)) ([f44da76](https://github.com/tgenov/ha-iletcomfort/commit/f44da76e1b3bfa57b0cc7e9158101a19cccf7731))
+
 ## [0.7.3](https://github.com/tgenov/ha-iletcomfort/compare/v0.7.2...v0.7.3) (2026-06-08)
 
 
