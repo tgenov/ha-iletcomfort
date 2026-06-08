@@ -33,6 +33,7 @@ from custom_components.iletcomfort.model_profiles import (
     apply_profile_to_status,
     build_query_command,
     decode_atw_status,
+    decode_kjrh120l_status,
     resolve_profile,
 )
 
@@ -254,6 +255,132 @@ def test_aquapura_ambient_unchanged():
     sensors = decode_its_sensors(_aquapura_sensors_body())
     out = apply_profile_to_sensors(ModelProfile.AQUAPURA, sensors, status)
     assert out.t4_temp == 19.0
+
+
+# ---------------------------------------------------------------------------
+# KJRH-120L decode (sn8 17100003, issues #21 / #5)
+# ---------------------------------------------------------------------------
+#
+# Real STATUS (0x01) frame — device Off, app shows DHW setpoint 60 °C. The
+# STANDARD decoder misreads this 95-byte frame and emits garbage:
+#   set_temperature=66, t5s_def=-35, error_code=1 (fake fault),
+#   comp_running=True (it's Off), total_kwh=1340, comp_frq=6425, sensors -35.
+# decode_kjrh120l_status surfaces only the CONFIRMED fields:
+#   - mode/mode_name from body[2] (0x00 → "Off")
+#   - DHW setpoint from body[15] (direct °C; 0x3c → 60), surfaced via t5s_def so
+#     the climate target_temperature reads it.
+#   - error_code = 0, comp_running = False; everything else left at defaults.
+KJRH120L_STATUS_BODY = _bytes(
+    "01,fe,00,00,00,42,00,56,00,00,00,03,41,1e,30,3c,00,00,00,00,00,00,01,"
+    "00,01,00,00,00,01,00,00,00,00,00,01,02,02,4b,23,19,05,37,19,19,05,3c,"
+    "22,46,14,13,00,01,01,02,03,01,01,e7,2f,ff,ff,ff,ff,ff,ff,ff,ff,ff,ff,"
+    "ff,30,ff,ff,ff,ff,00,00,00,01,00,00,00,00,00,17,07,14,0f,20,00,00,00,"
+    "00,00,ff"
+)
+
+# Real SENSORS (0x02) frame — static/cached; carries NO live temps. Water and
+# outdoor temps never appear in any byte across states, so they are not
+# decodable for this model and must be suppressed (left None / unavailable).
+KJRH120L_SENSORS_BODY = _bytes(
+    "02,fe,00,46,00,9f,00,5a,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,"
+    "00,00,00,00,00,00,00,00,32,00,00,00,00,00,00,00,00,01,41,13,00,00,00,"
+    "32,14,00,ff"
+)
+
+
+def test_kjrh120l_status_surfaces_confirmed_setpoint_only():
+    """The KJRH-120L status decode surfaces only confirmed fields (setpoint 60)."""
+    status = decode_kjrh120l_status(KJRH120L_STATUS_BODY)
+
+    # body[2] = mode (0x00 → Off).
+    assert status.mode == 0
+    assert status.mode_name == "Off"
+    # body[15] = DHW setpoint, direct °C (0x3c = 60). Surfaced via t5s_def so the
+    # climate target_temperature (t5s_def if not None) shows 60.0.
+    assert status.t5s_def == 60.0
+    assert status.set_temperature == 60
+    # No fault (STANDARD's error_code=1 is a misread); device Off (not running).
+    assert status.error_code == 0
+    assert status.comp_running is False
+    # raw_body preserved.
+    assert status.raw_body == bytes(KJRH120L_STATUS_BODY)
+    # The bogus fields the STANDARD decode produced must NOT be populated.
+    assert status.total_kwh in (None, 0)
+    assert status.comp_frq in (None, 0)
+    assert status.box_bottom_temp is None
+    assert status.tr_temperature is None
+    assert status.ptc_temperature is None
+    assert status.exv_drg in (None, 0)
+    assert status.comp_total_run_hours in (None, 0)
+    assert status.pressure_h in (None, 0)
+    assert status.pressure_l in (None, 0)
+
+
+def test_kjrh120l_status_setpoint_tracks_body15():
+    """body[15] is THE setpoint: 0x41 → 65 °C in an earlier captured state."""
+    body = bytearray(KJRH120L_STATUS_BODY)
+    body[15] = 0x41
+    status = decode_kjrh120l_status(bytes(body))
+    assert status.t5s_def == 65.0
+    assert status.set_temperature == 65
+
+
+def test_kjrh120l_status_short_frame_is_safe():
+    """A frame too short to carry body[15] decodes to all-defaults, no crash."""
+    status = decode_kjrh120l_status(bytes([0x01, 0x00]))
+    assert status.error_code == 0
+    assert status.t5s_def is None
+
+
+def test_kjrh120l_profile_applied_to_status_object():
+    """apply_profile_to_status(KJRH120L) re-decodes the frame via the KJRH layout."""
+    std = decode_its_status(KJRH120L_STATUS_BODY)
+    # Confirm the STANDARD decode misreads this frame (the garbage being fixed).
+    assert std.set_temperature == 66
+    assert std.t5s_def == -35.0
+    assert std.error_code == 1
+    assert std.comp_running is True
+    assert std.total_kwh == 1340
+    assert std.comp_frq == 6425
+
+    kjrh = apply_profile_to_status(ModelProfile.KJRH120L, std)
+    assert kjrh.mode_name == "Off"
+    assert kjrh.t5s_def == 60.0
+    assert kjrh.set_temperature == 60
+    assert kjrh.error_code == 0
+    assert kjrh.comp_running is False
+    assert kjrh.total_kwh in (None, 0)
+    assert kjrh.comp_frq in (None, 0)
+    assert kjrh.box_bottom_temp is None
+
+
+def test_kjrh120l_climate_target_temperature_shows_setpoint():
+    """climate target_temperature (t5s_def if not None) shows the DHW setpoint."""
+    status = decode_kjrh120l_status(KJRH120L_STATUS_BODY)
+    target = status.t5s_def if status.t5s_def is not None else float(status.set_temperature)
+    assert target == 60.0
+
+
+def test_kjrh120l_sensors_temps_suppressed():
+    """All temperature fields are suppressed (None) — water/outdoor not in API.
+
+    The sensors frame is static/cached and carries no live temps; the STANDARD
+    decode would emit a misleading constant -35 for every temp. The KJRH profile
+    nulls them so HA shows them unavailable instead of wrong.
+    """
+    sensors = decode_its_sensors(KJRH120L_SENSORS_BODY)
+    status = decode_kjrh120l_status(KJRH120L_STATUS_BODY)
+    out = apply_profile_to_sensors(ModelProfile.KJRH120L, sensors, status)
+
+    assert out.t3_temp is None
+    assert out.t4_temp is None
+    assert out.t2_temp is None
+    assert out.t2b_temp is None
+    assert out.twin_temp is None
+    assert out.twout_temp is None
+    assert out.t1_temp is None
+    # raw_body preserved.
+    assert out.raw_body == sensors.raw_body
 
 
 # ---------------------------------------------------------------------------
