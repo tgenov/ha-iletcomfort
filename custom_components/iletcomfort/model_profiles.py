@@ -171,14 +171,89 @@ def decode_atw_status(body: bytearray | bytes) -> ITSStatus:
     return status
 
 
+# ---------------------------------------------------------------------------
+# KJRH-120L profile (issues #21 / #5) — clean decode from real diagnostics
+# ---------------------------------------------------------------------------
+#
+# The KJRH-120L (sn8 17100003) connects via the short ffff query form
+# (build_query_command above), but its 95-byte status frame does NOT match the
+# STANDARD C3 layout. The STANDARD decoder misreads it and emits garbage — from
+# the reporter's real frame (device Off, app DHW setpoint 60 °C):
+#   set_temperature=66, t5s_def=-35, error_code=1 (fake fault),
+#   comp_running=True (it's Off), total_kwh=1340, comp_frq=6425, every temp -35.
+#
+# Only two status fields are confirmed across multiple captured states:
+#   body[2]  = mode (0x00 = Off; the standard modes map applies).
+#   body[15] = DHW setpoint in °C — DIRECT value (0x3c=60 here, 0x41=65 earlier).
+# This is THE setpoint. error_code is 0 (no fault) and the unit is Off
+# (comp_running False). Everything else in the frame is unmapped garbage for
+# this model and is left at the dataclass defaults (None/0).
+#
+# Water tank temp and outdoor temp are NOT decodable for this model — they do
+# not appear in the status frame and the sensors frame is static/cached (three
+# different water readings and two outdoor readings never appear in any byte).
+# We deliberately do not guess a mapping; apply_profile_to_sensors nulls every
+# temperature field so HA shows them unavailable instead of a wrong constant.
+
+KJRH120L_MODE_INDEX = 2
+KJRH120L_DHW_SETPOINT_INDEX = 15
+_KJRH120L_MODES = {0: "Off", 1: "Heat", 2: "Cool", 3: "Auto", 4: "Water Pump"}
+
+# Temperature fields suppressed for the KJRH-120L (not exposed by its API).
+_KJRH120L_SUPPRESSED_TEMPS = {
+    "t3_temp": None,
+    "t4_temp": None,
+    "t2_temp": None,
+    "t2b_temp": None,
+    "twin_temp": None,
+    "twout_temp": None,
+    "t1_temp": None,
+}
+
+
+def decode_kjrh120l_status(body: bytearray | bytes) -> ITSStatus:
+    """Decode a KJRH-120L (sn8 17100003) status frame into a clean ITSStatus.
+
+    Surfaces only the confirmed fields (mode from body[2], DHW setpoint from
+    body[15]) and suppresses the garbage the STANDARD decoder produces. See the
+    module-level notes for the full rationale.
+    """
+    status = ITSStatus()
+    status.raw_body = bytes(body)
+    body_len = len(body)
+
+    # No fault and not running are confirmed for every captured state.
+    status.error_code = 0
+    status.comp_running = False
+
+    if body_len > KJRH120L_MODE_INDEX:
+        status.mode = body[KJRH120L_MODE_INDEX]
+        status.mode_name = _KJRH120L_MODES.get(
+            status.mode, f"Unknown({status.mode})"
+        )
+
+    # DHW setpoint — direct °C value. Surfaced via t5s_def so the climate
+    # entity's target_temperature (t5s_def if not None) shows it; set_temperature
+    # is set too for the SET echo / future DHW-setpoint entity.
+    if body_len > KJRH120L_DHW_SETPOINT_INDEX:
+        setpoint = body[KJRH120L_DHW_SETPOINT_INDEX]
+        status.t5s_def = float(setpoint)
+        status.set_temperature = setpoint
+
+    return status
+
+
 def apply_profile_to_status(profile: ModelProfile, status: ITSStatus) -> ITSStatus:
     """Return the profile-canonical ITSStatus for a decoded status object.
 
     STANDARD and AQUAPURA return ``status`` untouched (AQUAPURA's only override
-    is on the sensors side). ATW re-decodes the raw frame via the ATW layout.
+    is on the sensors side). ATW re-decodes the raw frame via the ATW layout;
+    KJRH120L re-decodes it via the KJRH-120L layout (clean setpoint, no garbage).
     """
     if profile is ModelProfile.ATW:
         return decode_atw_status(status.raw_body)
+    if profile is ModelProfile.KJRH120L:
+        return decode_kjrh120l_status(status.raw_body)
     return status
 
 
@@ -203,7 +278,13 @@ def apply_profile_to_sensors(
     - AQUAPURA: ``status.box_bottom_temp`` (status byte[17], offset-decoded) is
       the water tank temperature the app shows; the STANDARD ``twin_temp`` source
       is null-filled to 0 on this model (issue #12).
+    - KJRH120L: water/outdoor temps are NOT exposed by this model's API (the
+      sensors frame is static/cached), so every temperature field is nulled — HA
+      shows them unavailable rather than the misleading constant -35 the STANDARD
+      decode would produce (issues #21 / #5).
     """
+    if profile is ModelProfile.KJRH120L:
+        return dataclasses.replace(sensors, **_KJRH120L_SUPPRESSED_TEMPS)
     if profile in (ModelProfile.ATW, ModelProfile.AQUAPURA):
         if status is not None and status.box_bottom_temp is not None:
             return dataclasses.replace(sensors, th_temp=status.box_bottom_temp)
@@ -219,5 +300,6 @@ __all__ = [
     "apply_profile_to_status",
     "build_query_command",
     "decode_atw_status",
+    "decode_kjrh120l_status",
     "resolve_profile",
 ]
