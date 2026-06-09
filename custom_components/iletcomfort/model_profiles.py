@@ -182,12 +182,16 @@ def decode_atw_status(body: bytearray | bytes) -> ITSStatus:
 #   set_temperature=66, t5s_def=-35, error_code=1 (fake fault),
 #   comp_running=True (it's Off), total_kwh=1340, comp_frq=6425, every temp -35.
 #
-# Only two status fields are confirmed across multiple captured states:
-#   body[2]  = mode (0x00 = Off; the standard modes map applies).
-#   body[15] = DHW setpoint in °C — DIRECT value (0x3c=60 here, 0x41=65 earlier).
-# This is THE setpoint. error_code is 0 (no fault) and the unit is Off
-# (comp_running False). Everything else in the frame is unmapped garbage for
-# this model and is left at the dataclass defaults (None/0).
+# Confirmed status fields across multiple captured states:
+#   body[10] = power state (0x00 = Off, non-zero = On). Found by diffing a real
+#              OFF frame vs a real ON frame (issue #35): body[10] is the only
+#              state byte that flips with power. body[2] stays 0x00 in BOTH the
+#              off and on captures, so it is NOT the power/mode byte.
+#   body[15] = DHW setpoint in °C — DIRECT value (0x3c=60, 0x41=65).
+# This is THE setpoint. error_code is 0 (no fault). comp_running is left False:
+# power-on is not a compressor-running signal and no compressor byte is
+# confirmed. Everything else in the frame is unmapped garbage for this model and
+# is left at the dataclass defaults (None/0).
 #
 # Water tank temp and outdoor temp are NOT decodable for this model — they do
 # not appear in the status frame and the sensors frame is static/cached (three
@@ -195,7 +199,13 @@ def decode_atw_status(body: bytearray | bytes) -> ITSStatus:
 # We deliberately do not guess a mapping; apply_profile_to_sensors nulls every
 # temperature field so HA shows them unavailable instead of a wrong constant.
 
-KJRH120L_MODE_INDEX = 2
+# body[10] carries the power state (0 = Off, non-zero = On). When On we report
+# mode 1 ("Heat"): climate.py's _QUERY_MODE_TO_HVAC maps query-mode 1 →
+# HVACMode.HEAT, a non-off state, so the card shows the unit ON and the Off
+# button becomes usable (HA no longer thinks it is already off).
+KJRH120L_POWER_INDEX = 10
+KJRH120L_MODE_OFF = 0
+KJRH120L_MODE_ON = 1
 KJRH120L_DHW_SETPOINT_INDEX = 15
 _KJRH120L_MODES = {0: "Off", 1: "Heat", 2: "Cool", 3: "Auto", 4: "Water Pump"}
 
@@ -214,7 +224,7 @@ _KJRH120L_SUPPRESSED_TEMPS = {
 def decode_kjrh120l_status(body: bytearray | bytes) -> ITSStatus:
     """Decode a KJRH-120L (sn8 17100003) status frame into a clean ITSStatus.
 
-    Surfaces only the confirmed fields (mode from body[2], DHW setpoint from
+    Surfaces only the confirmed fields (power from body[10], DHW setpoint from
     body[15]) and suppresses the garbage the STANDARD decoder produces. See the
     module-level notes for the full rationale.
     """
@@ -222,12 +232,20 @@ def decode_kjrh120l_status(body: bytearray | bytes) -> ITSStatus:
     status.raw_body = bytes(body)
     body_len = len(body)
 
-    # No fault and not running are confirmed for every captured state.
+    # No fault is confirmed for every captured state. comp_running stays False:
+    # power-on is not a compressor-running signal (no compressor byte confirmed).
     status.error_code = 0
     status.comp_running = False
 
-    if body_len > KJRH120L_MODE_INDEX:
-        status.mode = body[KJRH120L_MODE_INDEX]
+    # Power state from body[10]: 0 → Off, non-zero → On. When On we report mode 1
+    # ("Heat") so the climate entity resolves a non-off hvac_mode (HVACMode.HEAT)
+    # — making the card read ON and the Off button usable. Defaults to Off when
+    # the frame is too short to carry the power byte.
+    if body_len > KJRH120L_POWER_INDEX:
+        if body[KJRH120L_POWER_INDEX] == 0:
+            status.mode = KJRH120L_MODE_OFF
+        else:
+            status.mode = KJRH120L_MODE_ON
         status.mode_name = _KJRH120L_MODES.get(
             status.mode, f"Unknown({status.mode})"
         )
@@ -262,8 +280,11 @@ def decode_kjrh120l_status(body: bytearray | bytes) -> ITSStatus:
 # HEAT range, so the climate entity uses a profile-specific min/max.
 KJRH120L_DHW_ON = "00020101ff"
 KJRH120L_DHW_OFF = "00020100ff"
-KJRH120L_TEMP_MIN = 35
-KJRH120L_TEMP_MAX = 65
+# Setpoint range the official app allows for this HPWH (issue #35). Captured
+# setpoints (49/60/65 °C) sit above the air-side HEAT range, so the climate
+# entity uses this profile-specific min/max.
+KJRH120L_TEMP_MIN = 20
+KJRH120L_TEMP_MAX = 70
 
 
 def build_kjrh120l_set_temperature(temp: int) -> str:

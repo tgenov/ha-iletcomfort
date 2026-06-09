@@ -17,11 +17,13 @@ import pytest
 from custom_components.iletcomfort.api import ITSSensors, ITSStatus
 from custom_components.iletcomfort.climate import ILetComfortClimate
 from homeassistant.const import ATTR_TEMPERATURE
+from homeassistant.components.climate import HVACMode
 
 from custom_components.iletcomfort.model_profiles import (
     ATW_SN8,
     AQUAPURA_SN8,
     KJRH120L_SN8,
+    decode_kjrh120l_status,
 )
 
 
@@ -122,3 +124,52 @@ def test_non_kjrh_min_max_unchanged(sn8):
     entity = _climate(sn8, ITSSensors(), ITSStatus(mode=1))  # mode 1 → Heat
     assert entity.min_temp == 10.0
     assert entity.max_temp == 40.0
+
+
+def test_kjrh120l_min_max_widened_to_20_70():
+    """KJRH min/max widened to the app-allowed 20–70 °C (issue #35)."""
+    entity = _climate(KJRH120L_SN8, ITSSensors(), ITSStatus(mode=1))
+    assert entity.min_temp == 20.0
+    assert entity.max_temp == 70.0
+
+
+# --- KJRH-120L power read-back → hvac_mode (issue #35) --------------------
+# The OFF/ON frames differ only in body[10] (and the setpoint/timestamp). The
+# decode must derive power from body[10] so the climate card reads OFF for the
+# off frame and a non-off (HEAT) mode for the on frame — which also makes the
+# Off button usable (HA no longer thinks it is already off).
+_KJRH_OFF_BODY = bytes(
+    int(x, 16)
+    for x in (
+        "01,fe,00,00,00,42,00,56,00,00,00,03,41,1e,30,3c,00,00,00,00,00,00,01,"
+        "00,01,00,00,00,01,00,00,00,00,00,01,02,02,4b,23,19,05,37,19,19,05,3c,"
+        "22,46,14,13,00,01,01,02,03,01,01,e7,2f,ff,ff,ff,ff,ff,ff,ff,ff,ff,ff,"
+        "ff,30,ff,ff,ff,ff,00,00,00,01,00,00,00,00,00,17,07,14,0f,20,00,00,00,"
+        "00,00,ff"
+    ).split(",")
+)
+_KJRH_ON_BODY = bytes(
+    int(x, 16)
+    for x in (
+        "01,fe,00,00,00,42,00,56,00,00,01,03,41,1e,30,41,00,00,00,00,00,00,01,"
+        "00,01,00,00,00,01,00,00,00,00,00,01,02,02,4b,23,19,05,37,19,19,05,3c,"
+        "22,46,14,13,00,01,01,02,03,01,01,e7,2f,ff,ff,ff,ff,ff,ff,ff,ff,ff,ff,"
+        "ff,30,ff,ff,ff,ff,00,00,00,01,00,00,00,00,00,17,07,14,0f,20,00,00,00,"
+        "00,00,ff"
+    ).split(",")
+)
+
+
+def test_kjrh120l_hvac_mode_off_from_off_frame():
+    """The real OFF frame decodes to HVACMode.OFF on the climate entity."""
+    status = decode_kjrh120l_status(_KJRH_OFF_BODY)
+    entity = _climate(KJRH120L_SN8, ITSSensors(), status)
+    assert entity.hvac_mode == HVACMode.OFF
+
+
+def test_kjrh120l_hvac_mode_heat_from_on_frame():
+    """The real ON frame decodes to a non-off (HEAT) mode on the climate entity."""
+    status = decode_kjrh120l_status(_KJRH_ON_BODY)
+    entity = _climate(KJRH120L_SN8, ITSSensors(), status)
+    assert entity.hvac_mode != HVACMode.OFF
+    assert entity.hvac_mode == HVACMode.HEAT
