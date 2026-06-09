@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.1](https://github.com/tgenov/ha-iletcomfort/compare/v0.8.0...v0.8.1) (2026-06-09)
+
+
+### Bug Fixes
+
+* decode KJRH-120L power state (body[10]) and widen setpoint range to 20-70 ([#35](https://github.com/tgenov/ha-iletcomfort/issues/35)) ([#39](https://github.com/tgenov/ha-iletcomfort/issues/39)) ([b6eeaca](https://github.com/tgenov/ha-iletcomfort/commit/b6eeaca87117ef18e6a57b1320c17e65bda72f31))
+
 ## [0.8.0](https://github.com/tgenov/ha-iletcomfort/compare/v0.7.3...v0.8.0) (2026-06-08)
 
 
