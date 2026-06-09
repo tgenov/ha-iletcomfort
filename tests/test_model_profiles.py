@@ -30,6 +30,8 @@ from custom_components.iletcomfort.model_profiles import (
     KJRH120L_DHW_OFF,
     KJRH120L_DHW_ON,
     KJRH120L_SN8,
+    KJRH120L_TEMP_MAX,
+    KJRH120L_TEMP_MIN,
     ModelProfile,
     apply_profile_to_sensors,
     apply_profile_to_status,
@@ -297,12 +299,25 @@ def test_aquapura_ambient_unchanged():
 #   set_temperature=66, t5s_def=-35, error_code=1 (fake fault),
 #   comp_running=True (it's Off), total_kwh=1340, comp_frq=6425, sensors -35.
 # decode_kjrh120l_status surfaces only the CONFIRMED fields:
-#   - mode/mode_name from body[2] (0x00 → "Off")
+#   - power/mode from body[10] (0x00 → Off; non-zero → On/Heat). body[2] stays
+#     0x00 even when the unit is on, so it is NOT the power byte (issue #35).
 #   - DHW setpoint from body[15] (direct °C; 0x3c → 60), surfaced via t5s_def so
 #     the climate target_temperature reads it.
 #   - error_code = 0, comp_running = False; everything else left at defaults.
+#
+# This is the OFF capture: body[10] = 0x00, setpoint body[15] = 0x3c (60 °C).
 KJRH120L_STATUS_BODY = _bytes(
     "01,fe,00,00,00,42,00,56,00,00,00,03,41,1e,30,3c,00,00,00,00,00,00,01,"
+    "00,01,00,00,00,01,00,00,00,00,00,01,02,02,4b,23,19,05,37,19,19,05,3c,"
+    "22,46,14,13,00,01,01,02,03,01,01,e7,2f,ff,ff,ff,ff,ff,ff,ff,ff,ff,ff,"
+    "ff,30,ff,ff,ff,ff,00,00,00,01,00,00,00,00,00,17,07,14,0f,20,00,00,00,"
+    "00,00,ff"
+)
+
+# Real ON capture — body[10] = 0x01 (the only state byte that flips vs the OFF
+# frame besides the setpoint and timestamp tail), setpoint body[15] = 0x41 (65).
+KJRH120L_STATUS_BODY_ON = _bytes(
+    "01,fe,00,00,00,42,00,56,00,00,01,03,41,1e,30,41,00,00,00,00,00,00,01,"
     "00,01,00,00,00,01,00,00,00,00,00,01,02,02,4b,23,19,05,37,19,19,05,3c,"
     "22,46,14,13,00,01,01,02,03,01,01,e7,2f,ff,ff,ff,ff,ff,ff,ff,ff,ff,ff,"
     "ff,30,ff,ff,ff,ff,00,00,00,01,00,00,00,00,00,17,07,14,0f,20,00,00,00,"
@@ -323,7 +338,7 @@ def test_kjrh120l_status_surfaces_confirmed_setpoint_only():
     """The KJRH-120L status decode surfaces only confirmed fields (setpoint 60)."""
     status = decode_kjrh120l_status(KJRH120L_STATUS_BODY)
 
-    # body[2] = mode (0x00 → Off).
+    # body[10] = power (0x00 → Off → mode 0).
     assert status.mode == 0
     assert status.mode_name == "Off"
     # body[15] = DHW setpoint, direct °C (0x3c = 60). Surfaced via t5s_def so the
@@ -356,11 +371,54 @@ def test_kjrh120l_status_setpoint_tracks_body15():
     assert status.set_temperature == 65
 
 
+def test_kjrh120l_status_power_off_from_body10():
+    """OFF capture: body[10] == 0x00 → mode 0 / "Off" (climate hvac OFF)."""
+    status = decode_kjrh120l_status(KJRH120L_STATUS_BODY)
+    assert status.mode == 0
+    assert status.mode_name == "Off"
+
+
+def test_kjrh120l_status_power_on_from_body10():
+    """ON capture: body[10] == 0x01 → non-off heating mode so HA shows it on.
+
+    mode 1 maps to HVACMode.HEAT in climate.py (_QUERY_MODE_TO_HVAC), which is a
+    non-off state — this is what makes the climate card read ON and the Off
+    button usable. body[15] = 0x41 → 65 °C setpoint in this capture.
+    """
+    status = decode_kjrh120l_status(KJRH120L_STATUS_BODY_ON)
+    assert status.mode == 1
+    assert status.mode != 0  # explicitly NOT off
+    assert status.mode_name == "Heat"
+    assert status.t5s_def == 65.0
+    assert status.set_temperature == 65
+    # Power-on is not a compressor-running signal; leave it False (none confirmed).
+    assert status.comp_running is False
+    assert status.error_code == 0
+
+
+def test_kjrh120l_status_power_byte_is_body10_not_body2():
+    """body[2] stays 0x00 in both captures; only body[10] flips with power."""
+    assert KJRH120L_STATUS_BODY[2] == 0x00
+    assert KJRH120L_STATUS_BODY_ON[2] == 0x00
+    assert KJRH120L_STATUS_BODY[10] == 0x00
+    assert KJRH120L_STATUS_BODY_ON[10] == 0x01
+    assert decode_kjrh120l_status(KJRH120L_STATUS_BODY).mode == 0
+    assert decode_kjrh120l_status(KJRH120L_STATUS_BODY_ON).mode == 1
+
+
 def test_kjrh120l_status_short_frame_is_safe():
-    """A frame too short to carry body[15] decodes to all-defaults, no crash."""
+    """A frame too short to carry body[15]/body[10] decodes safe, no crash."""
     status = decode_kjrh120l_status(bytes([0x01, 0x00]))
     assert status.error_code == 0
     assert status.t5s_def is None
+    # Defaults to Off when the power byte is absent.
+    assert status.mode == 0
+
+
+def test_kjrh120l_temp_range_is_20_to_70():
+    """Setpoint clamp widened to the app-allowed 20–70 °C (issue #35)."""
+    assert KJRH120L_TEMP_MIN == 20
+    assert KJRH120L_TEMP_MAX == 70
 
 
 def test_kjrh120l_profile_applied_to_status_object():
