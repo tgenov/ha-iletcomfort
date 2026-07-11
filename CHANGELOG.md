@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.2](https://github.com/tgenov/ha-iletcomfort/compare/v0.8.1...v0.8.2) (2026-07-11)
+
+
+### Bug Fixes
+
+* only WARN on sustained cache-fallback failures, DEBUG for transient cloud/DNS blips ([#44](https://github.com/tgenov/ha-iletcomfort/issues/44)) ([#45](https://github.com/tgenov/ha-iletcomfort/issues/45)) ([ae74752](https://github.com/tgenov/ha-iletcomfort/commit/ae74752b4b93e5e7371979edd4a70d280514b5c2))
+
 ## [0.8.1](https://github.com/tgenov/ha-iletcomfort/compare/v0.8.0...v0.8.1) (2026-06-09)
 
 
