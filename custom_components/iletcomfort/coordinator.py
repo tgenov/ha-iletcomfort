@@ -43,6 +43,15 @@ _LOGGER = logging.getLogger(__name__)
 OFFLINE_REPAIR_THRESHOLD = 5
 OFFLINE_REPAIR_ID = "device_offline_{entry_id}"
 
+# Number of *consecutive* polls a single query (status or sensors) must fall
+# back to cache before its cache-fallback is escalated to a WARNING. On a flaky
+# vendor cloud (transient 502/RemoteDisconnected/code=1214 or a local DNS blip)
+# an isolated or intermittent failure is expected and harmless — the poll reuses
+# the last good data and recovers next time — so those stay at DEBUG. Only a
+# failure that *persists* this many polls (~5 min at the 60s interval, the same
+# cadence as the offline Repair card) warrants a single WARNING (issue #44).
+SUSTAINED_FAILURE_THRESHOLD = 5
+
 
 class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     """Coordinator that polls the iLetComfort cloud API."""
@@ -68,11 +77,15 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             / f"iletcomfort_token_{entry.entry_id}"
         )
         self._last_on_state: tuple[int, int] | None = None
-        # Track per-query cache-fallback state so a persistently failing
-        # device (e.g. the truncated frames in issue #5) warns once on entry
-        # and stays quiet at DEBUG afterwards instead of spamming every poll.
+        # Track per-query cache-fallback state. ``_status_degraded`` /
+        # ``_sensors_degraded`` drive the offline Repair card (issue #5). The
+        # ``*_fail_streak`` counters drive log-level escalation: a query only
+        # WARNs once its cache-fallback has persisted SUSTAINED_FAILURE_THRESHOLD
+        # consecutive polls, so a flaky-cloud blip stays at DEBUG (issue #44).
         self._status_degraded = False
         self._sensors_degraded = False
+        self._status_fail_streak = 0
+        self._sensors_fail_streak = 0
         self._consecutive_both_degraded = 0
         self._repair_issued = False
 
@@ -112,20 +125,40 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise UpdateFailed(f"Error: {err}") from err
 
     @staticmethod
-    def _log_cache_fallback(what: str, err: Exception, already_degraded: bool) -> bool:
-        """Log a query cache-fallback, warning only on entry into the degraded state.
+    def _log_cache_fallback(what: str, err: Exception, fail_streak: int) -> int:
+        """Log a query cache-fallback and return the updated failure streak.
 
-        Returns the new degraded flag (always True). The first failure logs at
-        WARNING; while the condition persists subsequent polls log at DEBUG so an
-        expected, repeating transient (e.g. issue #5 truncated frames) does not
-        spam the log every poll.
+        ``fail_streak`` is the number of consecutive polls this query has fallen
+        back to cache, *before* this failure. A one-off or intermittent blip on a
+        flaky vendor cloud is expected and harmless (the poll reuses cached data
+        and recovers next time), so it logs at DEBUG. Only when the streak reaches
+        SUSTAINED_FAILURE_THRESHOLD do we escalate to a single WARNING; further
+        sustained failures fall back to DEBUG so the log isn't flooded (issue #44).
         """
+        fail_streak += 1
         msg = "%s query failed, using cache: %s"
-        if already_degraded:
-            _LOGGER.debug(msg, what, err)
-        else:
+        if fail_streak == SUSTAINED_FAILURE_THRESHOLD:
             _LOGGER.warning(msg, what, err)
-        return True
+        else:
+            _LOGGER.debug(msg, what, err)
+        return fail_streak
+
+    @staticmethod
+    def _note_query_recovery(what: str, fail_streak: int) -> int:
+        """Reset a query's failure streak on success, returning 0.
+
+        If the query had been in the sustained-WARNING state (its streak reached
+        SUSTAINED_FAILURE_THRESHOLD), emit a single INFO so a genuinely stuck
+        query that recovers leaves a matching "recovered" breadcrumb; ordinary
+        blips below the threshold recover silently (issue #44).
+        """
+        if fail_streak >= SUSTAINED_FAILURE_THRESHOLD:
+            _LOGGER.info(
+                "%s query recovered after %d sustained cache-fallback polls",
+                what,
+                fail_streak,
+            )
+        return 0
 
     async def _poll(self) -> dict[str, Any]:
         """Run the actual polling calls in the executor."""
@@ -137,6 +170,9 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self.client.query_status, self.appliance_code, sn8,
             )
             self._status_degraded = False
+            self._status_fail_streak = self._note_query_recovery(
+                "Status", self._status_fail_streak,
+            )
         except AuthError:
             raise  # bubble up for re-auth
         except Exception as err:
@@ -144,8 +180,9 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if cached_status is None:
                 raise
             status = cached_status
-            self._status_degraded = self._log_cache_fallback(
-                "Status", err, self._status_degraded,
+            self._status_degraded = True
+            self._status_fail_streak = self._log_cache_fallback(
+                "Status", err, self._status_fail_streak,
             )
 
         await asyncio.sleep(2)
@@ -155,6 +192,9 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self.client.query_sensors, self.appliance_code, sn8,
             )
             self._sensors_degraded = False
+            self._sensors_fail_streak = self._note_query_recovery(
+                "Sensors", self._sensors_fail_streak,
+            )
         except AuthError:
             raise  # bubble up for re-auth
         except Exception as err:
@@ -162,8 +202,9 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if cached_sensors is None:
                 raise
             sensors = cached_sensors
-            self._sensors_degraded = self._log_cache_fallback(
-                "Sensors", err, self._sensors_degraded,
+            self._sensors_degraded = True
+            self._sensors_fail_streak = self._log_cache_fallback(
+                "Sensors", err, self._sensors_fail_streak,
             )
 
         if status.raw_body:

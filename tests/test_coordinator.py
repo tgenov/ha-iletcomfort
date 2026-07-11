@@ -20,6 +20,7 @@ from custom_components.iletcomfort.const import (
 from custom_components.iletcomfort.coordinator import (
     OFFLINE_REPAIR_ID,
     OFFLINE_REPAIR_THRESHOLD,
+    SUSTAINED_FAILURE_THRESHOLD,
     ILetComfortCoordinator,
 )
 
@@ -127,14 +128,14 @@ async def test_poll_falls_back_to_cache_on_truncated_frame(hass: HomeAssistant):
     assert result["sensors"] is cached_sensors
 
 
-async def test_repeated_truncated_polls_warn_once_then_debug(
+async def test_single_transient_failure_logs_debug_not_warning(
     hass: HomeAssistant, caplog
 ):
-    """A persistently failing device must warn once, then stay quiet at DEBUG.
+    """A one-off cloud/DNS blip (fail then success) must stay at DEBUG.
 
-    Issue #5: without this, every 60s poll logged a WARNING for the same
-    expected transient condition, reproducing the warning spam this change
-    set out to remove.
+    Issue #44: on a flaky vendor cloud an isolated 502/RemoteDisconnected/DNS
+    failure is expected and harmless (the poll falls back to cache and recovers
+    next time), so it must not surface a WARNING.
     """
     import logging
 
@@ -147,22 +148,154 @@ async def test_repeated_truncated_polls_warn_once_then_debug(
 
     client = mock_cls.return_value
     coord.data = {"status": ITSStatus(mode=1), "sensors": ITSSensors()}
-    client.query_status.side_effect = ApiError("truncated frame")
-    client.query_sensors.side_effect = ApiError("truncated frame")
+
+    with patch(
+        "custom_components.iletcomfort.coordinator.asyncio.sleep",
+        new=AsyncMock(),
+    ):
+        # One failing poll ...
+        client.query_status.side_effect = ApiError("502 Bad Gateway")
+        client.query_sensors.side_effect = ApiError("502 Bad Gateway")
+        with caplog.at_level(logging.DEBUG):
+            await coord._poll()
+
+        # ... immediately followed by a healthy one.
+        client.query_status.side_effect = None
+        client.query_status.return_value = ITSStatus(mode=1)
+        client.query_sensors.side_effect = None
+        client.query_sensors.return_value = ITSSensors()
+        await coord._poll()
+
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert not warnings
+    debug_fallbacks = [
+        r
+        for r in caplog.records
+        if r.levelno == logging.DEBUG and "using cache" in r.getMessage()
+    ]
+    assert len(debug_fallbacks) == 2  # status + sensors, both at DEBUG
+
+
+async def test_intermittent_failures_never_warn(hass: HomeAssistant, caplog):
+    """fail → success → fail → success must never escalate to WARNING.
+
+    Issue #44: the old "warn on entry to degraded, reset on success" logic
+    re-warned on every fresh failure, so an intermittent flaky cloud produced
+    hundreds of WARNINGs. Because success resets the streak, no query ever
+    reaches the sustained threshold here.
+    """
+    import logging
+
+    entry = _entry(REGION_US)
+    entry.add_to_hass(hass)
+    with patch(
+        "custom_components.iletcomfort.coordinator.ILetComfortClient"
+    ) as mock_cls:
+        coord = ILetComfortCoordinator(hass, entry)
+
+    client = mock_cls.return_value
+    coord.data = {"status": ITSStatus(mode=1), "sensors": ITSSensors()}
+    good_status = ITSStatus(mode=1)
+    good_sensors = ITSSensors()
 
     with patch(
         "custom_components.iletcomfort.coordinator.asyncio.sleep",
         new=AsyncMock(),
     ):
         with caplog.at_level(logging.WARNING):
-            await coord._poll()
-        first_warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
-        assert len(first_warnings) == 2  # one each for status + sensors
+            for _ in range(6):
+                # Fail this poll.
+                client.query_status.side_effect = ApiError("code=1214, msg=System error")
+                client.query_sensors.side_effect = ApiError("RemoteDisconnected")
+                await coord._poll()
+                # Recover next poll.
+                client.query_status.side_effect = None
+                client.query_status.return_value = good_status
+                client.query_sensors.side_effect = None
+                client.query_sensors.return_value = good_sensors
+                await coord._poll()
 
-        caplog.clear()
-        with caplog.at_level(logging.WARNING):
+    assert not [r for r in caplog.records if r.levelno == logging.WARNING]
+
+
+async def test_sustained_failures_warn_once_at_threshold_then_debug(
+    hass: HomeAssistant, caplog
+):
+    """SUSTAINED_FAILURE_THRESHOLD consecutive failures warn exactly once.
+
+    Issue #44: DEBUG for every poll below the threshold, a single WARNING at
+    the threshold poll, then DEBUG again for the ongoing sustained failure so
+    a genuinely stuck state is flagged once without flooding the log.
+    """
+    import logging
+
+    entry = _entry(REGION_US)
+    entry.add_to_hass(hass)
+    with patch(
+        "custom_components.iletcomfort.coordinator.ILetComfortClient"
+    ) as mock_cls:
+        coord = ILetComfortCoordinator(hass, entry)
+
+    client = mock_cls.return_value
+    coord.data = {"status": ITSStatus(mode=1), "sensors": ITSSensors()}
+    client.query_status.side_effect = ApiError("502 Bad Gateway")
+    client.query_sensors.side_effect = ApiError("502 Bad Gateway")
+
+    total_polls = SUSTAINED_FAILURE_THRESHOLD + 2
+    warning_polls: list[int] = []
+
+    with patch(
+        "custom_components.iletcomfort.coordinator.asyncio.sleep",
+        new=AsyncMock(),
+    ):
+        with caplog.at_level(logging.DEBUG):
+            for poll in range(1, total_polls + 1):
+                caplog.clear()
+                await coord._poll()
+                if [r for r in caplog.records if r.levelno == logging.WARNING]:
+                    warning_polls.append(poll)
+
+    # Exactly one poll warned, and it was the threshold poll — one WARNING per
+    # query (status + sensors) on that poll only.
+    assert warning_polls == [SUSTAINED_FAILURE_THRESHOLD]
+
+
+async def test_recovery_after_sustained_logs_info_once(hass: HomeAssistant, caplog):
+    """Recovering out of the sustained-WARNING state logs a single INFO."""
+    import logging
+
+    entry = _entry(REGION_US)
+    entry.add_to_hass(hass)
+    with patch(
+        "custom_components.iletcomfort.coordinator.ILetComfortClient"
+    ) as mock_cls:
+        coord = ILetComfortCoordinator(hass, entry)
+
+    client = mock_cls.return_value
+    coord.data = {"status": ITSStatus(mode=1), "sensors": ITSSensors()}
+    client.query_status.side_effect = ApiError("502 Bad Gateway")
+    client.query_sensors.side_effect = ApiError("502 Bad Gateway")
+
+    with patch(
+        "custom_components.iletcomfort.coordinator.asyncio.sleep",
+        new=AsyncMock(),
+    ):
+        for _ in range(SUSTAINED_FAILURE_THRESHOLD):
             await coord._poll()
-        assert not [r for r in caplog.records if r.levelno == logging.WARNING]
+
+        client.query_status.side_effect = None
+        client.query_status.return_value = ITSStatus(mode=1)
+        client.query_sensors.side_effect = None
+        client.query_sensors.return_value = ITSSensors()
+        with caplog.at_level(logging.INFO):
+            await coord._poll()
+
+    recovered = [
+        r
+        for r in caplog.records
+        if r.levelno == logging.INFO and "recovered" in r.getMessage()
+    ]
+    assert len(recovered) == 2  # one each for status + sensors
 
 
 async def test_first_refresh_populates_appliance_meta_by_code(hass: HomeAssistant):
