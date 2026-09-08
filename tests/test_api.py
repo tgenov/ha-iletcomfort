@@ -420,7 +420,10 @@ def test_status_flag_zero_and_no_frequency_keeps_compressor_off():
 def test_set_device_refuses_unrecognized_status_mode(changes):
     """An unfamiliar layout must never become an OFF command (issue #47)."""
     client = _make_client()
-    body = bytes([1, 1, 19]) + bytes(22)
+    # Actual status body from the reporter's diagnostics (no identifiers).
+    body = bytes.fromhex(
+        "01 01 13 00 02 02 17 17 32 30 41 23 19 05 37 19 19 05 3c 22 3c 14 19 00 80"
+    )
     with patch.object(client, "send_hex_command", return_value=_c3_frame(body)) as send:
         with pytest.raises(ApiError, match="Unrecognized status mode"):
             client.set_device("APPL1", **changes)
