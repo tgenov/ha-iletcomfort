@@ -396,3 +396,48 @@ async def test_same_device_added_twice_aborts(hass: HomeAssistant):
 
     assert result["type"] == data_entry_flow.FlowResultType.ABORT
     assert result["reason"] == "already_configured"
+
+
+# --- options flow: MQTT push toggle (issue #55) ------------------------------
+
+async def test_options_flow_defaults_to_push_disabled(hass: HomeAssistant):
+    from custom_components.iletcomfort.const import CONF_ENABLE_MQTT_PUSH
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id=f"{EMAIL}:APPL1",
+        data={
+            CONF_EMAIL: EMAIL, CONF_PASSWORD: PASSWORD,
+            CONF_APPLIANCE_CODE: "APPL1", CONF_REGION: REGION_US,
+        },
+        version=2,
+    )
+    entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    assert result["type"] == data_entry_flow.FlowResultType.FORM
+    assert result["step_id"] == "init"
+    schema_keys = {str(k.schema): k for k in result["data_schema"].schema}
+    assert CONF_ENABLE_MQTT_PUSH in schema_keys
+
+
+async def test_options_flow_enables_push(hass: HomeAssistant):
+    from custom_components.iletcomfort.const import CONF_ENABLE_MQTT_PUSH
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id=f"{EMAIL}:APPL1",
+        data={
+            CONF_EMAIL: EMAIL, CONF_PASSWORD: PASSWORD,
+            CONF_APPLIANCE_CODE: "APPL1", CONF_REGION: REGION_US,
+        },
+        version=2,
+    )
+    entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], user_input={CONF_ENABLE_MQTT_PUSH: True},
+    )
+    assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
+    assert entry.options[CONF_ENABLE_MQTT_PUSH] is True

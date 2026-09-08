@@ -41,5 +41,16 @@
       "title": "Heat pump appears offline",
       "description": "Home Assistant has been receiving empty responses from device `{appliance_code}` for several minutes, so entities are showing the last known values. This usually means the heat pump has lost its connection to the iLetComfort cloud, or has been powered off. Check the device in the official iLetComfort / BTRI mobile app — if it shows as offline there too, the issue is on the device or vendor cloud side, not Home Assistant. The card will clear automatically once the device starts responding again."
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "iLetComfort options",
+        "description": "MQTT push is experimental. When enabled, the integration opens a real-time connection to the vendor's cloud using a certificate that authenticates independently of your account login, so status keeps updating even while the iLetComfort app is open (it works around the one-active-session limit). Home Assistant keeps polling at a slow backstop rate and takes over fully if push drops. Leave this off to keep the current polling-only behaviour.",
+        "data": {
+          "enable_mqtt_push": "Enable experimental MQTT real-time push"
+        }
+      }
+    }
   }
 }

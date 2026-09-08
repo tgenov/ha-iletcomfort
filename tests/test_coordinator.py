@@ -672,3 +672,142 @@ async def test_metadata_retries_a_record_without_model_code(hass: HomeAssistant)
     assert coord.sn8 is None
     await coord._ensure_appliance_meta()
     assert coord.sn8 == "171H120F"
+
+
+# --- MQTT push wiring (issue #55) -------------------------------------------
+
+def _entry_push(enabled: bool) -> MockConfigEntry:
+    from custom_components.iletcomfort.const import CONF_ENABLE_MQTT_PUSH
+    return MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="user@example.com:APPL1",
+        data={
+            CONF_EMAIL: "user@example.com",
+            CONF_PASSWORD: "secret",
+            CONF_APPLIANCE_CODE: "APPL1",
+            CONF_REGION: REGION_US,
+        },
+        options={CONF_ENABLE_MQTT_PUSH: enabled},
+        version=2,
+    )
+
+
+async def test_push_disabled_by_default_no_client_no_interval_change(hass: HomeAssistant):
+    """Flag off: no push client, poll interval unchanged — zero regression."""
+    from custom_components.iletcomfort.const import DEFAULT_SCAN_INTERVAL
+
+    entry = _entry(REGION_US)  # no options at all
+    entry.add_to_hass(hass)
+    coordinator = ILetComfortCoordinator(hass, entry)
+
+    with patch(
+        "custom_components.iletcomfort.coordinator.ILetComfortPushClient"
+    ) as push_cls:
+        await coordinator.async_start_push()
+
+    push_cls.assert_not_called()
+    assert coordinator.update_interval.total_seconds() == DEFAULT_SCAN_INTERVAL
+
+
+async def test_push_enabled_starts_client(hass: HomeAssistant):
+    entry = _entry_push(True)
+    entry.add_to_hass(hass)
+    coordinator = ILetComfortCoordinator(hass, entry)
+
+    with patch(
+        "custom_components.iletcomfort.coordinator.ILetComfortPushClient"
+    ) as push_cls:
+        instance = push_cls.return_value
+        instance.async_start = AsyncMock()
+        await coordinator.async_start_push()
+
+    push_cls.assert_called_once()
+    instance.async_start.assert_awaited_once()
+    # scoped to this appliance + region
+    assert push_cls.call_args.kwargs["appliance_code"] == "APPL1"
+    assert push_cls.call_args.kwargs["region"] == REGION_US
+
+
+async def test_push_status_updates_data_keeping_sensors(hass: HomeAssistant):
+    entry = _entry_push(True)
+    entry.add_to_hass(hass)
+    coordinator = ILetComfortCoordinator(hass, entry)
+
+    prior_sensors = ITSSensors()
+    coordinator.async_set_updated_data(
+        {"status": ITSStatus(mode=0), "sensors": prior_sensors}
+    )
+
+    pushed = ITSStatus(mode=1, set_temperature=42)
+    coordinator._apply_push_status(pushed)
+
+    assert coordinator.data["status"].mode == 1
+    assert coordinator.data["status"].set_temperature == 42
+    # sensors come from the poll, not the push — keep the last good ones
+    assert coordinator.data["sensors"] is prior_sensors
+
+
+async def test_push_status_ignored_before_first_poll(hass: HomeAssistant):
+    """A push arriving before any poll data must not crash."""
+    entry = _entry_push(True)
+    entry.add_to_hass(hass)
+    coordinator = ILetComfortCoordinator(hass, entry)
+
+    coordinator._apply_push_status(ITSStatus(mode=1))  # data is None
+    # a push before the first poll is ignored, not published with no sensors
+    assert coordinator.data is None
+
+
+async def test_push_connected_slows_poll_disconnected_restores(hass: HomeAssistant):
+    from custom_components.iletcomfort.const import (
+        DEFAULT_SCAN_INTERVAL,
+        PUSH_BACKSTOP_SCAN_INTERVAL,
+    )
+
+    entry = _entry_push(True)
+    entry.add_to_hass(hass)
+    coordinator = ILetComfortCoordinator(hass, entry)
+
+    with patch.object(coordinator, "async_request_refresh", new=AsyncMock()):
+        coordinator._apply_push_connected(True)
+        assert (
+            coordinator.update_interval.total_seconds()
+            == PUSH_BACKSTOP_SCAN_INTERVAL
+        )
+
+        coordinator._apply_push_connected(False)
+        assert coordinator.update_interval.total_seconds() == DEFAULT_SCAN_INTERVAL
+    await hass.async_block_till_done()
+
+
+async def test_push_disconnect_forces_immediate_refresh(hass: HomeAssistant):
+    """On drop, don't wait out the slow backstop interval — refresh now."""
+    entry = _entry_push(True)
+    entry.add_to_hass(hass)
+    coordinator = ILetComfortCoordinator(hass, entry)
+
+    with patch.object(
+        coordinator, "async_request_refresh", new=AsyncMock()
+    ) as refresh:
+        coordinator._apply_push_connected(True)
+        coordinator._apply_push_connected(False)
+        await hass.async_block_till_done()
+
+    refresh.assert_awaited()
+
+
+async def test_async_stop_push_stops_client(hass: HomeAssistant):
+    entry = _entry_push(True)
+    entry.add_to_hass(hass)
+    coordinator = ILetComfortCoordinator(hass, entry)
+
+    with patch(
+        "custom_components.iletcomfort.coordinator.ILetComfortPushClient"
+    ) as push_cls:
+        instance = push_cls.return_value
+        instance.async_start = AsyncMock()
+        instance.async_stop = AsyncMock()
+        await coordinator.async_start_push()
+        await coordinator.async_stop_push()
+
+    instance.async_stop.assert_awaited_once()

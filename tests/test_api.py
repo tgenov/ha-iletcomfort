@@ -447,3 +447,77 @@ def test_set_device_does_not_turn_auto_off_for_boost():
         with pytest.raises(ApiError, match="Cannot preserve Auto mode"):
             client.set_device("APPL1", boost=True)
     assert send.call_count == 1
+
+
+# --- App client certificate issuance (MQTT push, issue #55) --------------------
+
+def test_create_app_cert_returns_bundle_from_data():
+    client = _make_client()
+    client.access_token = "TOKEN"
+    resp = {
+        "code": 0,
+        "data": {
+            "privateKey": "-----BEGIN RSA PRIVATE KEY-----\nAAA\n-----END RSA PRIVATE KEY-----",
+            "certificatePem": "-----BEGIN CERTIFICATE-----\nBBB\n-----END CERTIFICATE-----",
+            "endpoint": "a39t91kk7ictzi-ats.iot.us-west-2.amazonaws.com",
+            "port": "8883",
+        },
+    }
+    with patch.object(client, "_v1_request", return_value=resp) as mock_req:
+        cert = client.create_app_cert()
+
+    # iot-key signing + the accessToken header are what this endpoint requires.
+    assert mock_req.call_args.kwargs["use_iot_key"] is True
+    assert mock_req.call_args.kwargs["include_access_token"] is True
+    assert mock_req.call_args.args[0] == "/v1/certificate/create/app/cert"
+    assert cert.private_key.startswith("-----BEGIN RSA PRIVATE KEY-----")
+    assert cert.certificate_pem.startswith("-----BEGIN CERTIFICATE-----")
+    assert cert.endpoint == "a39t91kk7ictzi-ats.iot.us-west-2.amazonaws.com"
+    assert cert.port == 8883
+
+
+def test_create_app_cert_repr_does_not_leak_key_material():
+    """A cert bundle must never render its private key in logs/reprs."""
+    client = _make_client()
+    client.access_token = "TOKEN"
+    resp = {"code": 0, "data": {
+        "privateKey": "-----BEGIN RSA PRIVATE KEY-----\nSECRETKEYBYTES\n-----END RSA PRIVATE KEY-----",
+        "certificatePem": "-----BEGIN CERTIFICATE-----\nCERTBYTES\n-----END CERTIFICATE-----",
+        "endpoint": "broker.invalid", "port": "8883"}}
+    with patch.object(client, "_v1_request", return_value=resp):
+        cert = client.create_app_cert()
+
+    assert "SECRETKEYBYTES" not in repr(cert)
+    assert "CERTBYTES" not in repr(cert)
+
+
+def test_create_app_cert_raises_api_error_on_failure():
+    client = _make_client()
+    client.access_token = "TOKEN"
+    with patch.object(client, "_v1_request", return_value={"code": 5, "msg": "No login credential"}):
+        with pytest.raises(ApiError) as exc:
+            client.create_app_cert()
+    assert "5" in str(exc.value)
+
+
+def test_v1_request_includes_access_token_header_when_requested():
+    client = _make_client()
+    client.access_token = "TOKENVALUE"
+    captured = {}
+
+    class _Resp:
+        def raise_for_status(self): ...
+        def json(self): return {"code": 0, "data": {}}
+
+    def fake_post(url, data=None, headers=None, timeout=None):
+        captured["headers"] = headers
+        return _Resp()
+
+    with patch.object(client._session, "post", side_effect=fake_post):
+        client._v1_request("/x", {}, use_iot_key=True, include_access_token=True)
+    assert captured["headers"]["accessToken"] == "TOKENVALUE"
+
+    captured.clear()
+    with patch.object(client._session, "post", side_effect=fake_post):
+        client._v1_request("/x", {}, use_iot_key=True)
+    assert "accessToken" not in captured["headers"]
