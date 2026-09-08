@@ -799,7 +799,14 @@ class ILetComfortClient:
         _body_type, status_body = extract_c3_body(raw)
         status = decode_its_status(status_body)
 
-        current_set_mode = QUERY_TO_SET_MODE.get(status.mode, MODE_OFF)
+        # An unknown mode can mean this model uses a different status layout.
+        # Even an explicit mode override cannot make its echoed bytes safe.
+        if status.mode not in (*QUERY_TO_SET_MODE, 3):
+            raise ApiError(
+                f"Unrecognized status mode {status.mode}; refusing to send a "
+                "control command using an unvalidated status layout"
+            )
+        current_set_mode = QUERY_TO_SET_MODE.get(status.mode)
 
         # Handle power_on: restore last on-state
         if power_on and last_on_state is not None:
@@ -809,6 +816,11 @@ class ILetComfortClient:
                 temperature = last_on_state[1]
 
         eff_mode = mode if mode is not None else current_set_mode
+        if eff_mode is None:
+            raise ApiError(
+                "Cannot preserve Auto mode in a control command; "
+                "select an explicit operating mode first"
+            )
         # Use active mode setpoint (t5s_def, offset-decoded) not DHW target (set_temperature)
         if temperature is not None:
             eff_temp = temperature

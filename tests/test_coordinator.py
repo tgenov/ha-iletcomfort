@@ -603,3 +603,72 @@ async def test_offline_repair_card_reraised_after_recovery_then_redegradation(
             await coord._poll()
 
     assert registry.async_get_issue(DOMAIN, issue_id) is not None
+
+
+async def test_poll_recovers_missing_model_metadata(hass: HomeAssistant):
+    """A failed startup lookup must not pin subsequent polls to STANDARD."""
+    entry = _entry(REGION_EU)
+    entry.add_to_hass(hass)
+    with patch("custom_components.iletcomfort.coordinator.ILetComfortClient") as cls:
+        coord = ILetComfortCoordinator(hass, entry)
+    client = cls.return_value
+    matching = {"applianceCode": "APPL1", "sn8": "171H120F"}
+    client.list_appliances.side_effect = [ApiError("temporary failure"), [matching]]
+    await coord._ensure_appliance_meta()
+    assert coord.appliance_meta is None
+    client.query_status.return_value = ITSStatus()
+    client.query_sensors.return_value = ITSSensors()
+    with patch("custom_components.iletcomfort.coordinator.asyncio.sleep", new=AsyncMock()):
+        await coord._poll()
+        await coord._poll()
+    assert coord.appliance_meta == matching
+    client.query_status.assert_called_with("APPL1", "171H120F")
+    assert client.list_appliances.call_count == 2
+
+
+async def test_metadata_never_uses_a_different_appliance(hass: HomeAssistant):
+    entry = _entry(REGION_EU)
+    entry.add_to_hass(hass)
+    with patch("custom_components.iletcomfort.coordinator.ILetComfortClient") as cls:
+        coord = ILetComfortCoordinator(hass, entry)
+    cls.return_value.list_appliances.return_value = [
+        {"applianceCode": "OTHER", "sn8": "17100003"}
+    ]
+    await coord._ensure_appliance_meta()
+    assert coord.appliance_meta is None
+
+
+async def test_model_discovery_drops_incompatible_cache(hass: HomeAssistant):
+    """A failed first ATW poll must not serve old STANDARD values."""
+    import pytest
+    from homeassistant.helpers.update_coordinator import UpdateFailed
+
+    entry = _entry(REGION_EU)
+    entry.add_to_hass(hass)
+    with patch("custom_components.iletcomfort.coordinator.ILetComfortClient") as cls:
+        coord = ILetComfortCoordinator(hass, entry)
+    client = cls.return_value
+    coord.data = {"status": ITSStatus(mode=19), "sensors": ITSSensors()}
+    coord._last_on_state = (1, 30)
+    client.list_appliances.return_value = [{"applianceCode": "APPL1", "sn8": "171H120F"}]
+    client.query_status.side_effect = ApiError("offline")
+    with pytest.raises(UpdateFailed):
+        await coord._async_update_data()
+    assert coord.data is None
+    assert coord._last_on_state is None
+
+
+async def test_metadata_retries_a_record_without_model_code(hass: HomeAssistant):
+    entry = _entry(REGION_EU)
+    entry.add_to_hass(hass)
+    with patch("custom_components.iletcomfort.coordinator.ILetComfortClient") as cls:
+        coord = ILetComfortCoordinator(hass, entry)
+    client = cls.return_value
+    client.list_appliances.side_effect = [
+        [{"applianceCode": "APPL1"}],
+        [{"applianceCode": "APPL1", "sn8": "171H120F"}],
+    ]
+    await coord._ensure_appliance_meta()
+    assert coord.sn8 is None
+    await coord._ensure_appliance_meta()
+    assert coord.sn8 == "171H120F"
