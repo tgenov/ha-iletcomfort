@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.3](https://github.com/tgenov/ha-iletcomfort/compare/v0.8.2...v0.8.3) (2026-09-08)
+
+
+### Bug Fixes
+
+* reject unrecognized control layouts and recover model metadata ([#50](https://github.com/tgenov/ha-iletcomfort/issues/50)) ([30a42f3](https://github.com/tgenov/ha-iletcomfort/commit/30a42f3e85134fc0a68589eaa5ef20541f823997))
+
 ## [0.8.2](https://github.com/tgenov/ha-iletcomfort/compare/v0.8.1...v0.8.2) (2026-07-11)
 
 
