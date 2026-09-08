@@ -120,6 +120,84 @@ Status `raw_body` (0-indexed; STANDARD misreads this 25-byte frame):
   Temperature" entity shows it). Do **not** route a tank reading into `twin_temp` (that mislabels "Water
   Inlet"). This was corrected after a reporter flagged it.
 
+### Vendor `0xC3` plugin control schema (write path) — from the vendor's own bundle
+
+Fetched with `scripts/fetch_plugin.py` (dev tool; usage in `CONTRIBUTING.md`). Bundle availability on
+the **US tenant** (`appId 8010`), checked 2026-09-08:
+
+| `sn8` | model | bundle |
+|---|---|---|
+| `17100007` | KJRH-120L2 | ✅ `0xC3` v1.0.65, 13.7 MB — 30 Weex screens, all `Mthermal*` (M-thermal) |
+| `171H120F` | KJRH-120F/K (ATW) | ❌ `2200004` — product exists, **no plugin registered** |
+| `17100003` | KJRH-120L | ❌ `2200004` |
+| `171000AU` | AQUAPURA | ❌ `2200007` — not in this region's catalogue |
+
+`2200004` did **not** budge under sweeps of `sdkVersion` (0/1/2018–2099 variants), `clienttype` (0–4),
+`type` case (`0xc3`/`0XC3`), `language`, `firmwareVersion`, or `version`. The EU host with a US token
+answers `9999`, so confirming whether the **EU** tenant registers those two needs an **EU account**.
+
+**Crucial: the bundle contains NO byte offsets.** The plugin is JSON-level: screens call
+`luaControl({params: {control_type, <field>: <value>}})` (reads use `luaQuery`), and the JSON→byte
+conversion happens in the app's **native Lua** for `0xC3`, not in the JS. So the bundle is the source of
+truth for **field names, value domains and semantics** — the frame bytes still need the Lua or a capture.
+Do not expect this route to hand over a byte map.
+
+The Lua is not obtainable from the cloud on this tenant (this answers @dzerik's open question in #48 —
+it fails for a C3 tenant too): `/v1/device/status/lua/get` → `9999` for every body shape tried;
+`/v1/product/upgrade/lua/get/latest` and `/v1/product/lua/get/latest` → `1800` with a **valid** token;
+`type=lua`/`0xC3.lua`/`luaFile` on the plugin endpoint → `2200007`.
+
+**`control_type` — the command-group selector.** The bundle carries it in two encodings (decimal in one
+constants block, `0x20X0` in another):
+
+| group | dec | hex |
+|---|---|---|
+| `base` | 1 | `0x2010` |
+| `day_time` | 2 | `0x2020` |
+| `holiday_away` | 4 | `0x2040` |
+| `silence` | 5 | `0x2050` |
+| `holiday_home` | 6 | `0x2060` |
+| `eco` | 7 | `0x2070` |
+| `install` | 8 | `0x2080` |
+| `disinfect` | 9 | `0x2090` |
+| `weeks_dhw` / `weeks_zone1` / `weeks_zone2` | — | `0x20D0` / `0x20E0` / `0x20F0` |
+| `weeks_schedule` / `weeks_all_schedule` | 131 / 132 | — |
+| `dhw_schedule_1..4` | 33537–33540 | `0x8301`–`0x8304` |
+| `zone1_schedule_1..4` | 33553–33556 | `0x8311`–`0x8314` |
+| `zone2_schedule_1..4` | 33569–33572 | `0x8321`–`0x8324` |
+
+Note our `build_c3_set` writes `0x02` at `frame[9]` while the vendor's *base* control group is `1`/
+`0x2010`. **Do not assume those are the same field** — that equivalence is unproven.
+
+**The four writes #54 asked about — all under `control_type = base`:**
+
+| write | field(s) | domain |
+|---|---|---|
+| Zone-1 setpoint | `zone1_temp_set` | `stringNumber`, bounded by `zone1_heat_min/max_set_temp` and `zone1_cool_min/max_set_temp` |
+| Zone-2 setpoint | `zone2_temp_set` | as above with `zone2_*` bounds |
+| Room setpoint | `room_temp_set` | bounded by `room_min/max_set_temp` |
+| DHW setpoint | `dhw_temp_set` | bounded by `dhw_min/max_set_temp` |
+| power | `zone1_power_state`, `zone2_power_state`, `dhw_power_state` | `"on"` / `"off"` — **strings, per zone, separate from mode** |
+| mode | `run_mode_set` | `"auto"` / `"cool"` / `"heat"`; when auto, `runmode_under_auto` = `"cool"` / `"heat"` |
+| weather-curve enable | `zone1_curve_state`, `zone2_curve_state` | `"on"` / `"off"` |
+| weather-curve select | `zone1_curve_type`, `zone2_curve_type` | `1`–`8` presets, `9` = custom |
+
+There is **no weather-curve *offset* field**. The custom curve (`type 9`) is edited as temperature points
+through the same `zone1_temp_set`/`room_temp_set`/`dhw_temp_set` keys on the CurveCustom screen — so the
+"curve offset" #54 assumed exists is not a key in the vendor's model.
+
+Capability/supporting fields worth knowing: `heat_enable`, `cool_enable`, `dhw_enable`,
+`double_zone_enable`, `zone1_temp_type` (`water_temperature_type` | `room_temperature_type`),
+`zone1_terminal_type` (`fan_coil` | `floor_heat` | `radiatior` — the vendor's own typo),
+`boostertbh_en`, `forcetbh_state`, `fastdhw_state`, `silence_on_state`, `eco_on_state`,
+`holiday_on_state`, `holiday_on_type` (`0` off / `1` away / `2` home), `auto_min/max_set_temp`.
+
+**What this does and does not unblock (#42 / #43 / #49):** it gives the vendor's semantic model —
+booleans are the strings `"on"`/`"off"`, modes are strings, per-zone power is independent of mode, and
+setpoint bounds are device-reported rather than hardcoded. It does **not** give the frame bytes, and
+`/appliance/control/hexadecimal` takes hex. The remaining paths are the Lua, or an **iOS** capture (the
+iOS app uses the HTTP endpoint and therefore sends already-encoded hex; Android is MQTT-only — §2b, #42).
+
 ---
 
 ## 5. Code map
@@ -127,6 +205,7 @@ Status `raw_body` (0-indexed; STANDARD misreads this 25-byte frame):
 | File | Responsibility |
 |------|----------------|
 | `api.py` | `ILetComfortClient` (login, `list_appliances`, `send_hex_command`, `query_status`/`query_sensors`); frame build/parse (`build_c3_query`, `build_c3_set`, `parse_hex_response`, `extract_c3_body`); decoders `decode_its_status`/`decode_its_sensors` + dataclasses `ITSStatus`/`ITSSensors`; `_temp_offset`; `AuthError`/`ApiError`. |
+| `scripts/fetch_plugin.py` | **Dev tool, not shipped** — fetches the vendor per-model plugin bundle (`0xC3` = Weex JS) via the `version:"0.0.0"` downgrade on `/v1/product/upgrade/plugin/get/latest`. Source of truth for the control **schema** (not bytes) — see §4. |
 | `model_profiles.py` | `ModelProfile` enum, `_SN8_PROFILES` table, `resolve_profile`, `decode_atw_status`, `apply_profile_to_status`, `apply_profile_to_sensors`. **Add new model support here.** |
 | `coordinator.py` | `ILetComfortCoordinator`: polling, re-auth, cache-fallback, offline Repair card. Caches `appliance_meta` (best-effort, never fatal) and exposes `sn8`; threads profile into decode. |
 | `diagnostics.py` | Redacted snapshot: raw frames, decoded status/sensors, `sensors_temperature_scan` (per-byte `_temp_offset` map — use it to find a model's misplaced temp byte), and the `appliance` metadata block. `APPLIANCE_TO_REDACT = {owner, sn, name}` (keeps `applianceType`/`modelNumber`/`sn8`). |
