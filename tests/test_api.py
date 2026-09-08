@@ -414,3 +414,36 @@ def test_status_flag_zero_and_no_frequency_keeps_compressor_off():
 
     assert status.comp_frq == 0
     assert status.comp_running is False
+
+
+@pytest.mark.parametrize("changes", [{"boost": True}, {"temperature": 30}, {"mode": MODE_HEAT}])
+def test_set_device_refuses_unrecognized_status_mode(changes):
+    """An unfamiliar layout must never become an OFF command (issue #47)."""
+    client = _make_client()
+    # Actual status body from the reporter's diagnostics (no identifiers).
+    body = bytes.fromhex(
+        "01 01 13 00 02 02 17 17 32 30 41 23 19 05 37 19 19 05 3c 22 3c 14 19 00 80"
+    )
+    with patch.object(client, "send_hex_command", return_value=_c3_frame(body)) as send:
+        with pytest.raises(ApiError, match="Unrecognized status mode"):
+            client.set_device("APPL1", **changes)
+    assert send.call_count == 1  # Only the read; no control frame reaches the device.
+
+
+@pytest.mark.parametrize("mode", [MODE_OFF, MODE_HEAT])
+def test_set_device_can_explicitly_leave_auto(mode):
+    client = _make_client()
+    body = bytes([1, 0, 3, 60]) + bytes(21)
+    with patch.object(client, "send_hex_command", return_value=_c3_frame(body)) as send:
+        result = client.set_device("APPL1", mode=mode)
+    assert send.call_count == 2
+    assert result["effective_mode"] == mode
+
+
+def test_set_device_does_not_turn_auto_off_for_boost():
+    client = _make_client()
+    body = bytes([1, 0, 3, 60]) + bytes(21)
+    with patch.object(client, "send_hex_command", return_value=_c3_frame(body)) as send:
+        with pytest.raises(ApiError, match="Cannot preserve Auto mode"):
+            client.set_device("APPL1", boost=True)
+    assert send.call_count == 1

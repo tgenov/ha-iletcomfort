@@ -131,3 +131,21 @@ ask for all of this — it's collected here so you know *why*:
 With the raw frames *and* the real values for your model, re-mapping a field is
 usually straightforward. Without them, a report like "the water temperature is
 always 0" can't be acted on. Thanks for taking the time to gather it!
+
+## Unrecognized status mode when controlling a device
+
+If a control action reports `Unrecognized status mode`, the integration could
+not interpret the device's current mode and did not send a control command.
+An unfamiliar model layout can otherwise cause an unrelated setting, such as
+Boost, to change power or temperature. Readings may also be incorrect until
+the model's layout is supported.
+
+Download diagnostics and include the `appliance` metadata, raw frames, and the
+corresponding values from the official app in your issue. Missing appliance
+metadata is retried during polling; after a temporary cloud failure, wait for
+another update and download diagnostics again. Do not change controls solely
+to collect these diagnostics.
+
+If the message says `Cannot preserve Auto mode`, a setpoint or feature change
+could not preserve Auto with the known command encoding. An explicit change
+to a supported operating mode remains possible.

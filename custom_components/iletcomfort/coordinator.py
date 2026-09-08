@@ -69,7 +69,8 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.client = ILetComfortClient(api_base=api_base)
         self.appliance_code: str = entry.data.get(CONF_APPLIANCE_CODE, "")
         # Cloud metadata for this appliance (applianceType, modelNumber, sn8, …),
-        # fetched once and surfaced in diagnostics only. See
+        # cached for model selection and diagnostics. Failed/incomplete lookups
+        # are retried until the model code is available. See
         # ``_ensure_appliance_meta``.
         self.appliance_meta: dict[str, Any] | None = None
         self._token_file = (
@@ -162,6 +163,13 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def _poll(self) -> dict[str, Any]:
         """Run the actual polling calls in the executor."""
+        previous_profile = resolve_profile(self.sn8)
+        await self._ensure_appliance_meta()
+        if resolve_profile(self.sn8) is not previous_profile:
+            # Cached values and power-restore state used the old byte layout.
+            # They cannot be used as fallback for the newly discovered model.
+            self.data = None
+            self._last_on_state = None
         cached = self.data or {}
         sn8 = self.sn8
 
@@ -326,16 +334,15 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 )
 
     async def _ensure_appliance_meta(self) -> None:
-        """Cache this appliance's cloud metadata for diagnostics (best-effort).
+        """Cache this appliance's cloud metadata for model selection.
 
         The ``list_appliances`` response carries fields (e.g. ``applianceType``,
         ``modelNumber``, ``sn8``) that a maintainer can use to identify the
         device class for model-specific frame decoding (issue #22). This is
-        purely diagnostic — it never affects decoding or polling — so it must
-        not raise or block setup: any failure is logged at DEBUG and leaves
-        ``appliance_meta`` as None.
+        used for both decoding and control. A failed lookup is retried on the
+        next poll; it is logged at DEBUG and leaves ``appliance_meta`` as None.
         """
-        if self.appliance_meta is not None:
+        if self.sn8 is not None:
             return
         try:
             appliances = await self.hass.async_add_executor_job(
@@ -347,10 +354,7 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 if str(appliance.get("applianceCode", "")) == str(self.appliance_code):
                     self.appliance_meta = appliance
                     return
-            # No code match: if there's exactly one appliance, assume it's ours.
-            if len(appliances) == 1:
-                self.appliance_meta = appliances[0]
-        except Exception as err:  # noqa: BLE001 — diagnostic-only, must not block setup
+        except Exception as err:  # noqa: BLE001 — retry on the next poll
             _LOGGER.debug("Could not fetch appliance metadata: %s", err)
 
     async def async_first_refresh_with_login(self) -> None:
