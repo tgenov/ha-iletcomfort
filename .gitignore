@@ -8,3 +8,10 @@ __pycache__/
 .pytest_cache/
 
 .DS_Store
+
+# Vendor plugin bundles fetched by scripts/fetch_plugin.py.
+# Never commit these: they are the vendor's proprietary app code and contain
+# hardcoded third-party credentials.
+plugin-bundles/
+*.wgt
+.iletcomfort_plugin_token.json
