@@ -89,7 +89,7 @@ python3 scripts/fetch_plugin.py --model 17100007 --metadata-only
 python3 scripts/fetch_plugin.py --model 17100007 --unpack
 ```
 
-`--model` takes an **`sn8` model code** (e.g. `17100007`), not a per-device serial. Find yours in a diagnostics download under the `appliance` block. Use `--region eu` for EU accounts.
+`--model` takes an **`sn8` model code** (e.g. `17100007`), not a per-device serial. Find yours in a diagnostics download under the `appliance` block.
 
 ### How it works
 
@@ -113,6 +113,26 @@ There is **no ownership check**: any model code can be requested from any accoun
 | `1105` | no `accessToken` header |
 | `3301` | wrong signing prefix |
 | `14005` | token rejected (see the single-session note below) |
+| `9999` | the server refused the request outright — seen when querying the EU host with a US-account token |
+
+### Regions — `--region eu` is untested
+
+`--region eu` exists but **has not been verified**. What is known: the EU host answers `9999` to a
+**US-account token**, which proves nothing about an EU account against the EU tenant.
+
+This is the open question that matters most here. On the US tenant only `17100007` has a `0xC3` bundle;
+`171H120F` (ATW) and `17100003` answer `2200004` — no plugin registered — and those two are the models
+blocking #42, #43 and #49. `171H120F` is an EU model, so the EU tenant is the likely place its bundle
+lives.
+
+**If you have an EU account, please run this and report the result in #54:**
+
+```bash
+python3 scripts/fetch_plugin.py --model 171H120F --region eu --metadata-only
+python3 scripts/fetch_plugin.py --model 17100003 --region eu --metadata-only
+```
+
+Report the `code` you get, nothing else — no tokens, no serials.
 
 ### Credentials, privacy, and the login war
 
