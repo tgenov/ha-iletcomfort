@@ -25,13 +25,21 @@ from .api import (
 )
 from .const import (
     CONF_APPLIANCE_CODE,
+    CONF_ENABLE_MQTT_PUSH,
     CONF_REGION,
+    DEFAULT_ENABLE_MQTT_PUSH,
     DEFAULT_REGION,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
+    PUSH_BACKSTOP_SCAN_INTERVAL,
     REGION_URLS,
 )
-from .model_profiles import apply_profile_to_sensors, resolve_profile
+from .model_profiles import (
+    apply_profile_to_sensors,
+    apply_profile_to_status,
+    resolve_profile,
+)
+from .mqtt import ILetComfortPushClient
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -68,6 +76,11 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         api_base = REGION_URLS.get(region, REGION_URLS[DEFAULT_REGION])
         self.client = ILetComfortClient(api_base=api_base)
         self.appliance_code: str = entry.data.get(CONF_APPLIANCE_CODE, "")
+        self._region = region
+        self._push_enabled: bool = entry.options.get(
+            CONF_ENABLE_MQTT_PUSH, DEFAULT_ENABLE_MQTT_PUSH,
+        )
+        self._push_client: ILetComfortPushClient | None = None
         # Cloud metadata for this appliance (applianceType, modelNumber, sn8, …),
         # cached for model selection and diagnostics. Failed/incomplete lookups
         # are retried until the model code is available. See
@@ -370,6 +383,8 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         await self.async_config_entry_first_refresh()
 
+        await self.async_start_push()
+
     async def async_set_device(self, **kwargs: Any) -> None:
         """Send a SET command with auto re-auth, then refresh data.
 
@@ -399,3 +414,82 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 )
             )
         await self.async_request_refresh()
+
+    # -- MQTT real-time push (issue #55, opt-in) --
+
+    async def async_start_push(self) -> None:
+        """Start the MQTT push listener if the option is enabled.
+
+        No-op (and zero behavioural change) when the option is off, which is the
+        default. When on, a failure to start push is non-fatal: it is logged and
+        polling continues unchanged.
+        """
+        if not self._push_enabled or self._push_client is not None:
+            return
+        self._push_client = ILetComfortPushClient(
+            self.hass,
+            self.client,
+            region=self._region,
+            appliance_code=self.appliance_code,
+            on_status=self._push_status_threadsafe,
+            on_connected_change=self._push_connected_threadsafe,
+        )
+        try:
+            await self._push_client.async_start()
+        except Exception as err:  # noqa: BLE001 — push is best-effort
+            _LOGGER.warning(
+                "MQTT push failed to start, continuing with polling: %s", err,
+            )
+            self._push_client = None
+
+    async def async_stop_push(self) -> None:
+        """Stop the MQTT push listener, if running."""
+        if self._push_client is None:
+            return
+        try:
+            await self._push_client.async_stop()
+        finally:
+            self._push_client = None
+
+    def _push_status_threadsafe(self, status: ITSStatus) -> None:
+        """Marshal a status push from paho's thread onto the event loop."""
+        self.hass.loop.call_soon_threadsafe(self._apply_push_status, status)
+
+    def _push_connected_threadsafe(self, connected: bool) -> None:
+        self.hass.loop.call_soon_threadsafe(self._apply_push_connected, connected)
+
+    def _apply_push_status(self, status: ITSStatus) -> None:
+        """Publish a pushed status to entities, reusing the last polled sensors.
+
+        The push carries only the status frame; sensors keep arriving on the
+        (reduced-cadence) poll, so the last good sensors are retained. Profile
+        re-decoding matches the poll path so push and poll agree.
+        """
+        if self.data is None:
+            # Push started after the first poll, so this is only reached if a
+            # push races ahead of it. Ignore it rather than publish a status
+            # with no sensors (entities read coordinator.data["sensors"]); the
+            # imminent first poll delivers a complete snapshot.
+            return
+        status = apply_profile_to_status(resolve_profile(self.sn8), status)
+        self.async_set_updated_data(
+            {"status": status, "sensors": self.data.get("sensors")}
+        )
+
+    def _apply_push_connected(self, connected: bool) -> None:
+        """Slow polling to a backstop while push is alive; restore on drop.
+
+        Push has no heartbeat on the C3 topic (issue #55), so liveness is the
+        MQTT connection itself: while connected, poll rarely as a safety net;
+        when it drops, resume the normal poll cadence immediately.
+        """
+        interval = (
+            PUSH_BACKSTOP_SCAN_INTERVAL if connected else DEFAULT_SCAN_INTERVAL
+        )
+        self.update_interval = timedelta(seconds=interval)
+        if not connected:
+            # Setting update_interval only takes effect on the next scheduled
+            # refresh, which — after the slow backstop cadence — could be up to
+            # PUSH_BACKSTOP_SCAN_INTERVAL away, exactly when we need polling back.
+            # Force an immediate refresh so cadence and state recover at once.
+            self.hass.async_create_task(self.async_request_refresh())

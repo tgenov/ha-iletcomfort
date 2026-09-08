@@ -508,6 +508,22 @@ class ApiError(Exception):
 # API client
 # ---------------------------------------------------------------------------
 
+@dataclass
+class AppCert:
+    """An app-issued client certificate for the vendor's AWS IoT MQTT broker.
+
+    Minted per session-independent of the account token, so MQTT push keeps
+    working while the phone app holds the single active account session (the
+    login-war fix, see issue #55). ``private_key`` is secret and is kept out of
+    ``repr`` so it never lands in logs.
+    """
+
+    private_key: str = field(repr=False)
+    certificate_pem: str = field(repr=False)
+    endpoint: str
+    port: int
+
+
 class ILetComfortClient:
     """Client for the iLetComfort / Midea Dollin cloud API."""
 
@@ -541,8 +557,14 @@ class ILetComfortClient:
     def _v1_request(
         self, path: str, body_dict: dict[str, Any], *,
         use_iot_key: bool = False,
+        include_access_token: bool = False,
     ) -> dict[str, Any]:
-        """Send a v1 API request with Scheme 1 signing."""
+        """Send a v1 API request with Scheme 1 signing.
+
+        Some v1 endpoints (e.g. the app-certificate mint used for MQTT push) are
+        additionally gated on a bearer-style ``accessToken`` header on top of the
+        iot-key signing; set ``include_access_token`` for those.
+        """
         url = self._api_base + path
         json_body = json.dumps(body_dict, separators=(",", ":"))
         sign_hex, random_value = sign_v1(json_body, use_iot_key=use_iot_key)
@@ -565,6 +587,9 @@ class ILetComfortClient:
                 f"{time.time()}-{random_module.random()}".encode()
             ).hexdigest(),
         }
+
+        if include_access_token:
+            headers["accessToken"] = self._access_token or ""
 
         response = self._session.post(
             url, data=json_body, headers=headers, timeout=self._timeout,
@@ -692,6 +717,33 @@ class ILetComfortClient:
             return result.get("data", "")
         raise ApiError(
             f"Send command failed: code={result.get('code')}, "
+            f"msg={result.get('msg')}"
+        )
+
+    def create_app_cert(self) -> AppCert:
+        """Mint an app client certificate for the vendor's MQTT broker.
+
+        Returns the certificate/key pair plus the broker endpoint and port. The
+        endpoint is signed with the iot-key prefix and additionally gated on the
+        ``accessToken`` header (established against the live endpoint). The cert
+        authenticates independently of the account session (issue #55).
+        """
+        result = self._v1_request(
+            "/v1/certificate/create/app/cert",
+            {},
+            use_iot_key=True,
+            include_access_token=True,
+        )
+        if result.get("code") == 0 and isinstance(result.get("data"), dict):
+            data = result["data"]
+            return AppCert(
+                private_key=str(data["privateKey"]),
+                certificate_pem=str(data["certificatePem"]),
+                endpoint=str(data["endpoint"]),
+                port=int(data["port"]),
+            )
+        raise ApiError(
+            f"Certificate request failed: code={result.get('code')}, "
             f"msg={result.get('msg')}"
         )
 
