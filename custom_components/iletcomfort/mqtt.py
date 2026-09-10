@@ -4,7 +4,8 @@ The vendor's cloud pushes decoded status over an AWS IoT MQTT broker. A client
 certificate minted via :meth:`ILetComfortClient.create_app_cert` authenticates
 **independently of the account session**, so push keeps flowing while the phone
 app holds the single active account login (the "login war"). This is opt-in and
-disabled by default; the coordinator falls back to polling if push drops.
+disabled by default. In phone-app coexistence mode, a push outage marks entities
+unavailable rather than falling back to account polling and evicting the app.
 
 Hardware-confirmed shape (see issue #55):
 
@@ -92,7 +93,7 @@ def decode_push_payload(payload: str) -> ITSStatus | None:
         return None
     if subtype != 0x01:
         # Only status frames update entity state here; other subtypes are
-        # ignored (sensors continue to arrive via the backstop poll).
+        # ignored (the push topic carries status frames only).
         return None
     try:
         return decode_its_status(body)

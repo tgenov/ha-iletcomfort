@@ -11,6 +11,7 @@ from typing import Any
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
@@ -26,12 +27,14 @@ from .api import (
 from .const import (
     CONF_APPLIANCE_CODE,
     CONF_ENABLE_MQTT_PUSH,
+    CONF_OPERATION_MODE,
     CONF_REGION,
     DEFAULT_ENABLE_MQTT_PUSH,
+    DEFAULT_OPERATION_MODE,
     DEFAULT_REGION,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
-    PUSH_BACKSTOP_SCAN_INTERVAL,
+    OPERATION_MODE_PHONE_APP,
     REGION_URLS,
 )
 from .model_profiles import (
@@ -77,9 +80,17 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.client = ILetComfortClient(api_base=api_base)
         self.appliance_code: str = entry.data.get(CONF_APPLIANCE_CODE, "")
         self._region = region
-        self._push_enabled: bool = entry.options.get(
-            CONF_ENABLE_MQTT_PUSH, DEFAULT_ENABLE_MQTT_PUSH,
-        )
+        operation_mode = entry.options.get(CONF_OPERATION_MODE)
+        if operation_mode is None:
+            operation_mode = (
+                OPERATION_MODE_PHONE_APP
+                if entry.options.get(
+                    CONF_ENABLE_MQTT_PUSH, DEFAULT_ENABLE_MQTT_PUSH
+                )
+                else DEFAULT_OPERATION_MODE
+            )
+        self._operation_mode: str = operation_mode
+        self._push_enabled = operation_mode == OPERATION_MODE_PHONE_APP
         self._push_client: ILetComfortPushClient | None = None
         # Cloud metadata for this appliance (applianceType, modelNumber, sn8, …),
         # cached for model selection and diagnostics. Failed/incomplete lookups
@@ -392,6 +403,12 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         encoding per model (e.g. the KJRH-120L's short commands vs the legacy
         C3 SET frame); see ``model_profiles`` and ``ILetComfortClient.set_device``.
         """
+        if self._operation_mode == OPERATION_MODE_PHONE_APP:
+            raise HomeAssistantError(
+                "Control is disabled in phone app coexistence mode; "
+                "switch to HA primary mode to send commands"
+            )
+
         sn8 = self.sn8
         try:
             await self.hass.async_add_executor_job(
@@ -415,17 +432,18 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
         await self.async_request_refresh()
 
-    # -- MQTT real-time push (issue #55, opt-in) --
+    # -- MQTT real-time push (issue #55, phone-app coexistence mode) --
 
     async def async_start_push(self) -> None:
         """Start the MQTT push listener if the option is enabled.
 
-        No-op (and zero behavioural change) when the option is off, which is the
-        default. When on, a failure to start push is non-fatal: it is logged and
-        polling continues unchanged.
+        No-op in HA-primary mode. Phone-app coexistence disables account polling
+        before connecting; if push cannot start, entities are marked unavailable
+        rather than silently restarting the login war.
         """
         if not self._push_enabled or self._push_client is not None:
             return
+        self.update_interval = None
         self._push_client = ILetComfortPushClient(
             self.hass,
             self.client,
@@ -438,9 +456,14 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self._push_client.async_start()
         except Exception as err:  # noqa: BLE001 — push is best-effort
             _LOGGER.warning(
-                "MQTT push failed to start, continuing with polling: %s", err,
+                "MQTT push failed to start; phone app mode remains read-only "
+                "and unavailable: %s",
+                err,
             )
             self._push_client = None
+            self.async_set_update_error(
+                UpdateFailed("MQTT push failed to start in phone app mode")
+            )
 
     async def async_stop_push(self) -> None:
         """Stop the MQTT push listener, if running."""
@@ -461,9 +484,9 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def _apply_push_status(self, status: ITSStatus) -> None:
         """Publish a pushed status to entities, reusing the last polled sensors.
 
-        The push carries only the status frame; sensors keep arriving on the
-        (reduced-cadence) poll, so the last good sensors are retained. Profile
-        re-decoding matches the poll path so push and poll agree.
+        The push carries only the status frame, so sensor-only values retain the
+        initial snapshot from setup. Profile re-decoding matches the poll path so
+        push and poll agree for values carried by the status frame.
         """
         if self.data is None:
             # Push started after the first poll, so this is only reached if a
@@ -477,19 +500,16 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
 
     def _apply_push_connected(self, connected: bool) -> None:
-        """Slow polling to a backstop while push is alive; restore on drop.
-
-        Push has no heartbeat on the C3 topic (issue #55), so liveness is the
-        MQTT connection itself: while connected, poll rarely as a safety net;
-        when it drops, resume the normal poll cadence immediately.
-        """
-        interval = (
-            PUSH_BACKSTOP_SCAN_INTERVAL if connected else DEFAULT_SCAN_INTERVAL
-        )
-        self.update_interval = timedelta(seconds=interval)
-        if not connected:
-            # Setting update_interval only takes effect on the next scheduled
-            # refresh, which — after the slow backstop cadence — could be up to
-            # PUSH_BACKSTOP_SCAN_INTERVAL away, exactly when we need polling back.
-            # Force an immediate refresh so cadence and state recover at once.
-            self.hass.async_create_task(self.async_request_refresh())
+        """Expose push liveness without using the account-session poll path."""
+        if self._operation_mode == OPERATION_MODE_PHONE_APP:
+            # Polling requires the account session and would periodically evict
+            # the official app. Certificate push is the sole transport in this
+            # explicitly read-only coexistence mode.
+            self.update_interval = None
+            if connected:
+                if not self.last_update_success and self.data is not None:
+                    self.async_set_updated_data(self.data)
+            else:
+                self.async_set_update_error(
+                    UpdateFailed("MQTT push disconnected in phone app mode")
+                )

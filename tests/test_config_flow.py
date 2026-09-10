@@ -14,8 +14,11 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from custom_components.iletcomfort.api import ApiError, AuthError
 from custom_components.iletcomfort.const import (
     CONF_APPLIANCE_CODE,
+    CONF_OPERATION_MODE,
     CONF_REGION,
     DOMAIN,
+    OPERATION_MODE_HA_PRIMARY,
+    OPERATION_MODE_PHONE_APP,
     REGION_EU,
     REGION_US,
 )
@@ -400,9 +403,7 @@ async def test_same_device_added_twice_aborts(hass: HomeAssistant):
 
 # --- options flow: MQTT push toggle (issue #55) ------------------------------
 
-async def test_options_flow_defaults_to_push_disabled(hass: HomeAssistant):
-    from custom_components.iletcomfort.const import CONF_ENABLE_MQTT_PUSH
-
+async def test_options_flow_defaults_to_ha_primary_mode(hass: HomeAssistant):
     entry = MockConfigEntry(
         domain=DOMAIN,
         unique_id=f"{EMAIL}:APPL1",
@@ -418,12 +419,11 @@ async def test_options_flow_defaults_to_push_disabled(hass: HomeAssistant):
     assert result["type"] == data_entry_flow.FlowResultType.FORM
     assert result["step_id"] == "init"
     schema_keys = {str(k.schema): k for k in result["data_schema"].schema}
-    assert CONF_ENABLE_MQTT_PUSH in schema_keys
+    assert CONF_OPERATION_MODE in schema_keys
+    assert schema_keys[CONF_OPERATION_MODE].default() == OPERATION_MODE_HA_PRIMARY
 
 
-async def test_options_flow_enables_push(hass: HomeAssistant):
-    from custom_components.iletcomfort.const import CONF_ENABLE_MQTT_PUSH
-
+async def test_options_flow_selects_phone_app_mode(hass: HomeAssistant):
     entry = MockConfigEntry(
         domain=DOMAIN,
         unique_id=f"{EMAIL}:APPL1",
@@ -437,7 +437,34 @@ async def test_options_flow_enables_push(hass: HomeAssistant):
 
     result = await hass.config_entries.options.async_init(entry.entry_id)
     result = await hass.config_entries.options.async_configure(
-        result["flow_id"], user_input={CONF_ENABLE_MQTT_PUSH: True},
+        result["flow_id"],
+        user_input={CONF_OPERATION_MODE: OPERATION_MODE_PHONE_APP},
     )
     assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
-    assert entry.options[CONF_ENABLE_MQTT_PUSH] is True
+    assert entry.options == {CONF_OPERATION_MODE: OPERATION_MODE_PHONE_APP}
+
+
+async def test_legacy_push_option_defaults_to_phone_app_mode(
+    hass: HomeAssistant,
+):
+    """The v0.9-v0.11 boolean option is represented by the new explicit mode."""
+    from custom_components.iletcomfort.const import CONF_ENABLE_MQTT_PUSH
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id=f"{EMAIL}:APPL1",
+        data={
+            CONF_EMAIL: EMAIL,
+            CONF_PASSWORD: PASSWORD,
+            CONF_APPLIANCE_CODE: "APPL1",
+            CONF_REGION: REGION_US,
+        },
+        options={CONF_ENABLE_MQTT_PUSH: True},
+        version=2,
+    )
+    entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    schema_keys = {str(k.schema): k for k in result["data_schema"].schema}
+
+    assert schema_keys[CONF_OPERATION_MODE].default() == OPERATION_MODE_PHONE_APP

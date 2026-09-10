@@ -26,10 +26,14 @@ from .api import ApiError, AuthError, ILetComfortClient
 from .const import (
     CONF_APPLIANCE_CODE,
     CONF_ENABLE_MQTT_PUSH,
+    CONF_OPERATION_MODE,
     CONF_REGION,
     DEFAULT_ENABLE_MQTT_PUSH,
+    DEFAULT_OPERATION_MODE,
     DEFAULT_REGION,
     DOMAIN,
+    OPERATION_MODE_HA_PRIMARY,
+    OPERATION_MODE_PHONE_APP,
     REGION_EU,
     REGION_URLS,
     REGION_US,
@@ -69,7 +73,7 @@ class ILetComfortConfigFlow(ConfigFlow, domain=DOMAIN):
     @staticmethod
     @callback
     def async_get_options_flow(config_entry: ConfigEntry) -> ILetComfortOptionsFlow:
-        """Return the options flow (MQTT-push toggle, issue #55)."""
+        """Return the operation-mode options flow (issue #55)."""
         return ILetComfortOptionsFlow()
 
     def __init__(self) -> None:
@@ -185,9 +189,9 @@ class ILetComfortConfigFlow(ConfigFlow, domain=DOMAIN):
 class ILetComfortOptionsFlow(OptionsFlow):
     """Options for an iLetComfort entry.
 
-    Currently a single opt-in toggle for experimental MQTT real-time push
-    (issue #55). Off by default; enabling reloads the entry (see the update
-    listener in ``__init__``).
+    Select whether HA owns the account session or coexists read-only with the
+    phone app over certificate-authenticated MQTT push (issue #55). Changing
+    the mode reloads the entry (see the update listener in ``__init__``).
     """
 
     async def async_step_init(
@@ -196,14 +200,29 @@ class ILetComfortOptionsFlow(OptionsFlow):
         if user_input is not None:
             return self.async_create_entry(data=user_input)
 
-        current = self.config_entry.options.get(
-            CONF_ENABLE_MQTT_PUSH, DEFAULT_ENABLE_MQTT_PUSH,
-        )
+        current = self.config_entry.options.get(CONF_OPERATION_MODE)
+        if current is None:
+            current = (
+                OPERATION_MODE_PHONE_APP
+                if self.config_entry.options.get(
+                    CONF_ENABLE_MQTT_PUSH, DEFAULT_ENABLE_MQTT_PUSH
+                )
+                else DEFAULT_OPERATION_MODE
+            )
         schema = vol.Schema(
             {
                 vol.Required(
-                    CONF_ENABLE_MQTT_PUSH, default=current,
-                ): bool,
+                    CONF_OPERATION_MODE, default=current,
+                ): SelectSelector(
+                    SelectSelectorConfig(
+                        options=[
+                            OPERATION_MODE_HA_PRIMARY,
+                            OPERATION_MODE_PHONE_APP,
+                        ],
+                        mode=SelectSelectorMode.DROPDOWN,
+                        translation_key="operation_mode",
+                    )
+                ),
             }
         )
         return self.async_show_form(step_id="init", data_schema=schema)

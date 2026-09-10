@@ -34,6 +34,12 @@
         "us": "United States",
         "eu": "Europe"
       }
+    },
+    "operation_mode": {
+      "options": {
+        "ha_primary": "HA is the primary client (polling and control)",
+        "phone_app": "Leave the phone app connected (read-only push)"
+      }
     }
   },
   "issues": {
@@ -46,9 +52,9 @@
     "step": {
       "init": {
         "title": "iLetComfort options",
-        "description": "MQTT push is experimental. When enabled, the integration opens a real-time connection to the vendor's cloud using a certificate that authenticates independently of your account login, so status keeps updating even while the iLetComfort app is open (it works around the one-active-session limit). Home Assistant keeps polling at a slow backstop rate and takes over fully if push drops. Leave this off to keep the current polling-only behaviour.",
+        "description": "Choose which client owns the cloud account session. HA primary keeps the existing polling and control behavior. Phone app coexistence is read-only: after an initial login to mint its MQTT certificate, HA stops account polling and blocks control commands, so the official app can remain signed in. If MQTT disconnects, entities become unavailable instead of HA taking the phone's session.",
         "data": {
-          "enable_mqtt_push": "Enable experimental MQTT real-time push"
+          "operation_mode": "Operation mode"
         }
       }
     }

@@ -40,6 +40,15 @@ account and share the device to it; see
 [Heat pump keeps dropping offline (the "login war")](docs/TROUBLESHOOTING.md#2-heat-pump-keeps-dropping-offline-the-login-war)
 for the full walkthrough.
 
+Alternatively, the integration options offer **Leave the phone app connected
+(read-only push)**. In this mode Home Assistant receives real-time status over a
+session-independent MQTT certificate, stops periodic account polling, and blocks
+control commands. Setup and each Home Assistant restart still require one account
+login to mint a fresh certificate; after HA has loaded, sign back into the phone app.
+If MQTT disconnects, HA marks the entities unavailable instead of taking over the
+account session. Use **HA is the primary client** (the default) when Home Assistant
+must control the heat pump.
+
 ## Troubleshooting & reporting issues
 
 If a sensor reads `0`/empty, the integration errors, or something else
