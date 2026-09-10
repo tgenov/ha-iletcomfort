@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.0](https://github.com/tgenov/ha-iletcomfort/compare/v0.11.0...v0.12.0) (2026-09-10)
+
+
+### Features
+
+* add explicit phone app coexistence mode ([#63](https://github.com/tgenov/ha-iletcomfort/issues/63)) ([4273e72](https://github.com/tgenov/ha-iletcomfort/commit/4273e72570d6458ba5d74daa5e5d62de2bf2b6e9))
+
 ## [0.11.0](https://github.com/tgenov/ha-iletcomfort/compare/v0.10.0...v0.11.0) (2026-09-10)
 
 
