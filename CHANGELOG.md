@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.0](https://github.com/tgenov/ha-iletcomfort/compare/v0.9.0...v0.10.0) (2026-09-10)
+
+
+### Features
+
+* track known KJRH-120L2 model code ([#59](https://github.com/tgenov/ha-iletcomfort/issues/59)) ([95fc73f](https://github.com/tgenov/ha-iletcomfort/commit/95fc73f04ea4dc49db2d83f71c66f7ab18f725ab))
+
 ## [0.9.0](https://github.com/tgenov/ha-iletcomfort/compare/v0.8.3...v0.9.0) (2026-09-08)
 
 
