@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.0](https://github.com/tgenov/ha-iletcomfort/compare/v0.12.1...v0.13.0) (2026-09-10)
+
+
+### Features
+
+* split KJRH-120L dual setpoint readings ([#67](https://github.com/tgenov/ha-iletcomfort/issues/67)) ([d763bed](https://github.com/tgenov/ha-iletcomfort/commit/d763bed08e9769182e56150df3ed3520d720b9b2))
+
 ## [0.12.1](https://github.com/tgenov/ha-iletcomfort/compare/v0.12.0...v0.12.1) (2026-09-10)
 
 
