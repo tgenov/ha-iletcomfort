@@ -7,6 +7,10 @@ numeric key is the unchanged value decoded into ``ITSStatus.error_code``.
 from __future__ import annotations
 
 ERROR_CODES: dict[int, dict[str, str]] = {
+    31: {
+        "panel": "bA",
+        "description": "Outdoor temperature exceeds the allowable operating range.",
+    },
     48: {"panel": "C7", "description": "Heat sink over-temperature protection"},
     50: {"panel": "C9", "description": "Abnormal operating frequency protection"},
     61: {

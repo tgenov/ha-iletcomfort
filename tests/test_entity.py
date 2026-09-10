@@ -105,13 +105,26 @@ def _error_code_sensor(hass: HomeAssistant, error_code: int) -> ILetComfortSenso
 
 def test_known_error_code_adds_panel_code_and_description(hass: HomeAssistant):
     """Known faults retain their numeric state and expose vendor details."""
-    assert len(ERROR_CODES) == 57
+    assert len(ERROR_CODES) == 58
     sensor = _error_code_sensor(hass, 61)
 
     assert sensor.native_value == 61
     assert sensor.extra_state_attributes == {
         "panel": "E0",
         "description": "Water flow fault (after 3 consecutive flow faults)",
+    }
+
+
+def test_vendor_error_code_31_exposes_operating_range_fault(
+    hass: HomeAssistant,
+):
+    """The additional vendor-plugin bA entry reported in issue #48 is mapped."""
+    sensor = _error_code_sensor(hass, 31)
+
+    assert sensor.native_value == 31
+    assert sensor.extra_state_attributes == {
+        "panel": "bA",
+        "description": "Outdoor temperature exceeds the allowable operating range.",
     }
 
 
