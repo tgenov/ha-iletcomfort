@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.1](https://github.com/tgenov/ha-iletcomfort/compare/v0.12.0...v0.12.1) (2026-09-10)
+
+
+### Bug Fixes
+
+* add missing bA outdoor-range fault code ([#65](https://github.com/tgenov/ha-iletcomfort/issues/65)) ([60a918c](https://github.com/tgenov/ha-iletcomfort/commit/60a918cd8608aabc2d644462d73ae1981f8e4188))
+
 ## [0.12.0](https://github.com/tgenov/ha-iletcomfort/compare/v0.11.0...v0.12.0) (2026-09-10)
 
 
