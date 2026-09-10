@@ -195,7 +195,14 @@ def decode_atw_status(body: bytearray | bytes) -> ITSStatus:
 #              state byte that flips with power. body[2] stays 0x00 in BOTH the
 #              off and on captures, so it is NOT the power/mode byte.
 #   body[15] = DHW setpoint in °C — DIRECT value (0x3c=60, 0x41=65).
-# This is THE setpoint. error_code is 0 (no fault). comp_running is left False:
+# The dual Zone-1 + DHW variant is identified by body[8:10] == 01 01. On that
+# variant body[12] is the Zone-1 setpoint and body[15] remains DHW. The climate
+# shows Zone-1 read-only, while a separate Number controls DHW through the
+# confirmed field-0x07 command. A tested field-0x08 Zone-1 write forced 23 °C
+# regardless of the requested value, so it must not be used.
+#
+# On the pure-DHW variant body[15] remains the climate setpoint. error_code is
+# 0 (no fault). comp_running is left False:
 # power-on is not a compressor-running signal and no compressor byte is
 # confirmed. Everything else in the frame is unmapped garbage for this model and
 # is left at the dataclass defaults (None/0).
@@ -214,6 +221,11 @@ KJRH120L_POWER_INDEX = 10
 KJRH120L_MODE_OFF = 0
 KJRH120L_MODE_ON = 1
 KJRH120L_DHW_SETPOINT_INDEX = 15
+KJRH120L_ZONE1_CAP_INDEX_A = 8
+KJRH120L_ZONE1_CAP_INDEX_B = 9
+KJRH120L_ZONE1_SETPOINT_INDEX = 12
+KJRH120L_DHW_TEMP_MIN = 35
+KJRH120L_DHW_TEMP_MAX = 60
 _KJRH120L_MODES = {0: "Off", 1: "Heat", 2: "Cool", 3: "Auto", 4: "Water Pump"}
 
 # Temperature fields suppressed for the KJRH-120L (not exposed by its API).
@@ -226,6 +238,15 @@ _KJRH120L_SUPPRESSED_TEMPS = {
     "twout_temp": None,
     "t1_temp": None,
 }
+
+
+def kjrh120l_has_zone1(body: bytearray | bytes) -> bool:
+    """Return whether a KJRH-120L frame carries the validated Zone-1 variant."""
+    return (
+        len(body) > KJRH120L_ZONE1_CAP_INDEX_B
+        and body[KJRH120L_ZONE1_CAP_INDEX_A] == 0x01
+        and body[KJRH120L_ZONE1_CAP_INDEX_B] == 0x01
+    )
 
 
 def decode_kjrh120l_status(body: bytearray | bytes) -> ITSStatus:
@@ -257,13 +278,19 @@ def decode_kjrh120l_status(body: bytearray | bytes) -> ITSStatus:
             status.mode, f"Unknown({status.mode})"
         )
 
-    # DHW setpoint — direct °C value. Surfaced via t5s_def so the climate
-    # entity's target_temperature (t5s_def if not None) shows it; set_temperature
-    # is set too for the SET echo / future DHW-setpoint entity.
+    # The dual variant exposes Zone-1 at body[12] and DHW at body[15]. The strict
+    # body[8]/body[9] capability gate is false on the pure-DHW unit, preserving
+    # its existing single-setpoint behavior (issue #5 hardware captures).
     if body_len > KJRH120L_DHW_SETPOINT_INDEX:
-        setpoint = body[KJRH120L_DHW_SETPOINT_INDEX]
-        status.t5s_def = float(setpoint)
-        status.set_temperature = setpoint
+        dhw_setpoint = body[KJRH120L_DHW_SETPOINT_INDEX]
+        if kjrh120l_has_zone1(body):
+            zone1_setpoint = body[KJRH120L_ZONE1_SETPOINT_INDEX]
+            status.t5s_def = float(zone1_setpoint)
+            status.set_temperature = zone1_setpoint
+            status.kjrh120l_dhw_setpoint = float(dhw_setpoint)
+        else:
+            status.t5s_def = float(dhw_setpoint)
+            status.set_temperature = dhw_setpoint
 
     return status
 
@@ -356,6 +383,8 @@ __all__ = [
     "ATW_SN8",
     "KJRH120L_DHW_OFF",
     "KJRH120L_DHW_ON",
+    "KJRH120L_DHW_TEMP_MAX",
+    "KJRH120L_DHW_TEMP_MIN",
     "KJRH120L_SN8",
     "KJRH120L_TEMP_MAX",
     "KJRH120L_TEMP_MIN",
@@ -366,5 +395,6 @@ __all__ = [
     "build_query_command",
     "decode_atw_status",
     "decode_kjrh120l_status",
+    "kjrh120l_has_zone1",
     "resolve_profile",
 ]

@@ -18,6 +18,7 @@ from custom_components.iletcomfort.api import ITSSensors, ITSStatus
 from custom_components.iletcomfort.climate import ILetComfortClimate
 from homeassistant.const import ATTR_TEMPERATURE
 from homeassistant.components.climate import HVACMode
+from homeassistant.exceptions import HomeAssistantError
 
 from custom_components.iletcomfort.model_profiles import (
     ATW_SN8,
@@ -131,6 +132,40 @@ def test_kjrh120l_min_max_widened_to_20_70():
     entity = _climate(KJRH120L_SN8, ITSSensors(), ITSStatus(mode=1))
     assert entity.min_temp == 20.0
     assert entity.max_temp == 70.0
+
+
+def _dual_kjrh_status() -> ITSStatus:
+    body = bytearray(20)
+    body[8] = 1
+    body[9] = 1
+    body[10] = 1
+    body[12] = 19
+    body[15] = 51
+    return decode_kjrh120l_status(body)
+
+
+def test_kjrh120l_dual_climate_shows_zone1_target_without_controls():
+    """Dual variant exposes the confirmed Zone-1 reading as read-only."""
+    entity = _climate(KJRH120L_SN8, ITSSensors(), _dual_kjrh_status())
+    assert entity.target_temperature == 19
+    assert entity.supported_features == 0
+
+
+@pytest.mark.parametrize(
+    ("method", "kwargs"),
+    [
+        ("async_set_temperature", {ATTR_TEMPERATURE: 22}),
+        ("async_set_hvac_mode", {"hvac_mode": HVACMode.HEAT}),
+        ("async_turn_on", {}),
+        ("async_turn_off", {}),
+    ],
+)
+async def test_kjrh120l_dual_climate_rejects_unvalidated_writes(method, kwargs):
+    """No climate action may send an unvalidated Zone-1 command."""
+    entity = _climate(KJRH120L_SN8, ITSSensors(), _dual_kjrh_status())
+    with pytest.raises(HomeAssistantError, match="Zone-1 control"):
+        await getattr(entity, method)(**kwargs)
+    entity.coordinator.async_set_device.assert_not_awaited()
 
 
 # --- KJRH-120L power read-back → hvac_mode (issue #35) --------------------
