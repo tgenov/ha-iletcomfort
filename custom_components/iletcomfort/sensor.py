@@ -27,6 +27,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from .const import DOMAIN
 from .coordinator import ILetComfortCoordinator
 from .entity import build_device_info
+from .error_codes import ERROR_CODES
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -218,3 +219,13 @@ class ILetComfortSensor(CoordinatorEntity[ILetComfortCoordinator], SensorEntity)
         if self.coordinator.data is None:
             return None
         return self.entity_description.value_fn(self.coordinator.data)
+
+    @property
+    def extra_state_attributes(  # pyright: ignore[reportIncompatibleVariableOverride]
+        self,
+    ) -> dict[str, str] | None:
+        """Expose panel fault details without changing the numeric sensor state."""
+        if self.entity_description.key != "error_code":
+            return None
+        error_code = self.native_value
+        return ERROR_CODES.get(error_code, {}).copy()

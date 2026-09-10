@@ -21,6 +21,7 @@ from custom_components.iletcomfort.const import (
     REGION_US,
 )
 from custom_components.iletcomfort.coordinator import ILetComfortCoordinator
+from custom_components.iletcomfort.error_codes import ERROR_CODES
 from custom_components.iletcomfort.select import ILetComfortMuteSelect
 from custom_components.iletcomfort.sensor import (
     SENSOR_DESCRIPTIONS,
@@ -91,3 +92,40 @@ def test_odu_current_sensor_exists_and_reads_scaled_amps(hass: HomeAssistant):
 
     sensor = ILetComfortSensor(coord, desc)
     assert sensor.native_value == 4.0
+    assert sensor.extra_state_attributes is None
+
+
+def _error_code_sensor(hass: HomeAssistant, error_code: int) -> ILetComfortSensor:
+    """Build the existing numeric error-code sensor with a selected code."""
+    coord = _coordinator(hass)
+    coord.data["status"].error_code = error_code
+    desc = next(d for d in SENSOR_DESCRIPTIONS if d.key == "error_code")
+    return ILetComfortSensor(coord, desc)
+
+
+def test_known_error_code_adds_panel_code_and_description(hass: HomeAssistant):
+    """Known faults retain their numeric state and expose vendor details."""
+    assert len(ERROR_CODES) == 57
+    sensor = _error_code_sensor(hass, 61)
+
+    assert sensor.native_value == 61
+    assert sensor.extra_state_attributes == {
+        "panel": "E0",
+        "description": "Water flow fault (after 3 consecutive flow faults)",
+    }
+
+
+def test_unknown_error_code_has_no_fault_attributes(hass: HomeAssistant):
+    """Unmapped faults pass through without making the sensor unavailable."""
+    sensor = _error_code_sensor(hass, 255)
+
+    assert sensor.native_value == 255
+    assert sensor.extra_state_attributes == {}
+
+
+def test_zero_error_code_has_no_fault_attributes(hass: HomeAssistant):
+    """The no-fault value does not expose fault metadata."""
+    sensor = _error_code_sensor(hass, 0)
+
+    assert sensor.native_value == 0
+    assert sensor.extra_state_attributes == {}
