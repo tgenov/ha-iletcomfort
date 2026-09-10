@@ -292,6 +292,8 @@ class ITSStatus:
     total_kwh: int = 0
     comp_total_run_hours: int = 0
     fan_total_run_hours: int = 0
+    # KJRH-120L dual variant's separate DHW target (status body[15], issue #5).
+    kjrh120l_dhw_setpoint: float | None = None
     raw_body: bytes = field(default_factory=bytes, repr=False)
 
 

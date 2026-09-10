@@ -378,6 +378,21 @@ def test_kjrh120l_status_setpoint_tracks_body15():
     assert status.set_temperature == 65
 
 
+def test_kjrh120l_dual_variant_splits_zone1_and_dhw_setpoints():
+    """Validated dual-unit frame maps body[12] to Zone-1 and body[15] to DHW."""
+    body = bytearray(KJRH120L_STATUS_BODY_ON)
+    body[8] = 0x01
+    body[9] = 0x01
+    body[12] = 19
+    body[15] = 51
+
+    status = decode_kjrh120l_status(body)
+
+    assert status.t5s_def == 19.0
+    assert status.set_temperature == 19
+    assert status.kjrh120l_dhw_setpoint == 51.0
+
+
 def test_kjrh120l_status_power_off_from_body10():
     """OFF capture: body[10] == 0x00 → mode 0 / "Off" (climate hvac OFF)."""
     status = decode_kjrh120l_status(KJRH120L_STATUS_BODY)

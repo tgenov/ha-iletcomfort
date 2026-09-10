@@ -111,6 +111,15 @@ Status `raw_body` (0-indexed; STANDARD misreads this 25-byte frame):
 - `decode_atw_status(body)` implements this. Uncertain HVAC mode/action is left conservative — validate
   on hardware before adding.
 
+### KJRH-120L dual variant (`sn8 17100003`, #5) — hardware-validated reads
+- The same `sn8` covers pure-DHW and Zone-1 + DHW controllers. Gate the dual layout only when status
+  `body[8] == 1` and `body[9] == 1`; pure-DHW captures have `0/0`.
+- Dual layout: `body[12]` is the Zone-1 setpoint and `body[15]` is the DHW setpoint.
+- Zone-1 is read-only in the climate entity. A field `0x08` write was tested on hardware and always
+  forced 23 °C, regardless of the requested value, so do **not** use it.
+- DHW uses a separate Number entity and the confirmed short field `0x07` write. Pure-DHW keeps its
+  existing climate behavior.
+
 ### AQUAPURA profile (`sn8 171000AU`, AQS Energie split HPWH, #12)
 - The real water/tank temp is in `status.box_bottom_temp` (status byte[17], offset-decoded → e.g. 40 °C).
 - The standard `sensors.twin_temp`/`twout_temp` (sensors bytes 25–26) are `0x23` null-fill → decode to 0
@@ -214,7 +223,7 @@ iOS app uses the HTTP endpoint and therefore sends already-encoded hex; Android 
 | `model_profiles.py` | `ModelProfile` enum, `_SN8_PROFILES` table, `resolve_profile`, `decode_atw_status`, `apply_profile_to_status`, `apply_profile_to_sensors`. **Add new model support here.** |
 | `coordinator.py` | `ILetComfortCoordinator`: polling, re-auth, cache-fallback, offline Repair card. Caches `appliance_meta` (best-effort, never fatal) and exposes `sn8`; threads profile into decode. |
 | `diagnostics.py` | Redacted snapshot: raw frames, decoded status/sensors, `sensors_temperature_scan` (per-byte `_temp_offset` map — use it to find a model's misplaced temp byte), and the `appliance` metadata block. `APPLIANCE_TO_REDACT = {owner, sn, name}` (keeps `applianceType`/`modelNumber`/`sn8`). |
-| `climate.py` / `sensor.py` / `binary_sensor.py` / `switch.py` / `select.py` | HA entities. See §4 for which field backs which entity. |
+| `climate.py` / `number.py` / `sensor.py` / `binary_sensor.py` / `switch.py` / `select.py` | HA entities. See §4 for which field backs which entity. |
 | `config_flow.py` / `__init__.py` / `const.py` / `entity.py` | Setup, entry, constants, base entity. |
 | `tests/` | pytest suite; real captured frames are pinned as fixtures (e.g. issue-#11 frames for STANDARD regression). |
 

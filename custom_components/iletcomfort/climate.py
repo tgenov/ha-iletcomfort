@@ -12,6 +12,7 @@ from homeassistant.components.climate import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -30,6 +31,7 @@ from .model_profiles import (
     KJRH120L_TEMP_MAX,
     KJRH120L_TEMP_MIN,
     ModelProfile,
+    kjrh120l_has_zone1,
     resolve_profile,
 )
 
@@ -103,6 +105,27 @@ class ILetComfortClimate(CoordinatorEntity[ILetComfortCoordinator], ClimateEntit
         return resolve_profile(self.coordinator.sn8)
 
     @property
+    def _is_kjrh120l_dual(self) -> bool:
+        return (
+            self._profile is ModelProfile.KJRH120L
+            and self._status is not None
+            and kjrh120l_has_zone1(self._status.raw_body)
+        )
+
+    @property
+    def supported_features(self) -> ClimateEntityFeature:
+        if self._is_kjrh120l_dual:
+            return ClimateEntityFeature(0)
+        return self._attr_supported_features
+
+    def _ensure_climate_control_supported(self) -> None:
+        if self._is_kjrh120l_dual:
+            raise HomeAssistantError(
+                "Zone-1 control is unavailable because its write command has not "
+                "been validated; use the DHW setpoint entity for hot water"
+            )
+
+    @property
     def current_temperature(self) -> float | None:
         if self._sensors is None:
             return None
@@ -158,11 +181,13 @@ class ILetComfortClimate(CoordinatorEntity[ILetComfortCoordinator], ClimateEntit
         return 40.0
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
+        self._ensure_climate_control_supported()
         set_mode = _HVAC_TO_SET_MODE.get(hvac_mode)
         if set_mode is not None:
             await self.coordinator.async_set_device(mode=set_mode)
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
+        self._ensure_climate_control_supported()
         temp = kwargs.get(ATTR_TEMPERATURE)
         if temp is not None:
             # Clamp to the entity's min/max before sending. For the KJRH-120L
@@ -172,7 +197,9 @@ class ILetComfortClimate(CoordinatorEntity[ILetComfortCoordinator], ClimateEntit
             await self.coordinator.async_set_device(temperature=int(clamped))
 
     async def async_turn_on(self) -> None:
+        self._ensure_climate_control_supported()
         await self.coordinator.async_set_device(power_on=True)
 
     async def async_turn_off(self) -> None:
+        self._ensure_climate_control_supported()
         await self.coordinator.async_set_device(mode=MODE_OFF)
