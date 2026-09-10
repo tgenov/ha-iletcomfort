@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.0](https://github.com/tgenov/ha-iletcomfort/compare/v0.8.3...v0.9.0) (2026-09-08)
+
+
+### Features
+
+* MQTT real-time status push (opt-in) that survives the login war ([#57](https://github.com/tgenov/ha-iletcomfort/issues/57)) ([e286c0f](https://github.com/tgenov/ha-iletcomfort/commit/e286c0ff97b92a5025435b8f0cbfd7e6994dc60a))
+
 ## [0.8.3](https://github.com/tgenov/ha-iletcomfort/compare/v0.8.2...v0.8.3) (2026-09-08)
 
 
