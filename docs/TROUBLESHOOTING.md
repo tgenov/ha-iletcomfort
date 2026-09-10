@@ -49,6 +49,15 @@ Home Assistant *on its own* is fine: it keeps its token and only re-authenticate
 when the token is rejected. The conflict only appears when the **same account** is
 signed in to both Home Assistant and the official app.
 
+**Read-only alternative — leave the phone app connected.** In the integration's
+options, select **Leave the phone app connected (read-only push)**. Home Assistant
+logs in once during setup or restart to mint a session-independent MQTT
+certificate, then stops account polling and blocks control commands. After HA has
+loaded, sign back into the official app; real-time status continues over MQTT. If
+the MQTT connection drops, HA marks the entities unavailable rather than logging
+in and evicting the phone. Select **HA is the primary client** to restore polling
+and control.
+
 **Workaround — give Home Assistant its own account.** Use a second cloud account
 for Home Assistant and share the heat pump to it, so each client gets its own
 session:

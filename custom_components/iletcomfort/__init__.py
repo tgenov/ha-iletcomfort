@@ -30,7 +30,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Reload the entry when options change (e.g. the MQTT-push toggle)."""
+    """Reload the entry when its operation mode changes."""
     await hass.config_entries.async_reload(entry.entry_id)
 
 

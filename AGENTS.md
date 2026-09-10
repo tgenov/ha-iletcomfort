@@ -73,8 +73,10 @@ user to do hard work — re-read the whole thread and check the new signal again
 - **`code=14005`**: token rejected / **single active session**. The cloud allows **one active login per
   account** — logging in from the app invalidates HA's token and vice versa (the "login war"). The
   integration auto-re-auths on `14005`/`12001`. Workaround for users: give HA its own account and share
-  the device to it (documented in `README.md` / `docs/TROUBLESHOOTING.md`). `14xxx` codes are the
-  auth range.
+  the device to it, or select the read-only **phone app coexistence** operation mode. That mode performs
+  one account login during setup/restart to mint a session-independent MQTT certificate, then disables
+  account polling and writes; an MQTT outage marks entities unavailable instead of re-authenticating.
+  This is documented in `README.md` / `docs/TROUBLESHOOTING.md`. `14xxx` codes are the auth range.
 
 ---
 

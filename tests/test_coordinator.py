@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import issue_registry as ir
@@ -456,6 +457,23 @@ async def test_async_set_device_threads_sn8_to_client(hass: HomeAssistant):
     assert client.set_device.call_args.kwargs["temperature"] == 60
 
 
+async def test_phone_app_mode_rejects_account_control(hass: HomeAssistant):
+    """Read-only coexistence mode never steals the phone session for a write."""
+    from homeassistant.exceptions import HomeAssistantError
+
+    from custom_components.iletcomfort.const import OPERATION_MODE_PHONE_APP
+
+    entry = _entry_operation_mode(OPERATION_MODE_PHONE_APP)
+    entry.add_to_hass(hass)
+    with patch("custom_components.iletcomfort.coordinator.ILetComfortClient") as cls:
+        coordinator = ILetComfortCoordinator(hass, entry)
+
+    with pytest.raises(HomeAssistantError, match="HA primary"):
+        await coordinator.async_set_device(temperature=42)
+
+    cls.return_value.set_device.assert_not_called()
+
+
 def _degraded_coordinator(hass: HomeAssistant) -> tuple[ILetComfortCoordinator, MagicMock]:
     """Build a coordinator wired so both queries fall back to cache."""
     entry = _entry(REGION_US)
@@ -692,6 +710,23 @@ def _entry_push(enabled: bool) -> MockConfigEntry:
     )
 
 
+def _entry_operation_mode(mode: str) -> MockConfigEntry:
+    from custom_components.iletcomfort.const import CONF_OPERATION_MODE
+
+    return MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="user@example.com:APPL1",
+        data={
+            CONF_EMAIL: "user@example.com",
+            CONF_PASSWORD: "secret",
+            CONF_APPLIANCE_CODE: "APPL1",
+            CONF_REGION: REGION_US,
+        },
+        options={CONF_OPERATION_MODE: mode},
+        version=2,
+    )
+
+
 async def test_push_disabled_by_default_no_client_no_interval_change(hass: HomeAssistant):
     """Flag off: no push client, poll interval unchanged — zero regression."""
     from custom_components.iletcomfort.const import DEFAULT_SCAN_INTERVAL
@@ -728,6 +763,47 @@ async def test_push_enabled_starts_client(hass: HomeAssistant):
     assert push_cls.call_args.kwargs["region"] == REGION_US
 
 
+async def test_phone_app_mode_starts_push_client(hass: HomeAssistant):
+    from custom_components.iletcomfort.const import OPERATION_MODE_PHONE_APP
+
+    entry = _entry_operation_mode(OPERATION_MODE_PHONE_APP)
+    entry.add_to_hass(hass)
+    coordinator = ILetComfortCoordinator(hass, entry)
+
+    with patch(
+        "custom_components.iletcomfort.coordinator.ILetComfortPushClient"
+    ) as push_cls:
+        push_cls.return_value.async_start = AsyncMock()
+        await coordinator.async_start_push()
+
+    push_cls.assert_called_once()
+
+
+async def test_phone_app_mode_push_start_failure_does_not_fall_back_to_polling(
+    hass: HomeAssistant,
+):
+    """A broker/certificate failure cannot restart the account login war."""
+    from custom_components.iletcomfort.const import OPERATION_MODE_PHONE_APP
+
+    entry = _entry_operation_mode(OPERATION_MODE_PHONE_APP)
+    entry.add_to_hass(hass)
+    coordinator = ILetComfortCoordinator(hass, entry)
+    coordinator.async_set_updated_data(
+        {"status": ITSStatus(mode=1), "sensors": ITSSensors()}
+    )
+
+    with patch(
+        "custom_components.iletcomfort.coordinator.ILetComfortPushClient"
+    ) as push_cls:
+        push_cls.return_value.async_start = AsyncMock(
+            side_effect=RuntimeError("broker unavailable")
+        )
+        await coordinator.async_start_push()
+
+    assert coordinator.update_interval is None
+    assert coordinator.last_update_success is False
+
+
 async def test_push_status_updates_data_keeping_sensors(hass: HomeAssistant):
     entry = _entry_push(True)
     entry.add_to_hass(hass)
@@ -758,30 +834,61 @@ async def test_push_status_ignored_before_first_poll(hass: HomeAssistant):
     assert coordinator.data is None
 
 
-async def test_push_connected_slows_poll_disconnected_restores(hass: HomeAssistant):
-    from custom_components.iletcomfort.const import (
-        DEFAULT_SCAN_INTERVAL,
-        PUSH_BACKSTOP_SCAN_INTERVAL,
-    )
-
+async def test_legacy_push_option_migrates_to_phone_app_polling_behavior(
+    hass: HomeAssistant,
+):
+    """Entries created by v0.9-v0.11 keep push without account polling."""
     entry = _entry_push(True)
     entry.add_to_hass(hass)
     coordinator = ILetComfortCoordinator(hass, entry)
 
-    with patch.object(coordinator, "async_request_refresh", new=AsyncMock()):
+    coordinator._apply_push_connected(True)
+
+    assert coordinator.update_interval is None
+
+
+async def test_phone_app_mode_connected_disables_account_polling(
+    hass: HomeAssistant,
+):
+    """Coexistence mode must not periodically steal the phone's account session."""
+    from custom_components.iletcomfort.const import OPERATION_MODE_PHONE_APP
+
+    entry = _entry_operation_mode(OPERATION_MODE_PHONE_APP)
+    entry.add_to_hass(hass)
+    coordinator = ILetComfortCoordinator(hass, entry)
+
+    coordinator._apply_push_connected(True)
+
+    assert coordinator.update_interval is None
+
+
+async def test_phone_app_mode_disconnect_is_unavailable_without_polling(
+    hass: HomeAssistant,
+):
+    """A push outage is visible and never starts an account-session fallback."""
+    from custom_components.iletcomfort.const import OPERATION_MODE_PHONE_APP
+
+    entry = _entry_operation_mode(OPERATION_MODE_PHONE_APP)
+    entry.add_to_hass(hass)
+    coordinator = ILetComfortCoordinator(hass, entry)
+    coordinator.async_set_updated_data(
+        {"status": ITSStatus(mode=1), "sensors": ITSSensors()}
+    )
+
+    with patch.object(
+        coordinator, "async_request_refresh", new=AsyncMock()
+    ) as refresh:
         coordinator._apply_push_connected(True)
-        assert (
-            coordinator.update_interval.total_seconds()
-            == PUSH_BACKSTOP_SCAN_INTERVAL
-        )
-
         coordinator._apply_push_connected(False)
-        assert coordinator.update_interval.total_seconds() == DEFAULT_SCAN_INTERVAL
-    await hass.async_block_till_done()
+        await hass.async_block_till_done()
+
+    assert coordinator.update_interval is None
+    assert coordinator.last_update_success is False
+    refresh.assert_not_awaited()
 
 
-async def test_push_disconnect_forces_immediate_refresh(hass: HomeAssistant):
-    """On drop, don't wait out the slow backstop interval — refresh now."""
+async def test_legacy_push_option_disconnect_does_not_refresh(hass: HomeAssistant):
+    """Legacy push entries inherit the no-login fallback guarantee."""
     entry = _entry_push(True)
     entry.add_to_hass(hass)
     coordinator = ILetComfortCoordinator(hass, entry)
@@ -793,7 +900,8 @@ async def test_push_disconnect_forces_immediate_refresh(hass: HomeAssistant):
         coordinator._apply_push_connected(False)
         await hass.async_block_till_done()
 
-    refresh.assert_awaited()
+    refresh.assert_not_awaited()
+    assert coordinator.last_update_success is False
 
 
 async def test_async_stop_push_stops_client(hass: HomeAssistant):
