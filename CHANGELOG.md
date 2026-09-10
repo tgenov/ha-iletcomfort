@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.0](https://github.com/tgenov/ha-iletcomfort/compare/v0.10.0...v0.11.0) (2026-09-10)
+
+
+### Features
+
+* expose C3 fault details on error sensor ([#61](https://github.com/tgenov/ha-iletcomfort/issues/61)) ([d04d091](https://github.com/tgenov/ha-iletcomfort/commit/d04d0918f2bb9221c9ac46081cd2e5affe02249d))
+
 ## [0.10.0](https://github.com/tgenov/ha-iletcomfort/compare/v0.9.0...v0.10.0) (2026-09-10)
 
 
