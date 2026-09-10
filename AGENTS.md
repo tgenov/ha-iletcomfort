@@ -91,6 +91,8 @@ and never stored.
   (unchanged today's behavior).** So a new model can never be *corrupted* — worst case it doesn't get a
   profile yet. Caveat: `sn8` is assumed model-level (shared across units of a model); only ever confirmed
   on one unit per model so far.
+- `17100007` (`KJRH-120L2`) is a known C3 catalogue model code with no hardware reports or validated
+  decode profile yet. It is intentionally absent from `_SN8_PROFILES` and defaults to STANDARD.
 
 Key decode constants (`api.py`): base offset `d=1` (body[0] is the subtype byte);
 `_temp_offset(raw) = raw - TEMP_OFFSET` with `TEMP_OFFSET=35`, returning `None` for

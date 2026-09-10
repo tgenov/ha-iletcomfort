@@ -27,6 +27,7 @@ from custom_components.iletcomfort.api import (
 from custom_components.iletcomfort.model_profiles import (
     AQUAPURA_SN8,
     ATW_SN8,
+    KJRH120L2_SN8,
     KJRH120L_DHW_OFF,
     KJRH120L_DHW_ON,
     KJRH120L_SN8,
@@ -105,6 +106,12 @@ def test_resolve_profile_kjrh120l_sn8():
     """The KJRH-120L sn8 (17100003, issues #21/#5) resolves to its profile."""
     assert KJRH120L_SN8 == "17100003"
     assert resolve_profile(KJRH120L_SN8) is ModelProfile.KJRH120L
+
+
+def test_known_unconfirmed_kjrh120l2_sn8_falls_back_to_standard():
+    """The known 120L2 model remains on the safe default until hardware data exists."""
+    assert KJRH120L2_SN8 == "17100007"
+    assert resolve_profile(KJRH120L2_SN8) is ModelProfile.STANDARD
 
 
 # ---------------------------------------------------------------------------

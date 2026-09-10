@@ -29,6 +29,12 @@ AQUAPURA (sn8 ``171000AU``, AQS Energie AQUAPURA split HPWH, issue #12)
     on ``th_temp`` (the "DHW Tank Temperature" sensor) instead of
     ``sensors.twin_temp`` (which is null-filled to 0 on this model).
 
+Known, unconfirmed model codes
+------------------------------
+``17100007`` is the KJRH-120L2 listed in the vendor's C3 model catalogue. No
+hardware report or frame capture exists yet, so it deliberately has no decode
+profile and resolves to STANDARD.
+
 For both ATW and AQUAPURA the tank temperature is routed to ``th_temp`` and the
 "Water Inlet Temperature" sensor (``twin_temp``) is left honest (no real inlet
 reading). Climate ``current_temperature`` is profile-aware and returns
@@ -46,6 +52,7 @@ from .api import ITSSensors, ITSStatus
 ATW_SN8 = "171H120F"
 AQUAPURA_SN8 = "171000AU"
 KJRH120L_SN8 = "17100003"
+KJRH120L2_SN8 = "17100007"  # Known catalogue entry; no validated profile yet.
 
 
 class ModelProfile(Enum):
