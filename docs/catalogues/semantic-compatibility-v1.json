@@ -27,9 +27,9 @@
       "local_profile": "AQUAPURA",
       "regions": ["US lookup attempted", "source region unknown"],
       "bundle": {
-        "status": "reported_in_epic_evidence",
+        "status": "runtime_cache_observed",
         "version": "2024032801",
-        "vendor_category": "US lookup:2200007; delivery path unverified"
+        "vendor_category": "US lookup:2200007; cache acquisition path unverified"
       },
       "catalogue": {
         "status": "blocked",
