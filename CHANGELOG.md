@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.16.0](https://github.com/tgenov/ha-iletcomfort/compare/v0.15.0...v0.16.0) (2026-09-11)
+
+
+### Features
+
+* add safe semantic parser probe ([#91](https://github.com/tgenov/ha-iletcomfort/issues/91)) ([49d4256](https://github.com/tgenov/ha-iletcomfort/commit/49d42568ac888b1f5d0c9488eff7cd44d89afe9e))
+* extract Weex semantic API catalogues ([#89](https://github.com/tgenov/ha-iletcomfort/issues/89)) ([1d9b09e](https://github.com/tgenov/ha-iletcomfort/commit/1d9b09ef8c036b052a8165d71e05cdb7375868ed))
+
+
+### Bug Fixes
+
+* retain semantic operation direction in findings ([#92](https://github.com/tgenov/ha-iletcomfort/issues/92)) ([853e21a](https://github.com/tgenov/ha-iletcomfort/commit/853e21ae7aee1c19203ae07a99a810ac802da2a7))
+
 ## [0.15.0](https://github.com/tgenov/ha-iletcomfort/compare/v0.14.2...v0.15.0) (2026-09-11)
 
 
