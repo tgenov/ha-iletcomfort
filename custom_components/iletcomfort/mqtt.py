@@ -26,14 +26,18 @@ import json
 import logging
 import ssl
 import tempfile
-from collections.abc import Callable
+from asyncio import TimerHandle
+from collections.abc import Awaitable, Callable
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import paho.mqtt.client as mqtt
+from cryptography import x509
 
 from .api import (
     ITSStatus,
+    AppCert,
     decode_its_status,
     extract_c3_body,
     mask_identifier,
@@ -49,6 +53,19 @@ _LOGGER = logging.getLogger(__name__)
 
 StatusCallback = Callable[[ITSStatus], None]
 ConnectedCallback = Callable[[bool], None]
+CertificateProvider = Callable[[], Awaitable[AppCert]]
+
+CERT_RENEW_BEFORE = timedelta(days=7)
+CERT_RENEW_RETRY = timedelta(hours=1)
+
+
+def certificate_expiry(certificate_pem: str) -> datetime:
+    """Return the UTC expiry embedded in an app-issued X.509 certificate."""
+    cert = x509.load_pem_x509_certificate(certificate_pem.encode("utf-8"))
+    expires_utc = getattr(cert, "not_valid_after_utc", None)
+    if expires_utc is not None:
+        return expires_utc
+    return cert.not_valid_after.replace(tzinfo=timezone.utc)
 
 
 def push_topics(region: str, appliance_code: str) -> list[str]:
@@ -113,6 +130,7 @@ class ILetComfortPushClient:
         appliance_code: str,
         on_status: StatusCallback,
         on_connected_change: ConnectedCallback,
+        get_certificate: CertificateProvider | None = None,
     ) -> None:
         self._hass = hass
         self._client = client
@@ -120,9 +138,12 @@ class ILetComfortPushClient:
         self._appliance_code = appliance_code
         self._on_status = on_status
         self._on_connected_change = on_connected_change
+        self._get_certificate = get_certificate or self._async_create_certificate
         self._mqtt: mqtt.Client | None = None
         self._tmpdir: tempfile.TemporaryDirectory[str] | None = None
         self._connected = False
+        self._renewal_handle: TimerHandle | None = None
+        self._stopped = False
 
     @property
     def connected(self) -> bool:
@@ -130,8 +151,103 @@ class ILetComfortPushClient:
 
     async def async_start(self) -> None:
         """Mint a certificate, then connect and subscribe (off the event loop)."""
-        cert = await self._hass.async_add_executor_job(self._client.create_app_cert)
+        self._stopped = False
+        cert = await self._get_certificate()
         await self._hass.async_add_executor_job(self._connect, cert)
+        self._schedule_renewal(cert.certificate_pem)
+
+    async def _async_create_certificate(self) -> AppCert:
+        return await self._hass.async_add_executor_job(self._client.create_app_cert)
+
+    def _schedule_renewal(
+        self,
+        certificate_pem: str | None = None,
+        *,
+        retry: bool = False,
+    ) -> None:
+        """Schedule rotation from the certificate validity or a short retry."""
+        if self._stopped:
+            return
+        if self._renewal_handle is not None:
+            self._renewal_handle.cancel()
+        if retry:
+            delay = CERT_RENEW_RETRY.total_seconds()
+        else:
+            assert certificate_pem is not None
+            try:
+                expires = certificate_expiry(certificate_pem)
+            except ValueError:
+                _LOGGER.warning(
+                    "MQTT certificate validity could not be read; automatic "
+                    "renewal is disabled for this connection"
+                )
+                self._renewal_handle = None
+                return
+            remaining = expires - datetime.now(timezone.utc)
+            # Renew at 90% of short certificate lifetimes, capped at seven
+            # days early for long-lived certificates. This avoids a tight
+            # rotation loop if the vendor ever issues certificates shorter
+            # than the normal renewal lead time.
+            renew_before = min(CERT_RENEW_BEFORE, remaining / 10)
+            delay = max(1.0, (remaining - renew_before).total_seconds())
+        self._renewal_handle = self._hass.loop.call_later(
+            delay,
+            lambda: self._hass.async_create_task(
+                self.async_renew_certificate(),
+                "iLetComfort MQTT certificate renewal",
+            ),
+        )
+
+    async def async_renew_certificate(self) -> None:
+        """Rotate credentials while retaining the old connection on mint failure."""
+        if self._stopped:
+            return
+        if self._renewal_handle is not None:
+            self._renewal_handle.cancel()
+        self._renewal_handle = None
+        try:
+            cert = await self._get_certificate()
+        except Exception as err:  # noqa: BLE001 — retry while old cert remains live
+            _LOGGER.warning("MQTT certificate renewal failed; retrying later: %s", err)
+            self._schedule_renewal(retry=True)
+            return
+
+        if self._stopped:
+            return
+
+        old_mqtt = self._mqtt
+        old_tmpdir = self._tmpdir
+        try:
+            await self._hass.async_add_executor_job(self._connect, cert)
+        except Exception as err:  # noqa: BLE001 — keep retrying after connect failure
+            failed_mqtt = self._mqtt
+            failed_tmpdir = self._tmpdir
+            self._mqtt = old_mqtt
+            self._tmpdir = old_tmpdir
+            if failed_mqtt is not None and failed_mqtt is not old_mqtt:
+                failed_mqtt.on_disconnect = None
+                await self._hass.async_add_executor_job(
+                    self._teardown_client, failed_mqtt
+                )
+            if failed_tmpdir is not None and failed_tmpdir is not old_tmpdir:
+                failed_tmpdir.cleanup()
+            _LOGGER.warning(
+                "MQTT certificate replacement connection failed; retrying later: %s",
+                err,
+            )
+            self._schedule_renewal(retry=True)
+            return
+
+        # The replacement has started before the old transport and key files
+        # are retired, avoiding a gap caused by certificate issuance itself.
+        if old_mqtt is not None:
+            # A planned retirement is not a loss of push liveness. Suppress the
+            # old client's disconnect callback while the replacement takes over.
+            old_mqtt.on_disconnect = None
+            await self._hass.async_add_executor_job(self._teardown_client, old_mqtt)
+        if old_tmpdir is not None:
+            old_tmpdir.cleanup()
+        self._schedule_renewal(cert.certificate_pem)
 
     def _connect(self, cert) -> None:
         # Materialize the cert/key into a private 0700 temp dir; paho's TLS
@@ -208,6 +324,10 @@ class ILetComfortPushClient:
 
     async def async_stop(self) -> None:
         """Disconnect and clean up the certificate files."""
+        self._stopped = True
+        if self._renewal_handle is not None:
+            self._renewal_handle.cancel()
+            self._renewal_handle = None
         if self._mqtt is not None:
             await self._hass.async_add_executor_job(self._teardown)
             self._mqtt = None
@@ -218,5 +338,9 @@ class ILetComfortPushClient:
 
     def _teardown(self) -> None:
         assert self._mqtt is not None
-        self._mqtt.loop_stop()
-        self._mqtt.disconnect()
+        self._teardown_client(self._mqtt)
+
+    @staticmethod
+    def _teardown_client(client: mqtt.Client) -> None:
+        client.loop_stop()
+        client.disconnect()

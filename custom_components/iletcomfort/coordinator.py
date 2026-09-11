@@ -16,6 +16,7 @@ from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import (
+    AppCert,
     ApiError,
     AuthError,
     ILetComfortClient,
@@ -451,6 +452,7 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             appliance_code=self.appliance_code,
             on_status=self._push_status_threadsafe,
             on_connected_change=self._push_connected_threadsafe,
+            get_certificate=self._async_get_push_certificate,
         )
         try:
             await self._push_client.async_start()
@@ -463,6 +465,19 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._push_client = None
             self.async_set_update_error(
                 UpdateFailed("MQTT push failed to start in phone app mode")
+            )
+
+    async def _async_get_push_certificate(self) -> AppCert:
+        """Mint a push certificate, re-authenticating only when required."""
+        try:
+            return await self.hass.async_add_executor_job(
+                self.client.create_app_cert
+            )
+        except AuthError:
+            _LOGGER.info("Auth error during MQTT certificate issuance or renewal")
+            await self._async_login()
+            return await self.hass.async_add_executor_job(
+                self.client.create_app_cert
             )
 
     async def async_stop_push(self) -> None:

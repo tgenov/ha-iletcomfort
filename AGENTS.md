@@ -75,7 +75,10 @@ user to do hard work — re-read the whole thread and check the new signal again
   integration auto-re-auths on `14005`/`12001`. Workaround for users: give HA its own account and share
   the device to it, or select the read-only **phone app coexistence** operation mode. That mode performs
   one account login during setup/restart to mint a session-independent MQTT certificate, then disables
-  account polling and writes; an MQTT outage marks entities unavailable instead of re-authenticating.
+  account polling and writes. Long-running processes rotate before the X.509 expiry (up to seven days
+  early), retain
+  the old connection and retry hourly after a mint failure, and re-authenticate only after the current
+  token is actually rejected. An MQTT outage marks entities unavailable instead of starting polling.
   This is documented in `README.md` / `docs/TROUBLESHOOTING.md`. `14xxx` codes are the auth range.
 
 ---
