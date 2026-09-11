@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.14.2](https://github.com/tgenov/ha-iletcomfort/compare/v0.14.1...v0.14.2) (2026-09-11)
+
+
+### Bug Fixes
+
+* fall back to AQUAPURA outlet temperature ([#76](https://github.com/tgenov/ha-iletcomfort/issues/76)) ([0fdd83b](https://github.com/tgenov/ha-iletcomfort/commit/0fdd83b2e7a31e09b6c4fef2d452e28e0a559494))
+
 ## [0.14.1](https://github.com/tgenov/ha-iletcomfort/compare/v0.14.0...v0.14.1) (2026-09-11)
 
 
