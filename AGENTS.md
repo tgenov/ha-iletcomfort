@@ -127,6 +127,10 @@ Status `raw_body` (0-indexed; STANDARD misreads this 25-byte frame):
 - The real water/tank temp is in `status.box_bottom_temp` (status byte[17], offset-decoded → e.g. 40 °C).
 - The standard `sensors.twin_temp`/`twout_temp` (sensors bytes 25–26) are `0x23` null-fill → decode to 0
   (that was the "water temp = 0" bug).
+- A second hardware variant with the same `sn8` publishes live inlet/outlet values while `th_temp` is a
+  zero placeholder. Climate current temperature therefore keeps a nonzero `th_temp` when present and
+  otherwise falls back to `twout_temp`, then `twin_temp`. Do not assume `sn8` alone distinguishes these
+  AQUAPURA layouts.
 
 ### Entity routing (important)
 - `sensor.py`: **"Water Inlet Temperature"** ← `twin_temp`; **"DHW Tank Temperature"** ← `th_temp`.
