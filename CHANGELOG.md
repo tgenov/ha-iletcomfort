@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.17.0](https://github.com/tgenov/ha-iletcomfort/compare/v0.16.0...v0.17.0) (2026-09-11)
+
+
+### Features
+
+* show device model in Home Assistant ([#95](https://github.com/tgenov/ha-iletcomfort/issues/95)) ([5d5e3ad](https://github.com/tgenov/ha-iletcomfort/commit/5d5e3adb79d1aaa180311de087a2df8af349f6b8))
+
 ## [0.16.0](https://github.com/tgenov/ha-iletcomfort/compare/v0.15.0...v0.16.0) (2026-09-11)
 
 
