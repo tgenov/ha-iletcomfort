@@ -1,0 +1,132 @@
+{
+  "matrix_version": 1,
+  "survey_date": "2026-09-12",
+  "models": [
+    {
+      "sn8": null,
+      "model": "Unknown model using the STANDARD local profile",
+      "local_profile": "STANDARD",
+      "regions": ["unknown"],
+      "bundle": {"status": "untested", "version": null, "vendor_category": null},
+      "catalogue": {"status": "unavailable", "reason": "No model code or authorized bundle"},
+      "semantic_operations": [],
+      "type_selectors": [],
+      "constraints": [],
+      "parser_probe": {"encode": "untested", "decode": "untested"},
+      "parser_endpoint": {"status": "unresolved", "base_url": null, "encode_path": null, "decode_path": null},
+      "evidence": ["local_capture"],
+      "notes": [
+        "Existing validated local STANDARD decoding remains authoritative.",
+        "A shared protocol must not be inferred from device type 0xC3."
+      ],
+      "related_issues": [47]
+    },
+    {
+      "sn8": "171000AU",
+      "model": "AQUAPURA split HPWH",
+      "local_profile": "AQUAPURA",
+      "regions": ["US", "Android package region unknown"],
+      "bundle": {
+        "status": "observed_in_android_package",
+        "version": "2024032801",
+        "vendor_category": "US lookup:2200007"
+      },
+      "catalogue": {
+        "status": "blocked",
+        "reason": "Authorized unpacked source artifact unavailable in this workspace"
+      },
+      "semantic_operations": [
+        "reported in epic evidence; authoritative catalogue blocked"
+      ],
+      "type_selectors": [
+        "reported query_type/control_type values; not independently extracted"
+      ],
+      "constraints": [
+        "reported_unverified: setpoints are bounded by model-returned min/max semantic fields",
+        "reported_unverified: power fields use string values on/off; mode uses auto/cool/heat",
+        "reported_unverified: weather-curve type is 1-8 preset or 9 custom; no curve-offset field was found."
+      ],
+      "parser_probe": {
+        "encode": "hardware-backed temperature vector observed; fixture pinning pending #85",
+        "decode": "untested in repository"
+      },
+      "parser_endpoint": {"status": "unresolved", "base_url": null, "encode_path": null, "decode_path": null},
+      "evidence": ["epic_81_established_evidence", "parser_generated_reported", "hardware_validation"],
+      "notes": [
+        "Hardware validates local tank-temperature routing from status byte 17.",
+        "Semantic write evidence is not adopted into runtime behavior."
+      ],
+      "related_issues": [12, 84, 85]
+    },
+    {
+      "sn8": "171H120F",
+      "model": "KJRH-120F/K M-thermal ATW",
+      "local_profile": "ATW",
+      "regions": ["US", "EU unverified"],
+      "bundle": {
+        "status": "unavailable",
+        "version": null,
+        "vendor_category": "US lookup:2200004"
+      },
+      "catalogue": {"status": "unavailable", "reason": "No plugin registered on the surveyed US tenant; EU unverified"},
+      "semantic_operations": [],
+      "type_selectors": [],
+      "constraints": [],
+      "parser_probe": {"encode": "unavailable", "decode": "unavailable"},
+      "parser_endpoint": {"status": "unresolved", "base_url": null, "encode_path": null, "decode_path": null},
+      "evidence": ["bundle_lookup", "hardware_validation"],
+      "notes": [
+        "Validated local reads remain authoritative.",
+        "Short and legacy long write candidates were rejected with vendor code 1214.",
+        "ATW control remains blocked on a successful official-app command capture."
+      ],
+      "related_issues": [42, 49]
+    },
+    {
+      "sn8": "17100003",
+      "model": "KJRH-120L Central Heating Water Heater",
+      "local_profile": "KJRH120L",
+      "regions": ["US", "EU unverified"],
+      "bundle": {
+        "status": "unavailable",
+        "version": null,
+        "vendor_category": "US lookup:2200004"
+      },
+      "catalogue": {"status": "unavailable", "reason": "No plugin registered on the surveyed US tenant; EU unverified"},
+      "semantic_operations": ["hardware-validated short DHW power/setpoint only"],
+      "type_selectors": [],
+      "constraints": ["Dual-layout Zone-1 is read-only; field 0x08 is unsafe and not a semantic equivalence."],
+      "parser_probe": {"encode": "unavailable", "decode": "unavailable"},
+      "parser_endpoint": {"status": "unresolved", "base_url": null, "encode_path": null, "decode_path": null},
+      "evidence": ["bundle_lookup", "hardware_validation"],
+      "notes": ["The pure-DHW and dual controller layouts share this sn8; status bytes gate local reads."],
+      "related_issues": [5, 43]
+    },
+    {
+      "sn8": "17100007",
+      "model": "KJRH-120L2",
+      "local_profile": "STANDARD",
+      "regions": ["US"],
+      "bundle": {
+        "status": "available",
+        "version": "1.0.65",
+        "vendor_category": null
+      },
+      "catalogue": {
+        "status": "extracted_unresolved",
+        "reason": "Authorized v1.0.65 bundle fetched and scanned; see 17100007-1.0.65-extraction-summary.json: 28 control call sites have dynamically assembled params, so no selectors or fields were asserted"
+      },
+      "semantic_operations": ["28 luaControl/control call sites with dynamic params; unresolved findings retain direction and module provenance"],
+      "type_selectors": ["none asserted; dynamic params"],
+      "constraints": [],
+      "parser_probe": {"encode": "untested", "decode": "untested"},
+      "parser_endpoint": {"status": "unresolved", "base_url": null, "encode_path": null, "decode_path": null},
+      "evidence": ["bundle_fetch", "static_extraction"],
+      "notes": [
+        "Known catalogue model with no hardware-confirmed decode profile.",
+        "It intentionally defaults to STANDARD and is not assumed equivalent to other 0xC3 models."
+      ],
+      "related_issues": [47, 59]
+    }
+  ]
+}
