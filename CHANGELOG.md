@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.0](https://github.com/tgenov/ha-iletcomfort/compare/v0.14.2...v0.15.0) (2026-09-11)
+
+
+### Features
+
+* **mqtt:** capture scoped command frames ([#79](https://github.com/tgenov/ha-iletcomfort/issues/79)) ([2ee3111](https://github.com/tgenov/ha-iletcomfort/commit/2ee3111291e722d298f9f3ca39ee1f054904a270))
+
 ## [0.14.2](https://github.com/tgenov/ha-iletcomfort/compare/v0.14.1...v0.14.2) (2026-09-11)
 
 
