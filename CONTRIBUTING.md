@@ -183,3 +183,44 @@ serial, presigned URLs, or captured appliance state. Catalogue provenance uses
 a deterministic 12-character SHA-256 prefix of each source-relative path plus
 the source line; this can be matched locally without publishing potentially
 sensitive filenames. Source snippets are deliberately omitted.
+
+## Probing the semantic parser
+
+`scripts/probe_semantic_parser.py` is a development-only client for the
+model-aware semantic encode/decode endpoints referenced by the Weex plugins.
+Those endpoints are undocumented vendor implementation details. A probe sends
+the semantic state in your input file to Midea; use only data you are authorized
+to disclose and a base URL recovered from your own authorized bundle.
+
+```bash
+# Semantic control/query object -> locally validated C3 frame summary
+python3 scripts/probe_semantic_parser.py encode-control \
+  --sn8 171000AU \
+  --base-url https://parser-host.example \
+  --encode-path /path/from/catalogue \
+  --input /tmp/sanitized-control.json
+
+# Raw C3 response -> redacted semantic shape summary
+python3 scripts/probe_semantic_parser.py decode \
+  --sn8 171000AU \
+  --base-url https://parser-host.example \
+  --decode-path /path/from/catalogue \
+  --input /tmp/sanitized-frame.json
+```
+
+Decode input is `{"commandHex":"..."}`. Encode input is the semantic object
+placed under `query` or `control`; the command supplies the surrounding
+`deviceinfo` with `modelSN8`, `deviceType`, and `deviceSubType`.
+
+The client bounds timeouts and separates transport, HTTP, vendor-code,
+malformed-response, and frame-validation failures. Every raw or generated frame
+must have valid hexadecimal syntax, an `0xAA` header, device type `0xC3`, a
+matching declared length, a nonempty response body, and a valid two's-complement
+checksum. The command prints only structural summaries: it does not print or
+save semantic values, frames, endpoint URLs, credentials, or device identifiers.
+
+Most importantly, this script contains no Dollin appliance-control request and
+cannot transmit a generated frame to an appliance. It is for offline protocol
+research and fixture review. Keep fixture inputs synthetic or minimally
+sanitized; never commit tokens, full device serials, signed URLs, or private
+telemetry.
