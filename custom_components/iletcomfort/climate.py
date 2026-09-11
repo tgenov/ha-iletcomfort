@@ -116,6 +116,11 @@ class ILetComfortClimate(CoordinatorEntity[ILetComfortCoordinator], ClimateEntit
     def supported_features(self) -> ClimateEntityFeature:
         if self._is_kjrh120l_dual:
             return ClimateEntityFeature(0)
+        if self.hvac_mode is HVACMode.FAN_ONLY:
+            return (
+                self._attr_supported_features
+                & ~ClimateEntityFeature.TARGET_TEMPERATURE
+            )
         return self._attr_supported_features
 
     def _ensure_climate_control_supported(self) -> None:
@@ -150,7 +155,7 @@ class ILetComfortClimate(CoordinatorEntity[ILetComfortCoordinator], ClimateEntit
 
     @property
     def target_temperature(self) -> float | None:
-        if self._status is None:
+        if self._status is None or self.hvac_mode is HVACMode.FAN_ONLY:
             return None
         # t5s_def (d+2, offset-encoded) is the active mode setpoint.
         # set_temperature (d+4, direct) is the DHW tank target.
@@ -188,6 +193,10 @@ class ILetComfortClimate(CoordinatorEntity[ILetComfortCoordinator], ClimateEntit
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
         self._ensure_climate_control_supported()
+        if self.hvac_mode is HVACMode.FAN_ONLY:
+            raise HomeAssistantError(
+                "Temperature control is unavailable in Fan Only mode"
+            )
         temp = kwargs.get(ATTR_TEMPERATURE)
         if temp is not None:
             # Clamp to the entity's min/max before sending. For the KJRH-120L

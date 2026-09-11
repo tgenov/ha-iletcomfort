@@ -17,7 +17,7 @@ import pytest
 from custom_components.iletcomfort.api import ITSSensors, ITSStatus
 from custom_components.iletcomfort.climate import ILetComfortClimate
 from homeassistant.const import ATTR_TEMPERATURE
-from homeassistant.components.climate import HVACMode
+from homeassistant.components.climate import ClimateEntityFeature, HVACMode
 from homeassistant.exceptions import HomeAssistantError
 
 from custom_components.iletcomfort.model_profiles import (
@@ -79,6 +79,46 @@ def test_water_inlet_attribute_still_sourced_from_twin_temp():
     # ATW: twin_temp absent → attribute absent (not relabeled to the tank temp).
     atw = _climate(ATW_SN8, ITSSensors(twin_temp=None, th_temp=46.0))
     assert "water_inlet" not in atw.extra_state_attributes
+
+
+def test_fan_only_hides_temperature_control_and_stored_dhw_target():
+    """Water-pump circulation has no adjustable climate temperature."""
+    entity = _climate(
+        None,
+        ITSSensors(),
+        ITSStatus(mode=4, set_temperature=50, t5s_def=None),
+    )
+
+    assert entity.hvac_mode is HVACMode.FAN_ONLY
+    assert entity.target_temperature is None
+    assert not entity.supported_features & ClimateEntityFeature.TARGET_TEMPERATURE
+    assert entity.supported_features & ClimateEntityFeature.TURN_OFF
+
+
+async def test_fan_only_rejects_direct_temperature_service_call():
+    """A service call cannot write a meaningless temperature in Fan Only."""
+    entity = _climate(
+        None,
+        ITSSensors(),
+        ITSStatus(mode=4, set_temperature=50, t5s_def=None),
+    )
+
+    with pytest.raises(HomeAssistantError, match="Fan Only"):
+        await entity.async_set_temperature(**{ATTR_TEMPERATURE: 30})
+    entity.coordinator.async_set_device.assert_not_awaited()
+
+
+def test_heating_keeps_temperature_control_and_40_degree_maximum():
+    """Heating still exposes its real target with the protocol's 40 °C limit."""
+    entity = _climate(
+        None,
+        ITSSensors(),
+        ITSStatus(mode=1, set_temperature=50, t5s_def=35),
+    )
+
+    assert entity.target_temperature == 35
+    assert entity.max_temp == 40
+    assert entity.supported_features & ClimateEntityFeature.TARGET_TEMPERATURE
 
 
 # --- KJRH-120L SET path clamping (issue #35) ------------------------------
