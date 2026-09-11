@@ -22,5 +22,6 @@ def build_device_info(coordinator: ILetComfortCoordinator) -> DeviceInfo:
         identifiers={(DOMAIN, coordinator.appliance_code)},
         name=coordinator.entry.title,
         manufacturer="iLetComfort",
+        model=coordinator.sn8,
         sw_version=sw_version,
     )
