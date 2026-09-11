@@ -267,6 +267,38 @@ def _merge_params(value: Any) -> tuple[JsObject | None, dict[str, Any] | None]:
     return None, None
 
 
+def _literal_call_candidates(source: str) -> Iterator[tuple[str, int, str]]:
+    """Find direct literal calls even when a minifier hides them from token context."""
+    pattern = re.compile(r"\b(luaQuery|luaControl)\s*\(\s*\{")
+    for match in pattern.finditer(source):
+        start = match.end() - 1
+        depth = 0
+        quote: str | None = None
+        escaped = False
+        end = None
+        for index in range(start, len(source)):
+            char = source[index]
+            if quote:
+                if escaped:
+                    escaped = False
+                elif char == "\\":
+                    escaped = True
+                elif char == quote:
+                    quote = None
+                continue
+            if char in "'\"`":
+                quote = char
+            elif char == "{":
+                depth += 1
+            elif char == "}":
+                depth -= 1
+                if depth == 0:
+                    end = index + 1
+                    break
+        if end is not None:
+            yield match.group(1), source.count("\n", 0, match.start()) + 1, source[start:end]
+
+
 def extract_catalogue(source: Path, *, model: str, plugin_version: str) -> dict[str, Any]:
     """Extract literal semantic facts from ``source`` without executing it."""
     if not re.fullmatch(r"[A-Za-z0-9]{8}", model):
@@ -281,7 +313,8 @@ def extract_catalogue(source: Path, *, model: str, plugin_version: str) -> dict[
     unresolved: list[dict[str, Any]] = []
 
     for path in paths:
-        tokens = _tokens(path.read_text(encoding="utf-8", errors="replace"))
+        source_text = path.read_text(encoding="utf-8", errors="replace")
+        tokens = _tokens(source_text)
         provenance_for = lambda line: _provenance(path, root, line)  # noqa: E731
 
         # Collect literal constraint/domain objects and endpoint configuration.
@@ -340,24 +373,19 @@ def extract_catalogue(source: Path, *, model: str, plugin_version: str) -> dict[
                             }
                         )
 
-        for index, token in enumerate(tokens):
-            if token.value not in ("luaQuery", "luaControl"):
-                continue
-            direction = "query" if token.value == "luaQuery" else "control"
-            call_line = token.line
-            cursor = index + 1
-            if cursor >= len(tokens) or tokens[cursor].value != "(":
-                continue
-            parser = _Parser(tokens, cursor + 1)
-            argument = parser.value()
+        def record_operation(direction: str, call_line: int, argument: Any) -> None:
             prov = provenance_for(call_line)
             if not isinstance(argument, JsObject) or "params" not in argument.values:
-                unresolved.append({"field": "params", "kind": "missing_params", "provenance": prov})
-                continue
+                unresolved.append(
+                    {"direction": direction, "field": "params", "kind": "missing_params", "provenance": prov}
+                )
+                return
             params, merge = _merge_params(argument.values["params"])
             if params is None:
-                unresolved.append({"field": "params", "kind": "dynamic_params", "provenance": prov})
-                continue
+                unresolved.append(
+                    {"direction": direction, "field": "params", "kind": "dynamic_params", "provenance": prov}
+                )
+                return
             selector_name = _SELECTORS[direction]
             selector = params.values.get(selector_name)
             if not _literal(selector):
@@ -368,7 +396,7 @@ def extract_catalogue(source: Path, *, model: str, plugin_version: str) -> dict[
                     unresolved.append(
                         {"field": "<computed>", "kind": "dynamic_parameter", "provenance": prov}
                     )
-                continue
+                return
             key = (direction, str(selector))
             operation = operations.setdefault(
                 key,
@@ -407,6 +435,28 @@ def extract_catalogue(source: Path, *, model: str, plugin_version: str) -> dict[
                     )
                     continue
                 operation["parameters"].setdefault(name, {"name": name})
+
+        for index, token in enumerate(tokens):
+            if token.value not in ("luaQuery", "luaControl"):
+                continue
+            cursor = index + 1
+            if cursor >= len(tokens) or tokens[cursor].value != "(":
+                continue
+            record_operation(
+                "query" if token.value == "luaQuery" else "control",
+                token.line,
+                _Parser(tokens, cursor + 1).value(),
+            )
+
+        # A minified wrapper can tokenize the method name as a string key or
+        # consume its surrounding expression. Recover only direct literal
+        # object calls; dynamic wrappers remain unresolved rather than guessed.
+        for name, line, object_text in _literal_call_candidates(source_text):
+            record_operation(
+                "query" if name == "luaQuery" else "control",
+                line,
+                _Parser(_tokens(object_text)).value(),
+            )
 
     rendered_operations: list[dict[str, Any]] = []
     for operation in operations.values():
