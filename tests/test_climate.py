@@ -60,6 +60,14 @@ def test_current_temperature_aquapura_reads_th_temp():
     assert entity.current_temperature == 40.0
 
 
+def test_current_temperature_aquapura_falls_back_to_live_water_outlet():
+    """A zero tank placeholder must not hide a valid live outlet reading."""
+    sensors = ITSSensors(twin_temp=18.0, twout_temp=19.0, th_temp=0.0)
+    entity = _climate(AQUAPURA_SN8, sensors)
+
+    assert entity.current_temperature == 19.0
+
+
 def test_current_temperature_none_when_no_sensors():
     """No sensor data → None regardless of profile."""
     entity = _climate(ATW_SN8, None)

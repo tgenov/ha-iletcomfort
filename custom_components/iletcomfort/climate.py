@@ -134,11 +134,18 @@ class ILetComfortClimate(CoordinatorEntity[ILetComfortCoordinator], ClimateEntit
     def current_temperature(self) -> float | None:
         if self._sensors is None:
             return None
-        # Profile-aware: ATW/AQUAPURA have no real water-inlet reading, so the
-        # meaningful "current" value is the DHW tank temp the profiles surface on
-        # th_temp. STANDARD is unchanged: it reads the real inlet (twin_temp).
-        if self._profile in (ModelProfile.ATW, ModelProfile.AQUAPURA):
+        # ATW exposes its meaningful current value as the DHW tank temperature.
+        if self._profile is ModelProfile.ATW:
             return self._sensors.th_temp
+        # AQUAPURA variants normally expose the tank reading on th_temp. Some
+        # units use zero as a placeholder there while publishing valid hydronic
+        # inlet/outlet readings; prefer the live outlet for those units.
+        if self._profile is ModelProfile.AQUAPURA:
+            if self._sensors.th_temp not in (None, 0.0):
+                return self._sensors.th_temp
+            if self._sensors.twout_temp is not None:
+                return self._sensors.twout_temp
+            return self._sensors.twin_temp
         return self._sensors.twin_temp
 
     @property
