@@ -71,13 +71,15 @@ def test_all_platforms_share_one_device(hass: HomeAssistant):
 
 
 def test_device_info_uses_entry_title_and_firmware(hass: HomeAssistant):
-    """Device name comes from the entry title; sw_version from odu firmware."""
+    """Device page shows its name, model code, and ODU firmware."""
     coord = _coordinator(hass)
+    coord.appliance_meta = {"sn8": "171H120F"}
     info = ILetComfortSensor(coord, SENSOR_DESCRIPTIONS[0]).device_info
 
     assert info is not None
     assert info.get("name") == "Pool Heat Pump"
     assert info.get("manufacturer") == "iLetComfort"
+    assert info.get("model") == "171H120F"
     assert info.get("sw_version") == "1.2.3"
 
 

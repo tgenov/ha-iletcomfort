@@ -88,14 +88,16 @@ user to do hard work — re-read the whole thread and check the new signal again
 Heat-pump models pack the status frame (C3 subtype `0x01`) at **different byte offsets**. The cloud
 appliance metadata has **NO device-class field**: both an ATW and an ATA unit report
 `applianceType="0xC3"` and `modelNumber="0"`. The **only** differentiator is **`sn8`** — the 8-char
-model-code serial prefix (e.g. `171H120F` vs `171000AU`). The full per-device serial `sn` is **redacted**
-and never stored.
+model-code serial prefix (e.g. `171H120F` vs `171000AU`). However, #11 and #12 both report
+`sn8=171000AU` with different frame semantics, so `sn8` is not proven to uniquely identify a layout.
+The full per-device serial `sn` is **redacted** and never stored.
 
 **Model-specific decoding is gated on an `sn8 → profile` table** (`custom_components/iletcomfort/model_profiles.py`):
 - `resolve_profile(sn8)` → `ModelProfile.{STANDARD,ATW,AQUAPURA}`. **Unknown/missing sn8 → STANDARD
   (unchanged today's behavior).** So a new model can never be *corrupted* — worst case it doesn't get a
   profile yet. Caveat: `sn8` is assumed model-level (shared across units of a model); only ever confirmed
-  on one unit per model so far.
+  on one unit per model so far. Do not select or extend a profile from `sn8` alone without corroborating
+  frame evidence.
 - `17100007` (`KJRH-120L2`) is a known C3 catalogue model code with no hardware reports or validated
   decode profile yet. It is intentionally absent from `_SN8_PROFILES` and defaults to STANDARD.
 
@@ -123,7 +125,7 @@ Status `raw_body` (0-indexed; STANDARD misreads this 25-byte frame):
 - DHW uses a separate Number entity and the confirmed short field `0x07` write. Pure-DHW keeps its
   existing climate behavior.
 
-### AQUAPURA profile (`sn8 171000AU`, AQS Energie split HPWH, #12)
+### AQUAPURA profile (`sn8 171000AU`, AQS Energie split HPWH, #12; discriminator collision under audit)
 - The real water/tank temp is in `status.box_bottom_temp` (status byte[17], offset-decoded → e.g. 40 °C).
 - The standard `sensors.twin_temp`/`twout_temp` (sensors bytes 25–26) are `0x23` null-fill → decode to 0
   (that was the "water temp = 0" bug).
