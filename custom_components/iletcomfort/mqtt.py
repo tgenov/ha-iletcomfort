@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import ssl
 import tempfile
 from asyncio import TimerHandle
@@ -57,6 +58,7 @@ CertificateProvider = Callable[[], Awaitable[AppCert]]
 
 CERT_RENEW_BEFORE = timedelta(days=7)
 CERT_RENEW_RETRY = timedelta(hours=1)
+_HEX_FRAME = re.compile(r"(?:[0-9a-fA-F]{2}){1,512}")
 
 
 def certificate_expiry(certificate_pem: str) -> datetime:
@@ -313,6 +315,23 @@ class ILetComfortPushClient:
             return
         status = decode_push_payload(payload)
         if status is None:
+            # The phone app may publish control frames on this same appliance-
+            # scoped topic. Keep a deliberately narrow debug trail so the
+            # write protocol can be established from hardware evidence. Never
+            # dump the full JSON envelope: it can contain appliance metadata.
+            try:
+                message = json.loads(payload)
+                data = message.get("data") if isinstance(message, dict) else None
+                command_hex = data.get("commandHex") if isinstance(data, dict) else None
+            except (TypeError, ValueError):
+                command_hex = None
+                message = None
+            if isinstance(command_hex, str) and _HEX_FRAME.fullmatch(command_hex):
+                _LOGGER.debug(
+                    "MQTT unhandled scoped frame message_type=%r command_hex=%s",
+                    message.get("messageType"),
+                    command_hex.lower(),
+                )
             return
         self._on_status(status)
 

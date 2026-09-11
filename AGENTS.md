@@ -218,6 +218,20 @@ setpoint bounds are device-reported rather than hardcoded. It does **not** give 
 `/appliance/control/hexadecimal` takes hex. The remaining paths are the Lua, or an **iOS** capture (the
 iOS app uses the HTTP endpoint and therefore sends already-encoded hex; Android is MQTT-only — §2b, #42).
 
+### Android MQTT write investigation (#78)
+
+The official Android package is `com.mbt.iletcomfort`. Version 1.7.0 contains AWS IoT, Eclipse Paho,
+the `/midea/dev/` topic fragment, and the Midea OEM native libraries. Its application code is wrapped
+by **KwProtect**: static JADX analysis exposes only `com.kiwivm.security.StubApplication` and the
+loader, while the real classes are decrypted at runtime. Do not repeat static decompilation expecting
+to find the publish call unless an unprotected older build becomes available.
+
+The push client debug-logs a syntactically valid `commandHex` only when it cannot decode the message
+as status, and only on the already-scoped appliance topic. Use that probe with `phone_app` mode while
+making one official-app change at a time. If no line appears, the next step is a runtime capture of the
+app's exact publish topic. Never widen the integration subscription to a broker wildcard: the broker
+does not enforce per-appliance topic ACLs.
+
 ---
 
 ## 5. Code map
