@@ -212,6 +212,42 @@ async def test_push_client_delivers_decoded_status(hass, fake_paho):
     assert statuses[0].mode == 4
 
 
+async def test_push_client_debug_logs_unhandled_scoped_command_frame(
+    hass, fake_paho, caplog
+):
+    """Keep an evidence trail for phone-app commands on the appliance topic."""
+    import logging
+
+    api = MagicMock()
+    api.create_app_cert.return_value = _cert()
+    client = ILetComfortPushClient(
+        hass,
+        api,
+        region="us",
+        appliance_code="APPL1",
+        on_status=lambda *_: None,
+        on_connected_change=lambda *_: None,
+    )
+    payload = json.dumps(
+        {
+            "messageType": "control",
+            "data": {
+                "applianceCode": "APPL1",
+                "commandHex": "aa0bc3000000000000020101",
+            },
+        }
+    )
+
+    with caplog.at_level(logging.DEBUG):
+        await client.async_start()
+        fake_paho["client"].fire_connect()
+        fake_paho["client"].fire_message("us/midea/dev/APPL1", payload)
+
+    assert "message_type='control'" in caplog.text
+    assert "command_hex=aa0bc3000000000000020101" in caplog.text
+    assert "APPL1" not in caplog.text
+
+
 async def test_push_client_reports_disconnect(hass, fake_paho):
     conn = []
     api = MagicMock()

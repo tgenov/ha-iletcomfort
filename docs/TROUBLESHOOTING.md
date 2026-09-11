@@ -121,6 +121,25 @@ SENSORS RAW: bb,02,...
 
 Copy a few of each into your issue.
 
+### Capturing a phone-app MQTT command
+
+Only do this when a maintainer asks for an MQTT command capture. Select the
+**Leave the phone app connected (read-only push)** operation mode, enable debug
+logging with Option A above, and then make exactly one change in the official
+phone app. Wait for the heat pump state to update before disabling debug
+logging.
+
+The useful line has this form:
+
+```
+MQTT unhandled scoped frame message_type='control' command_hex=aa...
+```
+
+If no such line appears, say so when attaching the log. That result is useful:
+it means the phone app probably publishes commands on a different topic. The
+probe listens only to your appliance's existing status topic; it never uses an
+MQTT wildcard.
+
 ## 5. Read the ground-truth values from the app
 
 Open the official **iLetComfort / BTRI** app and note what it shows for the
