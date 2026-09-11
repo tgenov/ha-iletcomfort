@@ -45,9 +45,12 @@ Alternatively, the integration options offer **Leave the phone app connected
 session-independent MQTT certificate, stops periodic account polling, and blocks
 control commands. Setup and each Home Assistant restart still require one account
 login to mint a fresh certificate; after HA has loaded, sign back into the phone app.
-If MQTT disconnects, HA marks the entities unavailable instead of taking over the
-account session. Use **HA is the primary client** (the default) when Home Assistant
-must control the heat pump.
+For a long-running HA process, the integration reads the certificate's X.509 expiry
+and rotates it before expiry (up to seven days early). It first tries the existing token and logs in
+only if the cloud rejects that token, which may briefly sign the phone app out once
+per certificate lifetime. If MQTT disconnects, HA marks the entities unavailable
+instead of taking over the account session. Use **HA is the primary client** (the
+default) when Home Assistant must control the heat pump.
 
 ## Troubleshooting & reporting issues
 

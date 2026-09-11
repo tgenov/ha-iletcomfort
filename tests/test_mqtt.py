@@ -3,12 +3,18 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock
 
 import pytest
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.x509.oid import NameOID
 
 from custom_components.iletcomfort.api import AppCert, ITSStatus
 from custom_components.iletcomfort.mqtt import (
+    certificate_expiry,
     decode_push_payload,
     push_topics,
     ILetComfortPushClient,
@@ -80,6 +86,27 @@ def test_decode_push_payload_tolerates_garbage():
 
 
 # --- lifecycle with an injected paho client ----------------------------------
+
+
+def test_certificate_expiry_reads_x509_not_after():
+    """The rotation deadline comes from the issued certificate itself."""
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    expected = now + timedelta(days=30)
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "test")])
+    cert = (
+        x509.CertificateBuilder()
+        .subject_name(name)
+        .issuer_name(name)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now)
+        .not_valid_after(expected)
+        .sign(key, hashes.SHA256())
+    )
+    pem = cert.public_bytes(serialization.Encoding.PEM).decode()
+
+    assert certificate_expiry(pem) == expected
 
 def _cert() -> AppCert:
     return AppCert(
@@ -249,3 +276,87 @@ async def test_push_client_never_logs_key_material(hass, fake_paho, caplog):
         fake.fire_message("us/midea/dev/APPL1", _push_payload())
     assert "BEGIN RSA PRIVATE KEY" not in caplog.text
     assert "APPL1" not in caplog.text  # appliance code is masked in logs
+
+
+async def test_push_client_schedules_renewal_from_certificate_expiry(
+    hass, fake_paho, monkeypatch
+):
+    """Rotation is driven by X.509 validity rather than an arbitrary cadence."""
+    import custom_components.iletcomfort.mqtt as mod
+
+    monkeypatch.setattr(
+        mod,
+        "certificate_expiry",
+        lambda _: datetime.now(timezone.utc) + timedelta(days=30),
+    )
+    api = MagicMock()
+    api.create_app_cert.return_value = _cert()
+    client = ILetComfortPushClient(
+        hass, api, region="us", appliance_code="APPL1",
+        on_status=lambda *_: None, on_connected_change=lambda *_: None,
+    )
+
+    await client.async_start()
+
+    assert client._renewal_handle is not None
+    await client.async_stop()
+
+
+async def test_failed_certificate_renewal_keeps_current_connection(
+    hass, fake_paho, monkeypatch
+):
+    """A minting failure must not tear down a still-valid connection."""
+    import custom_components.iletcomfort.mqtt as mod
+
+    monkeypatch.setattr(
+        mod,
+        "certificate_expiry",
+        lambda _: datetime.now(timezone.utc) + timedelta(days=30),
+    )
+    api = MagicMock()
+    api.create_app_cert.side_effect = [_cert(), RuntimeError("mint failed")]
+    client = ILetComfortPushClient(
+        hass, api, region="us", appliance_code="APPL1",
+        on_status=lambda *_: None, on_connected_change=lambda *_: None,
+    )
+    await client.async_start()
+    original_mqtt = client._mqtt
+    original_tmpdir = client._tmpdir
+
+    await client.async_renew_certificate()
+
+    assert client._mqtt is original_mqtt
+    assert client._tmpdir is original_tmpdir
+    assert client._renewal_handle is not None
+    await client.async_stop()
+
+
+async def test_successful_certificate_renewal_retires_old_transport_and_files(
+    hass, fake_paho, monkeypatch
+):
+    """A replacement starts before the old transport and credentials are removed."""
+    import os
+    import custom_components.iletcomfort.mqtt as mod
+
+    monkeypatch.setattr(
+        mod,
+        "certificate_expiry",
+        lambda _: datetime.now(timezone.utc) + timedelta(days=30),
+    )
+    api = MagicMock()
+    api.create_app_cert.side_effect = [_cert(), _cert()]
+    client = ILetComfortPushClient(
+        hass, api, region="us", appliance_code="APPL1",
+        on_status=lambda *_: None, on_connected_change=lambda *_: None,
+    )
+    await client.async_start()
+    old_mqtt = client._mqtt
+    old_tmpdir = client._tmpdir.name
+
+    await client.async_renew_certificate()
+
+    assert client._mqtt is not old_mqtt
+    assert old_mqtt.loop_started is False
+    assert not os.path.exists(old_tmpdir)
+    assert client._renewal_handle is not None
+    await client.async_stop()

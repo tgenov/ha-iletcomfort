@@ -10,7 +10,13 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import issue_registry as ir
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.iletcomfort.api import ApiError, ITSSensors, ITSStatus
+from custom_components.iletcomfort.api import (
+    ApiError,
+    AppCert,
+    AuthError,
+    ITSSensors,
+    ITSStatus,
+)
 from custom_components.iletcomfort.const import (
     CONF_APPLIANCE_CODE,
     CONF_REGION,
@@ -802,6 +808,26 @@ async def test_phone_app_mode_push_start_failure_does_not_fall_back_to_polling(
 
     assert coordinator.update_interval is None
     assert coordinator.last_update_success is False
+
+
+async def test_certificate_renewal_reauthenticates_only_after_token_rejection(
+    hass: HomeAssistant,
+):
+    """A replacement cert can be minted after the phone invalidates the token."""
+    entry = _entry(REGION_US)
+    entry.add_to_hass(hass)
+    coordinator = ILetComfortCoordinator(hass, entry)
+    cert = AppCert("key", "cert", "broker.invalid", 8883)
+    coordinator.client.create_app_cert = MagicMock(
+        side_effect=[AuthError("expired token"), cert]
+    )
+
+    with patch.object(coordinator, "_async_login", new=AsyncMock()) as login:
+        result = await coordinator._async_get_push_certificate()
+
+    assert result is cert
+    login.assert_awaited_once()
+    assert coordinator.client.create_app_cert.call_count == 2
 
 
 async def test_push_status_updates_data_keeping_sensors(hass: HomeAssistant):
