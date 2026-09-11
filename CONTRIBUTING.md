@@ -144,3 +144,42 @@ Report the `code` you get, nothing else — no tokens, no serials.
 ### Do not commit bundles
 
 Downloads land in `plugin-bundles/`, which is gitignored. Keep it that way: the bundles are the vendor's proprietary app code and contain hardcoded third-party credentials.
+
+## Extracting a semantic API catalogue
+
+After fetching and unpacking an authorized bundle, use the development-only
+`scripts/extract_semantic_api.py` command to replace manual reading of minified
+Weex files with a deterministic JSON catalogue:
+
+```bash
+python3 scripts/extract_semantic_api.py \
+  plugin-bundles/171000AU_0xC3_v2024032801 \
+  --model 171000AU \
+  --plugin-version 2024032801 \
+  --output /tmp/171000AU-semantic-api.json
+```
+
+The source may be an unpacked directory or one JavaScript entry file. The
+catalogue records literal `luaQuery`/`luaControl` operations, selectors,
+parameters, enum domains, numeric constraints, state merges, parser endpoint
+configuration, and source module/line provenance. The extractor never executes
+the bundle. Expressions it cannot prove statically are listed under
+`unresolved`; they must be reviewed, not promoted to schema values by hand.
+
+Review a generated catalogue against the locally authorized bundle before
+committing it:
+
+- confirm the `sn8` model code and plugin version came from bundle metadata;
+- inspect every unresolved finding and record absence as absence, not as an
+  inferred shared `0xC3` behavior;
+- distinguish extracted facts from interpretations and hardware validation in
+  accompanying documentation;
+- regenerate a second time and compare the files byte-for-byte; identical input
+  is expected to produce identical output.
+
+Only a small reviewed catalogue or sanitized synthetic fixture belongs in Git.
+Never commit the source bundle, account credentials, tokens, a per-device
+serial, presigned URLs, or captured appliance state. Catalogue provenance uses
+a deterministic 12-character SHA-256 prefix of each source-relative path plus
+the source line; this can be matched locally without publishing potentially
+sensitive filenames. Source snippets are deliberately omitted.
