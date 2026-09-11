@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.14.1](https://github.com/tgenov/ha-iletcomfort/compare/v0.14.0...v0.14.1) (2026-09-11)
+
+
+### Bug Fixes
+
+* hide temperature controls in fan-only mode ([#73](https://github.com/tgenov/ha-iletcomfort/issues/73)) ([d7776d1](https://github.com/tgenov/ha-iletcomfort/commit/d7776d1663a4f1cc88d8a242812956d3b4902bff))
+
 ## [0.14.0](https://github.com/tgenov/ha-iletcomfort/compare/v0.13.0...v0.14.0) (2026-09-11)
 
 
