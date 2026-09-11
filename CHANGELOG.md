@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.14.0](https://github.com/tgenov/ha-iletcomfort/compare/v0.13.0...v0.14.0) (2026-09-11)
+
+
+### Features
+
+* renew MQTT certificates before expiry ([#70](https://github.com/tgenov/ha-iletcomfort/issues/70)) ([31dcc97](https://github.com/tgenov/ha-iletcomfort/commit/31dcc970b5a4c8e1adf848658141053def5cd8d5))
+
 ## [0.13.0](https://github.com/tgenov/ha-iletcomfort/compare/v0.12.1...v0.13.0) (2026-09-10)
 
 
