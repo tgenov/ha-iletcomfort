@@ -25,18 +25,18 @@
       "sn8": "171000AU",
       "model": "AQUAPURA split HPWH",
       "local_profile": "AQUAPURA",
-      "regions": ["US", "Android package region unknown"],
+      "regions": ["US lookup attempted", "source region unknown"],
       "bundle": {
-        "status": "observed_in_android_package",
+        "status": "runtime_cache_observed",
         "version": "2024032801",
-        "vendor_category": "US lookup:2200007"
+        "vendor_category": "US lookup:2200007; cache acquisition path unverified"
       },
       "catalogue": {
         "status": "blocked",
         "reason": "Authorized unpacked source artifact unavailable in this workspace"
       },
       "semantic_operations": [
-        "reported in epic evidence; authoritative catalogue blocked"
+        "reported in epic evidence; source and delivery path unverified; authoritative catalogue blocked"
       ],
       "type_selectors": [
         "reported query_type/control_type values; not independently extracted"
