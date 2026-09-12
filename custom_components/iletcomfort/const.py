@@ -34,3 +34,8 @@ DEFAULT_OPERATION_MODE = OPERATION_MODE_HA_PRIMARY
 # response; this port is the documented default and a fallback.
 MQTT_DEFAULT_PORT = 8883
 MQTT_KEEPALIVE = 60
+
+# C3 devices publish full status snapshots while idle, commonly around every
+# 15 minutes. Captures also show occasional missed cycles, so require three
+# missed cycles before treating an otherwise-connected push channel as stale.
+MQTT_STATUS_STALE_AFTER = 45 * 60

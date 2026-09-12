@@ -49,8 +49,10 @@ For a long-running HA process, the integration reads the certificate's X.509 exp
 and rotates it before expiry (up to seven days early). It first tries the existing token and logs in
 only if the cloud rejects that token, which may briefly sign the phone app out once
 per certificate lifetime. If MQTT disconnects, HA marks the entities unavailable
-instead of taking over the account session. Use **HA is the primary client** (the
-default) when Home Assistant must control the heat pump.
+instead of taking over the account session. Valid C3 status pushes also refresh
+an end-to-end device liveness watchdog; the observed idle cadence is about 15
+minutes, with a 45-minute tolerance for missed cycles. Use **HA is the primary
+client** (the default) when Home Assistant must control the heat pump.
 
 ## Troubleshooting & reporting issues
 
