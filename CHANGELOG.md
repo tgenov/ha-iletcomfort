@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.18.0](https://github.com/tgenov/ha-iletcomfort/compare/v0.17.0...v0.18.0) (2026-09-12)
+
+
+### Features
+
+* use MQTT status pushes as heartbeat ([#98](https://github.com/tgenov/ha-iletcomfort/issues/98)) ([1b4a331](https://github.com/tgenov/ha-iletcomfort/commit/1b4a33158a9d31498e1b757a2d3a16932a4d0a4e))
+
 ## [0.17.0](https://github.com/tgenov/ha-iletcomfort/compare/v0.16.0...v0.17.0) (2026-09-11)
 
 
