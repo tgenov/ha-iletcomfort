@@ -4,15 +4,18 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
+from collections.abc import Callable
 from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HassJob, HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import issue_registry as ir
+from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import (
@@ -37,6 +40,7 @@ from .const import (
     DOMAIN,
     OPERATION_MODE_PHONE_APP,
     REGION_URLS,
+    MQTT_STATUS_STALE_AFTER,
 )
 from .model_profiles import (
     apply_profile_to_sensors,
@@ -114,6 +118,8 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._sensors_fail_streak = 0
         self._consecutive_both_degraded = 0
         self._repair_issued = False
+        self._last_push_status_at: float | None = None
+        self._push_status_watchdog: Callable[[], None] | None = None
 
     @property
     def last_on_state(self) -> tuple[int, int] | None:
@@ -482,6 +488,8 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def async_stop_push(self) -> None:
         """Stop the MQTT push listener, if running."""
+        self._cancel_push_status_watchdog()
+        self._last_push_status_at = None
         if self._push_client is None:
             return
         try:
@@ -503,6 +511,8 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         initial snapshot from setup. Profile re-decoding matches the poll path so
         push and poll agree for values carried by the status frame.
         """
+        self._last_push_status_at = time.monotonic()
+        self._schedule_push_status_watchdog()
         if self.data is None:
             # Push started after the first poll, so this is only reached if a
             # push races ahead of it. Ignore it rather than publish a status
@@ -514,17 +524,52 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             {"status": status, "sensors": self.data.get("sensors")}
         )
 
+    def _cancel_push_status_watchdog(self) -> None:
+        if self._push_status_watchdog is not None:
+            self._push_status_watchdog()
+            self._push_status_watchdog = None
+
+    def _schedule_push_status_watchdog(self) -> None:
+        self._cancel_push_status_watchdog()
+        self._push_status_watchdog = async_call_later(
+            self.hass,
+            MQTT_STATUS_STALE_AFTER,
+            HassJob(
+                lambda _: self._check_push_status_freshness(),
+                "iLetComfort MQTT status freshness",
+                cancel_on_shutdown=True,
+            ),
+        )
+
+    def _check_push_status_freshness(self) -> None:
+        """Mark push unavailable when the connected device stops publishing status."""
+        self._push_status_watchdog = None
+        if not self._push_enabled or self._operation_mode != OPERATION_MODE_PHONE_APP:
+            return
+        if self._last_push_status_at is None or (
+            time.monotonic() - self._last_push_status_at
+            >= MQTT_STATUS_STALE_AFTER
+        ):
+            self.async_set_update_error(
+                UpdateFailed("MQTT device status heartbeat expired")
+            )
+            return
+        self._schedule_push_status_watchdog()
+
     def _apply_push_connected(self, connected: bool) -> None:
-        """Expose push liveness without using the account-session poll path."""
+        """Expose transport and device-status freshness without account polling."""
         if self._operation_mode == OPERATION_MODE_PHONE_APP:
             # Polling requires the account session and would periodically evict
             # the official app. Certificate push is the sole transport in this
             # explicitly read-only coexistence mode.
             self.update_interval = None
             if connected:
+                self._schedule_push_status_watchdog()
                 if not self.last_update_success and self.data is not None:
                     self.async_set_updated_data(self.data)
             else:
+                self._cancel_push_status_watchdog()
+                self._last_push_status_at = None
                 self.async_set_update_error(
                     UpdateFailed("MQTT push disconnected in phone app mode")
                 )

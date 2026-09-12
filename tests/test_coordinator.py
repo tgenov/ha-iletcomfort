@@ -888,6 +888,46 @@ async def test_phone_app_mode_connected_disables_account_polling(
     assert coordinator.update_interval is None
 
 
+async def test_phone_app_mode_status_watchdog_marks_silent_device_unavailable(
+    hass: HomeAssistant,
+):
+    """An open MQTT socket is insufficient when device status goes silent."""
+    from custom_components.iletcomfort.const import OPERATION_MODE_PHONE_APP
+
+    entry = _entry_operation_mode(OPERATION_MODE_PHONE_APP)
+    entry.add_to_hass(hass)
+    coordinator = ILetComfortCoordinator(hass, entry)
+    coordinator.async_set_updated_data(
+        {"status": ITSStatus(mode=1), "sensors": ITSSensors()}
+    )
+
+    coordinator._apply_push_connected(True)
+    coordinator._check_push_status_freshness()
+
+    assert coordinator.last_update_success is False
+
+
+async def test_phone_app_mode_status_push_recovers_from_status_watchdog(
+    hass: HomeAssistant,
+):
+    """A fresh device snapshot restores availability after status goes stale."""
+    from custom_components.iletcomfort.const import OPERATION_MODE_PHONE_APP
+
+    entry = _entry_operation_mode(OPERATION_MODE_PHONE_APP)
+    entry.add_to_hass(hass)
+    coordinator = ILetComfortCoordinator(hass, entry)
+    coordinator.async_set_updated_data(
+        {"status": ITSStatus(mode=1), "sensors": ITSSensors()}
+    )
+
+    coordinator._apply_push_connected(True)
+    coordinator._check_push_status_freshness()
+    coordinator._apply_push_status(ITSStatus(mode=4))
+
+    assert coordinator.last_update_success is True
+    assert coordinator.data["status"].mode == 4
+
+
 async def test_phone_app_mode_disconnect_is_unavailable_without_polling(
     hass: HomeAssistant,
 ):

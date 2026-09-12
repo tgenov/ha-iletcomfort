@@ -53,7 +53,9 @@ signed in to both Home Assistant and the official app.
 options, select **Leave the phone app connected (read-only push)**. Home Assistant
 logs in once during setup or restart to mint a session-independent MQTT
 certificate, then stops account polling and blocks control commands. After HA has
-loaded, sign back into the official app; real-time status continues over MQTT. If
+loaded, sign back into the official app; real-time status continues over MQTT.
+Valid C3 status pushes refresh an end-to-end liveness watchdog (observed roughly
+every 15 minutes while idle, with a 45-minute missed-cycle tolerance). If
 Home Assistant stays running until the certificate nears its X.509 expiry, it
 rotates the certificate before expiry, up to seven days early. Rotation tries the existing token first;
 only a rejected token causes one credential login, which may briefly sign the phone

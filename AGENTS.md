@@ -79,6 +79,10 @@ user to do hard work — re-read the whole thread and check the new signal again
   early), retain
   the old connection and retry hourly after a mint failure, and re-authenticate only after the current
   token is actually rejected. An MQTT outage marks entities unavailable instead of starting polling.
+  C3 has no dedicated `hbt` topic, but valid `dev` status frames have been observed from an idle/off
+  AQUAPURA roughly every 15 minutes. The integration treats those frames as an end-to-end device-status
+  heartbeat and allows up to 45 minutes for missed cycles before marking push stale; MQTT PINGREQ/PINGRESP
+  remains transport-level liveness.
   This is documented in `README.md` / `docs/TROUBLESHOOTING.md`. `14xxx` codes are the auth range.
 
 ---

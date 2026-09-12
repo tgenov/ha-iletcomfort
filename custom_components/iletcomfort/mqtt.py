@@ -13,8 +13,11 @@ Hardware-confirmed shape (see issue #55):
 * The payload is JSON: ``{"messageType": "status", "data": {"commandHex": ...}}``
   where ``commandHex`` is a standard C3 subtype-``0x01`` frame — so it decodes
   through the same pipeline as a polled status response, no new decoder.
-* There is **no heartbeat** on the C3 topic, so liveness is derived from the
-  MQTT connection state, not from a heartbeat message.
+* C3 has no dedicated ``hbt`` topic, but idle units have been observed to
+  publish full ``dev`` status snapshots roughly every 15 minutes. The
+  coordinator uses those valid status frames as an end-to-end freshness signal
+  with a tolerant stale timeout; MQTT connection state remains the transport
+  liveness signal.
 
 The broker has no per-appliance topic ACL, so this module only ever subscribes
 to the configured appliance's own topics — never a wildcard.
