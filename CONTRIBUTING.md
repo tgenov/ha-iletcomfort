@@ -115,24 +115,21 @@ There is **no ownership check**: any model code can be requested from any accoun
 | `14005` | token rejected (see the single-session note below) |
 | `9999` | the server refused the request outright — seen when querying the EU host with a US-account token |
 
-### Regions — `--region eu` is untested
+### Regions — EU result recorded for the ATW and KJRH models
 
-`--region eu` exists but **has not been verified**. What is known: the EU host answers `9999` to a
-**US-account token**, which proves nothing about an EU account against the EU tenant.
+The EU host still answers `9999` to a **US-account token**, which proves nothing about an EU account
+against the EU tenant. However, an EU-account community lookup has now checked the two relevant models:
+`171H120F` and `17100003` both returned `2200004`, matching the US lookup. In other words, neither
+surveyed tenant has a registered bundle for those models; repeating these two lookups is not useful.
 
-This is the open question that matters most here. On the US tenant only `17100007` has a `0xC3` bundle;
-`171H120F` (ATW) and `17100003` answer `2200004` — no plugin registered — and those two are the models
-blocking #42, #43 and #49. `171H120F` is an EU model, so the EU tenant is the likely place its bundle
-lives.
-
-**If you have an EU account, please run this and report the result in #54:**
+The US tenant does provide a `0xC3` bundle for `17100007`. `171000AU` remains unresolved: the US lookup
+returns `2200007`, while an EU-account lookup has not yet been reported. If an EU AQUAPURA owner can run
+the following command with an account they are willing to sign out and back into, report **only** the
+numeric result on issue #84 — no tokens, serials, URLs, or bundle contents:
 
 ```bash
-python3 scripts/fetch_plugin.py --model 171H120F --region eu --metadata-only
-python3 scripts/fetch_plugin.py --model 17100003 --region eu --metadata-only
+python3 scripts/fetch_plugin.py --model 171000AU --region eu --metadata-only
 ```
-
-Report the `code` you get, nothing else — no tokens, no serials.
 
 ### Credentials, privacy, and the login war
 

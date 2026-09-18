@@ -13,6 +13,7 @@ MATRIX_PATH = (
     / "semantic-compatibility-v1.json"
 )
 SUMMARY_PATH = MATRIX_PATH.parent / "17100007-1.0.65-extraction-summary.json"
+CONTRIBUTING_PATH = MATRIX_PATH.parent.parent.parent / "CONTRIBUTING.md"
 
 
 def _matrix() -> dict:
@@ -84,3 +85,11 @@ def test_real_extraction_summary_is_sanitized_and_reviewable() -> None:
     text = SUMMARY_PATH.read_text(encoding="utf-8")
     assert "accessToken" not in text
     assert "X-Amz-" not in text
+
+
+def test_contribution_guide_records_confirmed_eu_lookup_result() -> None:
+    """Avoid reopening an already-resolved regional lookup question."""
+    text = CONTRIBUTING_PATH.read_text(encoding="utf-8")
+
+    assert "both returned `2200004`, matching the US lookup" in text
+    assert "likely place its bundle lives" not in text
