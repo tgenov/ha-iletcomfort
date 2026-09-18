@@ -54,6 +54,41 @@ an end-to-end device liveness watchdog; the observed idle cadence is about 15
 minutes, with a 45-minute tolerance for missed cycles. Use **HA is the primary
 client** (the default) when Home Assistant must control the heat pump.
 
+## Showing water temperatures on a dashboard
+
+Home Assistant's built-in thermostat card shows the climate entity's current
+and target temperature, but it does not render additional sensor readings in
+the card itself. The integration exposes water inlet, water outlet, and outdoor
+ambient as normal temperature sensors so they can be placed directly below the
+thermostat with Home Assistant core cards — no custom card is required.
+
+In a dashboard, add a **Manual card**, replace the entity IDs with the ones
+shown on your device page, and paste:
+
+```yaml
+type: vertical-stack
+cards:
+  - type: thermostat
+    entity: climate.your_heat_pump
+  - type: grid
+    columns: 3
+    square: false
+    cards:
+      - type: tile
+        entity: sensor.your_heat_pump_water_inlet_temperature
+        name: Water inlet
+      - type: tile
+        entity: sensor.your_heat_pump_water_outlet_temperature
+        name: Water outlet
+      - type: tile
+        entity: sensor.your_heat_pump_outdoor_ambient_temperature
+        name: Outdoor ambient
+```
+
+This uses only core dashboard cards and therefore works in the web and mobile
+apps. If a model does not provide a trustworthy reading, its sensor appears as
+unavailable rather than displaying a guessed value.
+
 ## Troubleshooting & reporting issues
 
 If a sensor reads `0`/empty, the integration errors, or something else
