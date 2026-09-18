@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.18.1](https://github.com/tgenov/ha-iletcomfort/compare/v0.18.0...v0.18.1) (2026-09-18)
+
+
+### Bug Fixes
+
+* suppress ATW placeholder sensor values ([#102](https://github.com/tgenov/ha-iletcomfort/issues/102)) ([97a0335](https://github.com/tgenov/ha-iletcomfort/commit/97a0335a3f3c2266a43b1bbff6deb266f263bce4))
+
 ## [0.18.0](https://github.com/tgenov/ha-iletcomfort/compare/v0.17.0...v0.18.0) (2026-09-12)
 
 
