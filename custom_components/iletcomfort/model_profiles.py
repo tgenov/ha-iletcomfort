@@ -21,7 +21,10 @@ ATW (sn8 ``171H120F``, Italtherm air-to-water, issue #22)
     A 25-byte status frame with a different field layout. Decoded by
     ``decode_atw_status``; the values are surfaced through the *existing*
     ITSStatus/ITSSensors fields so no entity wiring changes are needed (see the
-    field map below).
+    field map below). Some units return a known subtype-0x02 placeholder
+    template rather than live sensor telemetry; that exact response is
+    suppressed so entities remain unavailable rather than reporting fabricated
+    values (issue #38).
 
 AQUAPURA (sn8 ``171000AU``, AQS Energie AQUAPURA split HPWH, issue #12)
     Standard status/sensor decode, except the tank temperature must read
@@ -239,6 +242,36 @@ _KJRH120L_SUPPRESSED_TEMPS = {
     "t1_temp": None,
 }
 
+# Galmet Prima 8GT (issue #38) returned this exact 75-byte subtype-0x02
+# template while the official app displayed live Zone-1 water and outdoor
+# values. It has no telemetry: after the subtype, it consists solely of 50
+# zeroes and twelve ``03,1e`` pairs. This is deliberately stricter than an
+# sn8-only rule because 171H120F covers more than one hardware variant.
+_ATW_PLACEHOLDER_SENSORS_BODY = (
+    b"\x02\x00"
+    + b"\x03\x1e\x00\x00\x00\x00" * 6
+    + b"\x00"
+    + b"\x03\x1e\x00\x00\x00\x00" * 6
+)
+_ATW_PLACEHOLDER_SENSOR_FIELDS = {
+    "tf_temp": None,
+    "tp_temp": None,
+    "t3_temp": None,
+    "t4_temp": None,
+    "t2_temp": None,
+    "t2b_temp": None,
+    "twin_temp": None,
+    "twout_temp": None,
+    "t1_temp": None,
+    "odu_current": None,
+    "odu_voltage": None,
+}
+
+
+def _is_atw_placeholder_sensors(raw_body: bytes) -> bool:
+    """Return whether an ATW sensor frame is the known non-telemetry template."""
+    return raw_body == _ATW_PLACEHOLDER_SENSORS_BODY
+
 
 def kjrh120l_has_zone1(body: bytearray | bytes) -> bool:
     """Return whether a KJRH-120L frame carries the validated Zone-1 variant."""
@@ -373,6 +406,10 @@ def apply_profile_to_sensors(
     if profile is ModelProfile.KJRH120L:
         return dataclasses.replace(sensors, **_KJRH120L_SUPPRESSED_TEMPS)
     if profile in (ModelProfile.ATW, ModelProfile.AQUAPURA):
+        if profile is ModelProfile.ATW and _is_atw_placeholder_sensors(
+            sensors.raw_body,
+        ):
+            sensors = dataclasses.replace(sensors, **_ATW_PLACEHOLDER_SENSOR_FIELDS)
         if status is not None and status.box_bottom_temp is not None:
             return dataclasses.replace(sensors, th_temp=status.box_bottom_temp)
     return sensors
