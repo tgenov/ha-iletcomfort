@@ -85,6 +85,16 @@ ATW_EXPECTED = {
     "state5": (50, 20.0, 45.0),
 }
 
+# Galmet Prima 8GT, sn8 171H120F (issue #38). The cloud returned this repeated
+# template instead of live sensor telemetry while the official app showed live
+# Zone-1 water and outdoor readings. It must not surface as measurements.
+ATW_PLACEHOLDER_SENSORS_BODY = _bytes(
+    "02,00,03,1e,00,00,00,00,03,1e,00,00,00,00,03,1e,00,00,00,00,"
+    "03,1e,00,00,00,00,03,1e,00,00,00,00,03,1e,00,00,00,00,00,03,1e,"
+    "00,00,00,00,03,1e,00,00,00,00,03,1e,00,00,00,00,03,1e,00,00,"
+    "00,00,03,1e,00,00,00,00,03,1e,00,00,00,00"
+)
+
 
 # ---------------------------------------------------------------------------
 # Profile resolution
@@ -226,6 +236,52 @@ def test_atw_tank_temp_routed_to_th_temp_not_twin_temp():
     # Water Inlet stays untouched (None/0); never the tank value.
     assert out.twin_temp != 46.0
     assert out.twin_temp == sensors.twin_temp
+
+
+def test_atw_placeholder_sensors_are_unavailable():
+    """A documented ATW template is not live sensor telemetry (issue #38)."""
+    sensors = decode_its_sensors(ATW_PLACEHOLDER_SENSORS_BODY)
+    status = decode_atw_status(ATW_FRAMES["state1"])
+
+    out = apply_profile_to_sensors(ModelProfile.ATW, sensors, status)
+
+    assert out.th_temp == 46.0  # Proven status-derived DHW tank temperature.
+    assert out.t4_temp is None
+    assert out.twin_temp is None
+    assert out.twout_temp is None
+    assert out.odu_current is None
+    assert out.odu_voltage is None
+
+
+def test_atw_non_placeholder_sensors_are_preserved():
+    """Only the confirmed non-telemetry template is suppressed (issue #38)."""
+    sensors = decode_its_sensors(bytes([0x02]) + bytes([0x23] * 48))
+    status = decode_atw_status(ATW_FRAMES["state1"])
+
+    out = apply_profile_to_sensors(ModelProfile.ATW, sensors, status)
+
+    assert out.t4_temp == 0.0
+    assert out.twin_temp == 0.0
+    assert out.odu_voltage == 35
+    assert out.th_temp == 46.0
+
+
+def test_atw_placeholder_keeps_raw_evidence_but_suppresses_all_sensor_entities():
+    """Diagnostics retain the frame while every template-derived entity is honest."""
+    sensors = decode_its_sensors(ATW_PLACEHOLDER_SENSORS_BODY)
+    out = apply_profile_to_sensors(
+        ModelProfile.ATW,
+        sensors,
+        decode_atw_status(ATW_FRAMES["state1"]),
+    )
+
+    assert out.raw_body == ATW_PLACEHOLDER_SENSORS_BODY
+    assert out.tf_temp is None
+    assert out.tp_temp is None
+    assert out.t3_temp is None
+    assert out.t2_temp is None
+    assert out.t2b_temp is None
+    assert out.t1_temp is None
 
 
 @pytest.mark.parametrize("name", list(ATW_FRAMES))

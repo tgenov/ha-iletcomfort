@@ -119,6 +119,12 @@ Status `raw_body` (0-indexed; STANDARD misreads this 25-byte frame):
 - ATW sets `error_code=0` and `comp_running=False` (no confirmed running signal in this short frame).
 - `decode_atw_status(body)` implements this. Uncertain HVAC mode/action is left conservative — validate
   on hardware before adding.
+- **Sensor-template variant (#38, Galmet Prima 8GT):** a 75-byte `0x02` response containing only the
+  subtype, 50 zeroes, and twelve `03,1e` pairs is a cloud placeholder, not live telemetry. The app can
+  show live Zone-1 water/outdoor values that do not occur in that frame. Suppress template-derived
+  temperatures and ODU current/voltage as unavailable, while retaining the status-derived Zone-1/DHW
+  setpoints and DHW tank temperature. Gate on the exact frame signature as well as the ATW profile;
+  never suppress or remap all `171H120F` sensor frames from `sn8` alone.
 
 ### KJRH-120L dual variant (`sn8 17100003`, #5) — hardware-validated reads
 - The same `sn8` covers pure-DHW and Zone-1 + DHW controllers. Gate the dual layout only when status
