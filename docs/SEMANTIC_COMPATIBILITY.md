@@ -6,8 +6,8 @@ The versioned machine-readable source is [`catalogues/semantic-compatibility-v1.
 |---|---|---|---|---|
 | Unknown `sn8` / STANDARD | Untested: no model identity | None | Untested | Keep validated local STANDARD decoding. Semantic support cannot be selected safely. Relevant to #47 when model metadata is recovered. |
 | `171000AU` / AQUAPURA | Android 1.7.0 runtime evidence shows a cached `files/plugin/0xC3/171000AU/2024032801/T0xC3/.../weex.js` being selected and loaded by Weex; the cache's acquisition path is unknown. A direct US catalogue lookup returns `2200007`; authoritative unpacked artifact absent | Reported semantic names/selectors and constraints remain unverified in this workspace; #84 is blocked | Parser-generated temperature encode is reported by epic evidence and paired with hardware validation of frame shape; repository vectors pending #85. Decode untested. | The APK/runtime evidence establishes cached-plugin use, not the download/provisioning service or regional availability. Not runtime-ready; local AQUAPURA profile remains authoritative. |
-| `171H120F` / ATW | US: `2200004` (product exists, no registered plugin); EU unverified because no EU-account result is available | None | Unavailable | Cannot benefit from this parser workflow today. #42 still needs an official-app command capture; neither `0xC3` nor AQUAPURA semantics imply compatibility. |
-| `17100003` / KJRH120L | US: `2200004`; EU unverified because no EU-account result is available | Hardware-validated local short DHW operations only; no extracted semantic catalogue | Unavailable | Preserve local gated behavior. The unsafe `0x08` Zone-1 experiment must not be revived. |
+| `171H120F` / ATW | US: `2200004`; an EU-account community lookup also reports `2200004` | None | Unavailable | Cannot benefit from this parser workflow today. #42 still needs an official-app command capture; neither `0xC3` nor AQUAPURA semantics imply compatibility. |
+| `17100003` / KJRH120L | US: `2200004`; an EU-account community lookup also reports `2200004` | Hardware-validated local short DHW operations only; no extracted semantic catalogue | Unavailable | Preserve local gated behavior. The unsafe `0x08` Zone-1 experiment must not be revived. |
 | `17100007` / STANDARD default | US bundle `0xC3` v1.0.65 fetched from the authorized account | Extractor found 28 direct `luaControl`/control sites, all with dynamic parameter assembly; no selector or field was asserted | Untested: parser endpoint was not recovered | This is a real extraction result and an explicit coverage gap. No hardware profile or cross-model equivalence is established. |
 
 ## Evidence categories
@@ -23,7 +23,7 @@ No row infers compatibility from device type `0xC3`. Shared-operation comparison
 
 ## Coverage gaps and issue impact
 
-- #42 (ATW writes): semantic parsing cannot unblock it because the surveyed US tenant returns `2200004` for `171H120F`; the EU tenant remains unverified. Retain write refusal until captured vendor commands exist.
+- #42 (ATW writes): semantic parsing cannot unblock it because US and community-reported EU tenant lookups return `2200004` for `171H120F`. Retain write refusal until captured vendor commands exist.
 - #47 (unknown Dantex layout): read-only semantic decode could help only after `sn8`, plugin availability, and parser support are established. Until then, template sensor bytes stay untrustworthy and STANDARD must not be replaced speculatively.
 - AQUAPURA: the parser-generated temperature evidence can support #85's offline vector work, but the missing authoritative #84 catalogue prevents architecture adoption.
 - `17100007`: fetch/extract/probe is useful future work, but without hardware validation it must remain on the default-safe STANDARD profile.

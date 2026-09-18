@@ -62,19 +62,19 @@
       "sn8": "171H120F",
       "model": "KJRH-120F/K M-thermal ATW",
       "local_profile": "ATW",
-      "regions": ["US", "EU unverified"],
+      "regions": ["US", "EU community lookup"],
       "bundle": {
         "status": "unavailable",
         "version": null,
-        "vendor_category": "US lookup:2200004"
+        "vendor_category": "US lookup:2200004; EU community lookup:2200004 (issue #47)"
       },
-      "catalogue": {"status": "unavailable", "reason": "No plugin registered on the surveyed US tenant; EU unverified"},
+      "catalogue": {"status": "unavailable", "reason": "No plugin registered on the surveyed US tenant; EU community lookup also returned 2200004"},
       "semantic_operations": [],
       "type_selectors": [],
       "constraints": [],
       "parser_probe": {"encode": "unavailable", "decode": "unavailable"},
       "parser_endpoint": {"status": "unresolved", "base_url": null, "encode_path": null, "decode_path": null},
-      "evidence": ["bundle_lookup", "hardware_validation"],
+      "evidence": ["bundle_lookup", "community_report", "hardware_validation"],
       "notes": [
         "Validated local reads remain authoritative.",
         "Short and legacy long write candidates were rejected with vendor code 1214.",
@@ -86,19 +86,19 @@
       "sn8": "17100003",
       "model": "KJRH-120L Central Heating Water Heater",
       "local_profile": "KJRH120L",
-      "regions": ["US", "EU unverified"],
+      "regions": ["US", "EU community lookup"],
       "bundle": {
         "status": "unavailable",
         "version": null,
-        "vendor_category": "US lookup:2200004"
+        "vendor_category": "US lookup:2200004; EU community lookup:2200004 (issue #47)"
       },
-      "catalogue": {"status": "unavailable", "reason": "No plugin registered on the surveyed US tenant; EU unverified"},
+      "catalogue": {"status": "unavailable", "reason": "No plugin registered on the surveyed US tenant; EU community lookup also returned 2200004"},
       "semantic_operations": ["hardware-validated short DHW power/setpoint only"],
       "type_selectors": [],
       "constraints": ["Dual-layout Zone-1 is read-only; field 0x08 is unsafe and not a semantic equivalence."],
       "parser_probe": {"encode": "unavailable", "decode": "unavailable"},
       "parser_endpoint": {"status": "unresolved", "base_url": null, "encode_path": null, "decode_path": null},
-      "evidence": ["bundle_lookup", "hardware_validation"],
+      "evidence": ["bundle_lookup", "community_report", "hardware_validation"],
       "notes": ["The pure-DHW and dual controller layouts share this sn8; status bytes gate local reads."],
       "related_issues": [5, 43]
     },
