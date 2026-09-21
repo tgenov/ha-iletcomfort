@@ -26,7 +26,9 @@ ATW (sn8 ``171H120F``, Italtherm air-to-water, issue #22)
     suppressed so entities remain unavailable rather than reporting fabricated
     values (issue #38). A hardware-validated 27-byte Galmet status variant uses
     direct degrees at byte[6] for its Zone-1 target; it is gated by the frame's
-    structural signature because the sn8 is shared with the 25-byte layout.
+    structural signature because the sn8 is shared with the 25-byte layout. On
+    that variant flag bit 0 is Zone-1 power, while compressor state/frequency
+    are unavailable because active and stopped captures are otherwise identical.
 
 AQUAPURA (sn8 ``171000AU``, AQS Energie AQUAPURA split HPWH, issue #12)
     Standard status/sensor decode, except the tank temperature must read
@@ -53,7 +55,7 @@ from __future__ import annotations
 import dataclasses
 from enum import Enum
 
-from .api import ITSSensors, ITSStatus
+from .api import MODE_HEAT, MODE_OFF, ITSSensors, ITSStatus
 
 # sn8 model codes (8-char serial prefixes) → profile.
 ATW_SN8 = "171H120F"
@@ -109,8 +111,10 @@ def build_query_command(profile: ModelProfile, subtype: int) -> str:
 # ---------------------------------------------------------------------------
 #
 # status raw_body, 0-indexed ([0] = 0x01 subtype byte):
-#   byte[1]  flags: bit0 (0x01) = space-heat demand; the 0x04 bit tracks DHW
-#            activity. Treated as FLAGS, not a scalar/mode.
+#   byte[1]  flags: on the 25-byte Italtherm layout bit0 (0x01) tracks
+#            space-heat demand and 0x04 tracks DHW activity. On the 27-byte
+#            Galmet layout bit0 is confirmed Zone-1 power (ON in both active
+#            and stopped Heating states; clear when Zone-1 is OFF).
 #   byte[8]  DHW setpoint in °C — DIRECT value (not +35-offset encoded).
 #   byte[9]  Zone-1 setpoint × 2 (0.5° resolution) → zone1 = byte[9] / 2.
 #   byte[22] DHW tank current temp in °C — DIRECT value.
@@ -134,10 +138,9 @@ def build_query_command(profile: ModelProfile, subtype: int) -> str:
 #     compressor-running signal, and there is no comp_frq field in a 25-byte
 #     frame, so we do not derive "running" from byte[14] (which the STANDARD
 #     path misread as a comp flag).
-#   - HVAC mode/action semantics are left at the dataclass defaults (mode 0 /
-#     "Off"); the byte[1] flags are recorded raw in status_flags_raw with only
-#     the space-heat-demand bit (0x01) interpreted. We do not invent an HVAC
-#     mode/action mapping until validated.
+#   - The 25-byte Italtherm HVAC mode/action semantics remain at the dataclass
+#     defaults (mode 0 / "Off"); its bit0 is demand, not persistent power. The
+#     27-byte Galmet layout is separately hardware-validated as Heat/Off power.
 
 ATW_DHW_SETPOINT_INDEX = 8
 ATW_ZONE1_SETPOINT_X2_INDEX = 9
@@ -176,15 +179,21 @@ def decode_atw_status(body: bytearray | bytes) -> ITSStatus:
 
     flags = body[ATW_FLAGS_INDEX]
     status.status_flags_raw = flags
-    # Only the space-heat-demand bit is interpreted; see module notes.
+    # The bit's exact semantics depend on the frame layout; see module notes.
     status.pump_system = bool(flags & ATW_SPACE_HEAT_DEMAND_BIT)
+    is_galmet = _is_galmet_atw_status(body)
+    if is_galmet:
+        # Three controlled hardware states establish bit 0 as Zone-1 power for
+        # this layout: set for both active and idle Heating, clear when Off.
+        status.mode = MODE_HEAT if status.pump_system else MODE_OFF
+        status.mode_name = "Heat" if status.pump_system else "Off"
 
     # DHW setpoint — direct °C value.
     status.set_temperature = body[ATW_DHW_SETPOINT_INDEX]
     # Zone-1 / climate target setpoint. The original 25-byte Italtherm layout
     # stores a half-degree value at byte[9]. The hardware-validated 27-byte
     # Galmet variant stores direct degrees at byte[6] despite sharing the sn8.
-    if _is_galmet_atw_status(body):
+    if is_galmet:
         status.t5s_def = float(body[ATW_GALMET_ZONE1_SETPOINT_INDEX])
     else:
         status.t5s_def = body[ATW_ZONE1_SETPOINT_X2_INDEX] / 2
@@ -192,10 +201,16 @@ def decode_atw_status(body: bytearray | bytes) -> ITSStatus:
     # which apply_profile_to_sensors routes to th_temp ("DHW Tank Temperature").
     status.box_bottom_temp = float(body[ATW_DHW_TANK_TEMP_INDEX])
 
-    # byte[24] is a flags/MSB byte, not a fault → no error. Conservative: no
-    # confirmed running signal in these frames.
+    # byte[24] is a flags/MSB byte, not a fault → no error. The Galmet active
+    # and stopped captures are otherwise identical, so compressor state and
+    # frequency are unavailable rather than false zeroes. Preserve the older
+    # conservative False/0 behavior for the 25-byte Italtherm layout.
     status.error_code = 0
-    status.comp_running = False
+    if is_galmet:
+        status.comp_running = None
+        status.comp_frq = None
+    else:
+        status.comp_running = False
 
     return status
 

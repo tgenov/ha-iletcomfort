@@ -130,7 +130,11 @@ Status `raw_body` (0-indexed; STANDARD misreads this 25-byte frame):
   while the Italtherm `body[9] / 2` field stayed at a false 24 °C. Gate this mapping on the status
   frame's structural signature, not `sn8` alone. When paired with the sensor template, climate current
   temperature is unavailable; do not relabel the separately exposed DHW tank temperature as Zone-1
-  water temperature.
+  water temperature. Three controlled captures establish `body[1] & 0x01` as Zone-1 power for this
+  layout: it is set (`0x05`) in both active-heating and compressor-stopped states, and clear (`0x04`)
+  when Zone-1 is off. Decode that as Heat/Off only for this structural variant. The active and stopped
+  frames were otherwise identical, so compressor running state and frequency are unavailable—never
+  infer them from this bit or report false/0.
 
 ### KJRH-120L dual variant (`sn8 17100003`, #5) — hardware-validated reads
 - The same `sn8` covers pure-DHW and Zone-1 + DHW controllers. Gate the dual layout only when status

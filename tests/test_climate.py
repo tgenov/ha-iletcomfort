@@ -25,6 +25,7 @@ from custom_components.iletcomfort.model_profiles import (
     ATW_SN8,
     AQUAPURA_SN8,
     KJRH120L_SN8,
+    decode_atw_status,
     decode_kjrh120l_status,
 )
 
@@ -146,6 +147,34 @@ def test_heating_keeps_temperature_control_and_40_degree_maximum():
     assert entity.target_temperature == 35
     assert entity.max_temp == 40
     assert entity.supported_features & ClimateEntityFeature.TARGET_TEMPERATURE
+
+
+@pytest.mark.parametrize(
+    ("body", "expected_mode"),
+    [
+        (
+            "01,05,15,a0,03,03,23,1e,2c,30,37,19,19,05,37,19,19,05,"
+            "3c,22,3c,14,2c,00,e0,03,03",
+            HVACMode.HEAT,
+        ),
+        (
+            "01,05,15,a0,03,03,1c,1e,2c,30,37,19,19,05,37,19,19,05,"
+            "3c,22,3c,14,2c,00,e0,03,03",
+            HVACMode.HEAT,
+        ),
+        (
+            "01,04,15,a0,03,03,1c,1e,2c,30,37,19,19,05,37,19,19,05,"
+            "3c,22,3c,14,2c,00,e0,03,03",
+            HVACMode.OFF,
+        ),
+    ],
+)
+def test_galmet_atw_zone1_power_drives_climate_mode(body, expected_mode):
+    """Galmet reports Zone-1 power in status flag 0x01, not its mode byte."""
+    status = decode_atw_status(bytes.fromhex(body.replace(",", "")))
+    entity = _climate(ATW_SN8, ITSSensors(), status)
+
+    assert entity.hvac_mode is expected_mode
 
 
 # --- KJRH-120L SET path clamping (issue #35) ------------------------------

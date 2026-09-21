@@ -231,6 +231,31 @@ def test_galmet_atw_status_uses_direct_zone1_target(name, expected_target):
     assert status.set_temperature == 44
 
 
+@pytest.mark.parametrize(
+    "body",
+    [
+        _bytes(
+            "01,05,15,a0,03,03,23,1e,2c,30,37,19,19,05,37,19,19,05,"
+            "3c,22,3c,14,2c,00,e0,03,03"
+        ),
+        _bytes(
+            "01,05,15,a0,03,03,1c,1e,2c,30,37,19,19,05,37,19,19,05,"
+            "3c,22,3c,14,2c,00,e0,03,03"
+        ),
+        _bytes(
+            "01,04,15,a0,03,03,1c,1e,2c,30,37,19,19,05,37,19,19,05,"
+            "3c,22,3c,14,2c,00,e0,03,03"
+        ),
+    ],
+)
+def test_galmet_atw_does_not_invent_compressor_telemetry(body):
+    """Validated Galmet frames cannot support a running/frequency value."""
+    status = decode_atw_status(body)
+
+    assert status.comp_running is None
+    assert status.comp_frq is None
+
+
 def test_atw_profile_applied_to_status_object():
     """apply_profile_to_status(ATW) re-decodes the frame via the ATW layout."""
     std = decode_its_status(ATW_FRAMES["state1"])
