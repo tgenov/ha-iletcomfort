@@ -31,6 +31,7 @@ from .model_profiles import (
     KJRH120L_TEMP_MAX,
     KJRH120L_TEMP_MIN,
     ModelProfile,
+    atw_sensors_are_placeholder,
     kjrh120l_has_zone1,
     resolve_profile,
 )
@@ -136,6 +137,10 @@ class ILetComfortClimate(CoordinatorEntity[ILetComfortCoordinator], ClimateEntit
             return None
         # ATW exposes its meaningful current value as the DHW tank temperature.
         if self._profile is ModelProfile.ATW:
+            # The confirmed Galmet sensor template contains no Zone-1 telemetry;
+            # do not relabel the separately exposed DHW tank as current water.
+            if atw_sensors_are_placeholder(self._sensors.raw_body):
+                return None
             return self._sensors.th_temp
         # AQUAPURA variants normally expose the tank reading on th_temp. Some
         # units use zero as a placeholder there while publishing valid hydronic
