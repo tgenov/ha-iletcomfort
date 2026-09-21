@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.18.3](https://github.com/tgenov/ha-iletcomfort/compare/v0.18.2...v0.18.3) (2026-09-21)
+
+
+### Bug Fixes
+
+* decode Galmet ATW power state ([#116](https://github.com/tgenov/ha-iletcomfort/issues/116)) ([d761410](https://github.com/tgenov/ha-iletcomfort/commit/d761410f770ee46a63b767e9698f2f80b57eae6f))
+
 ## [0.18.2](https://github.com/tgenov/ha-iletcomfort/compare/v0.18.1...v0.18.2) (2026-09-21)
 
 
