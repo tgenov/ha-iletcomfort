@@ -24,7 +24,9 @@ ATW (sn8 ``171H120F``, Italtherm air-to-water, issue #22)
     field map below). Some units return a known subtype-0x02 placeholder
     template rather than live sensor telemetry; that exact response is
     suppressed so entities remain unavailable rather than reporting fabricated
-    values (issue #38).
+    values (issue #38). A hardware-validated 27-byte Galmet status variant uses
+    direct degrees at byte[6] for its Zone-1 target; it is gated by the frame's
+    structural signature because the sn8 is shared with the 25-byte layout.
 
 AQUAPURA (sn8 ``171000AU``, AQS Energie AQUAPURA split HPWH, issue #12)
     Standard status/sensor decode, except the tank temperature must read
@@ -40,8 +42,10 @@ profile and resolves to STANDARD.
 
 For both ATW and AQUAPURA the tank temperature is routed to ``th_temp`` and the
 "Water Inlet Temperature" sensor (``twin_temp``) is left honest (no real inlet
-reading). Climate ``current_temperature`` is profile-aware and returns
-``th_temp`` for these profiles (``twin_temp`` for STANDARD).
+reading). Climate ``current_temperature`` is profile-aware: the confirmed ATW
+placeholder has no Zone-1 current reading, while other ATW captures retain the
+validated tank behavior; AQUAPURA returns ``th_temp`` and STANDARD returns
+``twin_temp``.
 """
 
 from __future__ import annotations
@@ -140,6 +144,17 @@ ATW_ZONE1_SETPOINT_X2_INDEX = 9
 ATW_DHW_TANK_TEMP_INDEX = 22
 ATW_FLAGS_INDEX = 1
 ATW_SPACE_HEAT_DEMAND_BIT = 0x01
+ATW_GALMET_ZONE1_SETPOINT_INDEX = 6
+
+
+def _is_galmet_atw_status(body: bytearray | bytes) -> bool:
+    """Return whether ``body`` has the hardware-validated Galmet layout."""
+    return (
+        len(body) == 27
+        and body[0] == 0x01
+        and body[2:6] == b"\x15\xa0\x03\x03"
+        and body[24:27] == b"\xe0\x03\x03"
+    )
 
 
 def decode_atw_status(body: bytearray | bytes) -> ITSStatus:
@@ -166,9 +181,13 @@ def decode_atw_status(body: bytearray | bytes) -> ITSStatus:
 
     # DHW setpoint — direct °C value.
     status.set_temperature = body[ATW_DHW_SETPOINT_INDEX]
-    # Zone-1 / climate target setpoint — 0.5° resolution. Surfaced via t5s_def
-    # so the climate entity's target_temperature reads it without changes.
-    status.t5s_def = body[ATW_ZONE1_SETPOINT_X2_INDEX] / 2
+    # Zone-1 / climate target setpoint. The original 25-byte Italtherm layout
+    # stores a half-degree value at byte[9]. The hardware-validated 27-byte
+    # Galmet variant stores direct degrees at byte[6] despite sharing the sn8.
+    if _is_galmet_atw_status(body):
+        status.t5s_def = float(body[ATW_GALMET_ZONE1_SETPOINT_INDEX])
+    else:
+        status.t5s_def = body[ATW_ZONE1_SETPOINT_X2_INDEX] / 2
     # DHW tank current temp — direct °C value. Surfaced via box_bottom_temp,
     # which apply_profile_to_sensors routes to th_temp ("DHW Tank Temperature").
     status.box_bottom_temp = float(body[ATW_DHW_TANK_TEMP_INDEX])
@@ -268,7 +287,7 @@ _ATW_PLACEHOLDER_SENSOR_FIELDS = {
 }
 
 
-def _is_atw_placeholder_sensors(raw_body: bytes) -> bool:
+def atw_sensors_are_placeholder(raw_body: bytes) -> bool:
     """Return whether an ATW sensor frame is the known non-telemetry template."""
     return raw_body == _ATW_PLACEHOLDER_SENSORS_BODY
 
@@ -406,7 +425,7 @@ def apply_profile_to_sensors(
     if profile is ModelProfile.KJRH120L:
         return dataclasses.replace(sensors, **_KJRH120L_SUPPRESSED_TEMPS)
     if profile in (ModelProfile.ATW, ModelProfile.AQUAPURA):
-        if profile is ModelProfile.ATW and _is_atw_placeholder_sensors(
+        if profile is ModelProfile.ATW and atw_sensors_are_placeholder(
             sensors.raw_body,
         ):
             sensors = dataclasses.replace(sensors, **_ATW_PLACEHOLDER_SENSOR_FIELDS)
@@ -428,6 +447,7 @@ __all__ = [
     "ModelProfile",
     "apply_profile_to_sensors",
     "apply_profile_to_status",
+    "atw_sensors_are_placeholder",
     "build_kjrh120l_set_temperature",
     "build_query_command",
     "decode_atw_status",

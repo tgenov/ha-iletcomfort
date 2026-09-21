@@ -85,6 +85,18 @@ ATW_EXPECTED = {
     "state5": (50, 20.0, 45.0),
 }
 
+# Galmet Prima 8GT, sn8 171H120F (issue #38). Unlike the 25-byte Italtherm
+# layout above, this variant emits a 27-byte status body. Same-moment official
+# app readings independently establish Zone-1 target 25/28 C respectively.
+GALMET_ATW_STATUS_FRAMES = {
+    "target25": _bytes(
+        "01,05,15,a0,03,03,19,1e,2c,30,37,19,19,05,37,19,19,05,3c,22,3c,14,27,00,e0,03,03"
+    ),
+    "target28": _bytes(
+        "01,05,15,a0,03,03,1c,1e,2c,30,37,19,19,05,37,19,19,05,3c,22,3c,14,28,00,e0,03,03"
+    ),
+}
+
 # Galmet Prima 8GT, sn8 171H120F (issue #38). The cloud returned this repeated
 # template instead of live sensor telemetry while the official app showed live
 # Zone-1 water and outdoor readings. It must not surface as measurements.
@@ -205,6 +217,18 @@ def test_atw_space_heat_demand_flag():
     assert decode_atw_status(ATW_FRAMES["state2"]).status_flags_raw & 0x01
     for name in ("state1", "state3", "state4", "state5"):
         assert not (decode_atw_status(ATW_FRAMES[name]).status_flags_raw & 0x01)
+
+
+@pytest.mark.parametrize(
+    ("name", "expected_target"),
+    [("target25", 25.0), ("target28", 28.0)],
+)
+def test_galmet_atw_status_uses_direct_zone1_target(name, expected_target):
+    """The 27-byte Galmet layout carries Zone-1 target directly at byte 6."""
+    status = decode_atw_status(GALMET_ATW_STATUS_FRAMES[name])
+
+    assert status.t5s_def == expected_target
+    assert status.set_temperature == 44
 
 
 def test_atw_profile_applied_to_status_object():

@@ -125,6 +125,12 @@ Status `raw_body` (0-indexed; STANDARD misreads this 25-byte frame):
   temperatures and ODU current/voltage as unavailable, while retaining the status-derived Zone-1/DHW
   setpoints and DHW tank temperature. Gate on the exact frame signature as well as the ATW profile;
   never suppress or remap all `171H120F` sensor frames from `sn8` alone.
+- **27-byte status variant (#38, Galmet Prima 8GT):** the same `sn8` also emits a status layout ending
+  `e0,03,03`. In two same-moment captures, `body[6]` tracked the Zone-1 target directly (25/28 °C),
+  while the Italtherm `body[9] / 2` field stayed at a false 24 °C. Gate this mapping on the status
+  frame's structural signature, not `sn8` alone. When paired with the sensor template, climate current
+  temperature is unavailable; do not relabel the separately exposed DHW tank temperature as Zone-1
+  water temperature.
 
 ### KJRH-120L dual variant (`sn8 17100003`, #5) — hardware-validated reads
 - The same `sn8` covers pure-DHW and Zone-1 + DHW controllers. Gate the dual layout only when status
@@ -146,8 +152,8 @@ Status `raw_body` (0-indexed; STANDARD misreads this 25-byte frame):
 
 ### Entity routing (important)
 - `sensor.py`: **"Water Inlet Temperature"** ← `twin_temp`; **"DHW Tank Temperature"** ← `th_temp`.
-- `climate.py` `current_temperature` is **profile-aware**: `th_temp` for ATW/AQUAPURA, `twin_temp` for
-  STANDARD.
+- `climate.py` `current_temperature` is **profile-aware**: `th_temp` for AQUAPURA and validated ATW
+  layouts, unavailable for the ATW sensor-template variant, and `twin_temp` for STANDARD.
 - For ATW/AQUAPURA the tank temp is routed into **`th_temp`** (so the correctly-named "DHW Tank
   Temperature" entity shows it). Do **not** route a tank reading into `twin_temp` (that mislabels "Water
   Inlet"). This was corrected after a reporter flagged it.

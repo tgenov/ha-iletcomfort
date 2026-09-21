@@ -1,11 +1,12 @@
 """Tests for the iLetComfort climate entity (profile-aware current_temperature).
 
-The climate card's ``current_temperature`` is profile-aware (issues #22, #12):
+The climate card's ``current_temperature`` is profile-aware (issues #22, #38,
+#12):
 - STANDARD reads ``sensors.twin_temp`` (the real water-inlet reading), unchanged.
-- ATW / AQUAPURA have no real inlet reading; the meaningful "current" value is
-  the DHW tank temperature, which the model profiles surface on ``th_temp``. The
-  climate entity returns ``th_temp`` for those profiles so the card still shows a
-  useful number while the "Water Inlet Temperature" sensor stays honest.
+- ATW normally retains its validated DHW-tank behavior, but the confirmed
+  Galmet placeholder variant reports no Zone-1 current temperature and must not
+  relabel the tank value as one.
+- AQUAPURA uses the DHW tank temperature surfaced on ``th_temp``.
 """
 
 from __future__ import annotations
@@ -51,6 +52,24 @@ def test_current_temperature_atw_reads_th_temp():
     sensors = ITSSensors(twin_temp=None, th_temp=46.0)
     entity = _climate(ATW_SN8, sensors)
     assert entity.current_temperature == 46.0
+
+
+def test_current_temperature_atw_placeholder_does_not_relabel_dhw_tank():
+    """A Zone-1 climate must not present the DHW tank as current water temp."""
+    placeholder = bytes.fromhex(
+        "0200031e00000000031e00000000031e00000000031e00000000031e00000000"
+        "031e0000000000031e00000000031e00000000031e00000000031e0000000003"
+        "1e00000000031e00000000"
+    )
+    sensors = ITSSensors(
+        twin_temp=None,
+        twout_temp=None,
+        th_temp=40.0,
+        raw_body=placeholder,
+    )
+    entity = _climate(ATW_SN8, sensors)
+
+    assert entity.current_temperature is None
 
 
 def test_current_temperature_aquapura_reads_th_temp():
