@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.18.2](https://github.com/tgenov/ha-iletcomfort/compare/v0.18.1...v0.18.2) (2026-09-21)
+
+
+### Bug Fixes
+
+* decode Galmet ATW status variant ([#114](https://github.com/tgenov/ha-iletcomfort/issues/114)) ([db4acc4](https://github.com/tgenov/ha-iletcomfort/commit/db4acc4ce82113b70a61b36e644a9aef150d59d7))
+
 ## [0.18.1](https://github.com/tgenov/ha-iletcomfort/compare/v0.18.0...v0.18.1) (2026-09-18)
 
 
