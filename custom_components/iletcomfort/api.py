@@ -265,7 +265,7 @@ class ITSStatus:
     mute_valid: bool = False
     force_heat_valid: bool = False
     sterilize_valid: bool = False
-    comp_running: bool = False
+    comp_running: bool | None = False
     ibh_running: bool = False
     sterilize_running: bool = False
     status_flags_raw: int = 0
@@ -288,7 +288,7 @@ class ITSStatus:
     exv_drg: int = 0
     pressure_h: int = 0
     pressure_l: int = 0
-    comp_frq: int = 0
+    comp_frq: int | None = 0
     total_kwh: int = 0
     comp_total_run_hours: int = 0
     fan_total_run_hours: int = 0
@@ -375,7 +375,7 @@ def decode_its_status(body: bytearray) -> ITSStatus:
     # Some models (e.g. MSC-70D2N8-A, issue #11) leave the status-flag byte at 0
     # even while running; a non-zero compressor frequency is an authoritative
     # "running" signal, so honor it regardless of the flag bit.
-    status.comp_running = status.comp_running or status.comp_frq > 0
+    status.comp_running = status.comp_running or (status.comp_frq or 0) > 0
 
     return status
 

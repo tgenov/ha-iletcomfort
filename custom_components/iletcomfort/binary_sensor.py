@@ -87,7 +87,7 @@ class ILetComfortBinarySensor(
         self._attr_device_info = build_device_info(coordinator)
 
     @property
-    def is_on(self) -> bool:
+    def is_on(self) -> bool | None:
         if self.coordinator.data is None:
             return False
         return self.entity_description.is_on_fn(self.coordinator.data)
