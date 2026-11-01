@@ -113,8 +113,9 @@ def build_query_command(profile: ModelProfile, subtype: int) -> str:
 # status raw_body, 0-indexed ([0] = 0x01 subtype byte):
 #   byte[1]  flags: on the 25-byte Italtherm layout bit0 (0x01) tracks
 #            space-heat demand and 0x04 tracks DHW activity. On the 27-byte
-#            Galmet layout bit0 is confirmed Zone-1 power (ON in both active
-#            and stopped Heating states; clear when Zone-1 is OFF).
+#            layout (Galmet #38, NØRDIS #132) bit0 is confirmed Zone-1 power
+#            (ON in both active and stopped Heating states; clear when Zone-1
+#            is OFF).
 #   byte[8]  DHW setpoint in °C — DIRECT value (not +35-offset encoded).
 #   byte[9]  Zone-1 setpoint × 2 (0.5° resolution) → zone1 = byte[9] / 2.
 #   byte[22] DHW tank current temp in °C — DIRECT value.
@@ -140,7 +141,7 @@ def build_query_command(profile: ModelProfile, subtype: int) -> str:
 #     path misread as a comp flag).
 #   - The 25-byte Italtherm HVAC mode/action semantics remain at the dataclass
 #     defaults (mode 0 / "Off"); its bit0 is demand, not persistent power. The
-#     27-byte Galmet layout is separately hardware-validated as Heat/Off power.
+#     27-byte layout is separately hardware-validated as Heat/Off power.
 
 ATW_DHW_SETPOINT_INDEX = 8
 ATW_ZONE1_SETPOINT_X2_INDEX = 9
@@ -150,14 +151,14 @@ ATW_SPACE_HEAT_DEMAND_BIT = 0x01
 ATW_GALMET_ZONE1_SETPOINT_INDEX = 6
 
 
-def _is_galmet_atw_status(body: bytearray | bytes) -> bool:
-    """Return whether ``body`` has the hardware-validated Galmet layout."""
-    return (
-        len(body) == 27
-        and body[0] == 0x01
-        and body[2:6] == b"\x15\xa0\x03\x03"
-        and body[24:27] == b"\xe0\x03\x03"
-    )
+def _is_27_byte_atw_status(body: bytearray | bytes) -> bool:
+    """Return whether ``body`` has the hardware-validated 27-byte ATW layout.
+
+    Galmet (#38) and NØRDIS (#132) units share this layout but differ at
+    byte[2] and the [24:27] tail, so neither is part of the signature. Every
+    captured 25-byte 171H120F frame has 0x90/0x50/0x68 at byte[3] instead.
+    """
+    return len(body) == 27 and body[0] == 0x01 and body[3:6] == b"\xa0\x03\x03"
 
 
 def decode_atw_status(body: bytearray | bytes) -> ITSStatus:
@@ -181,8 +182,8 @@ def decode_atw_status(body: bytearray | bytes) -> ITSStatus:
     status.status_flags_raw = flags
     # The bit's exact semantics depend on the frame layout; see module notes.
     status.pump_system = bool(flags & ATW_SPACE_HEAT_DEMAND_BIT)
-    is_galmet = _is_galmet_atw_status(body)
-    if is_galmet:
+    is_27_byte = _is_27_byte_atw_status(body)
+    if is_27_byte:
         # Three controlled hardware states establish bit 0 as Zone-1 power for
         # this layout: set for both active and idle Heating, clear when Off.
         status.mode = MODE_HEAT if status.pump_system else MODE_OFF
@@ -192,8 +193,8 @@ def decode_atw_status(body: bytearray | bytes) -> ITSStatus:
     status.set_temperature = body[ATW_DHW_SETPOINT_INDEX]
     # Zone-1 / climate target setpoint. The original 25-byte Italtherm layout
     # stores a half-degree value at byte[9]. The hardware-validated 27-byte
-    # Galmet variant stores direct degrees at byte[6] despite sharing the sn8.
-    if is_galmet:
+    # variant stores direct degrees at byte[6] despite sharing the sn8.
+    if is_27_byte:
         status.t5s_def = float(body[ATW_GALMET_ZONE1_SETPOINT_INDEX])
     else:
         status.t5s_def = body[ATW_ZONE1_SETPOINT_X2_INDEX] / 2
@@ -206,7 +207,7 @@ def decode_atw_status(body: bytearray | bytes) -> ITSStatus:
     # frequency are unavailable rather than false zeroes. Preserve the older
     # conservative False/0 behavior for the 25-byte Italtherm layout.
     status.error_code = 0
-    if is_galmet:
+    if is_27_byte:
         status.comp_running = None
         status.comp_frq = None
     else:
@@ -302,9 +303,46 @@ _ATW_PLACEHOLDER_SENSOR_FIELDS = {
 }
 
 
+# The same template appears in other shapes: 38 bytes with constant 0x28 and no
+# separator (Rotenso #124, Kaisai #123), and Galmet's 75-byte shape whose group
+# payloads are not all zero (NØRDIS #132; they read like hh,00,hh,00 time slots,
+# while the app's live water and outdoor values appear nowhere in the frame).
+# Match the structure: subtype 0x02, a 0x00, then only ``03,<c>,x,x,x,x``
+# groups sharing one ``c``, with at most a single 0x00 between groups.
+_ATW_TEMPLATE_GROUP_LEN = 6
+_ATW_TEMPLATE_MIN_GROUPS = 6
+
+
+def _atw_sensors_match_template_shape(raw_body: bytes) -> bool:
+    if len(raw_body) < 4 or raw_body[:2] != b"\x02\x00":
+        return False
+    constant = raw_body[3]
+    groups = 0
+    after_separator = False
+    i = 2
+    while i < len(raw_body):
+        if raw_body[i] == 0x00 and groups and not after_separator:
+            after_separator = True
+            i += 1
+            continue
+        group = raw_body[i : i + _ATW_TEMPLATE_GROUP_LEN]
+        if (
+            len(group) != _ATW_TEMPLATE_GROUP_LEN
+            or group[0] != 0x03
+            or group[1] != constant
+        ):
+            return False
+        groups += 1
+        after_separator = False
+        i += _ATW_TEMPLATE_GROUP_LEN
+    return groups >= _ATW_TEMPLATE_MIN_GROUPS and not after_separator
+
+
 def atw_sensors_are_placeholder(raw_body: bytes) -> bool:
-    """Return whether an ATW sensor frame is the known non-telemetry template."""
-    return raw_body == _ATW_PLACEHOLDER_SENSORS_BODY
+    """Return whether an ATW sensor frame is a known non-telemetry template."""
+    return raw_body == _ATW_PLACEHOLDER_SENSORS_BODY or _atw_sensors_match_template_shape(
+        bytes(raw_body)
+    )
 
 
 def kjrh120l_has_zone1(body: bytearray | bytes) -> bool:

@@ -36,6 +36,7 @@ from custom_components.iletcomfort.model_profiles import (
     ModelProfile,
     apply_profile_to_sensors,
     apply_profile_to_status,
+    atw_sensors_are_placeholder,
     build_kjrh120l_set_temperature,
     build_query_command,
     decode_atw_status,
@@ -97,6 +98,29 @@ GALMET_ATW_STATUS_FRAMES = {
     ),
 }
 
+# NØRDIS Optimus Pro, sn8 171H120F (issue #132): the same 27-byte layout with
+# different bytes at [2] and the [24:27] tail. Both captures were taken while
+# the official app showed Zone-1 Heating: target 33 C / DHW 50 C / tank 46 C
+# (#132) and target 35 C / DHW 60 C / tank 57 C a minute later (second unit).
+NORDIS_ATW_STATUS_FRAMES = {
+    "issue132": _bytes(
+        "01,0d,15,a0,03,03,21,1e,32,30,37,19,19,05,37,19,19,05,3c,22,3c,14,2e,00,60,04,03"
+    ),
+    "unit2": _bytes(
+        "01,0d,17,a0,03,03,23,1e,3c,30,37,19,19,05,37,19,19,05,3c,22,3c,14,3a,00,40,05,00"
+    ),
+}
+
+# 25-byte status frames from other 171H120F brands (Rotenso #124, Kaisai #123).
+ATW_25_BYTE_STATUS_FRAMES = {
+    "rotenso": _bytes(
+        "01,0d,15,90,03,03,28,1e,32,30,41,23,19,05,37,19,19,05,3c,22,3c,14,32,00,80"
+    ),
+    "kaisai": _bytes(
+        "01,08,11,50,03,03,23,28,32,30,41,23,19,05,41,23,19,05,3c,22,3c,14,19,00,80"
+    ),
+}
+
 # Galmet Prima 8GT, sn8 171H120F (issue #38). The cloud returned this repeated
 # template instead of live sensor telemetry while the official app showed live
 # Zone-1 water and outdoor readings. It must not surface as measurements.
@@ -106,6 +130,23 @@ ATW_PLACEHOLDER_SENSORS_BODY = _bytes(
     "00,00,00,00,03,1e,00,00,00,00,03,1e,00,00,00,00,03,1e,00,00,"
     "00,00,03,1e,00,00,00,00,03,1e,00,00,00,00"
 )
+
+# Further non-telemetry variants of the same repeated-group template. Rotenso
+# (#124) and Kaisai (#123): 38 bytes, constant 0x28, no separator. NØRDIS:
+# Galmet's 75-byte shape, but four groups carry non-zero bytes (they read like
+# hh,00,hh,00 time slots); the app's live water 26 C / outdoor 8 C appear nowhere.
+ATW_TEMPLATE_SENSOR_VARIANTS = {
+    "rotenso_kaisai": _bytes(
+        "02,00,03,28,00,00,00,00,03,28,00,00,00,00,03,28,00,00,00,00,"
+        "03,28,00,00,00,00,03,28,00,00,00,00,03,28,00,00,00,00"
+    ),
+    "nordis": _bytes(
+        "02,00,03,1e,04,00,0a,00,03,1e,16,00,02,00,03,1e,0f,00,14,00,"
+        "03,1e,05,00,14,00,03,1e,00,00,00,00,03,1e,00,00,00,00,00,03,1e,"
+        "00,00,00,00,03,1e,00,00,00,00,03,1e,00,00,00,00,03,1e,00,00,"
+        "00,00,03,1e,00,00,00,00,03,1e,00,00,00,00"
+    ),
+}
 
 
 # ---------------------------------------------------------------------------
@@ -256,6 +297,42 @@ def test_galmet_atw_does_not_invent_compressor_telemetry(body):
     assert status.comp_frq is None
 
 
+@pytest.mark.parametrize(
+    ("name", "target", "dhw_set", "tank"),
+    [("issue132", 33.0, 50, 46.0), ("unit2", 35.0, 60, 58.0)],
+)
+def test_nordis_27_byte_status_uses_validated_27_byte_layout(name, target, dhw_set, tank):
+    """NØRDIS 27-byte frames decode like Galmet despite a different tail (#132)."""
+    status = decode_atw_status(NORDIS_ATW_STATUS_FRAMES[name])
+
+    assert status.mode_name == "Heat"
+    assert status.t5s_def == target
+    assert status.set_temperature == dhw_set
+    assert status.box_bottom_temp == tank
+    assert status.error_code == 0
+    assert status.comp_running is None
+    assert status.comp_frq is None
+
+
+def test_nordis_27_byte_status_zone1_off_when_power_bit_clear():
+    """Bit 0 of byte[1] is Zone-1 power on the 27-byte layout."""
+    body = bytearray(NORDIS_ATW_STATUS_FRAMES["unit2"])
+    body[1] = 0x0C
+
+    assert decode_atw_status(bytes(body)).mode_name == "Off"
+
+
+@pytest.mark.parametrize("name", list(ATW_25_BYTE_STATUS_FRAMES))
+def test_25_byte_atw_frames_keep_italtherm_layout(name):
+    """Other brands' 25-byte frames are unaffected by the 27-byte detection."""
+    body = ATW_25_BYTE_STATUS_FRAMES[name]
+    status = decode_atw_status(body)
+
+    assert status.t5s_def == body[9] / 2
+    assert status.mode_name == "Off"
+    assert status.comp_running is False
+
+
 def test_atw_profile_applied_to_status_object():
     """apply_profile_to_status(ATW) re-decodes the frame via the ATW layout."""
     std = decode_its_status(ATW_FRAMES["state1"])
@@ -300,6 +377,45 @@ def test_atw_placeholder_sensors_are_unavailable():
     assert out.twout_temp is None
     assert out.odu_current is None
     assert out.odu_voltage is None
+
+
+@pytest.mark.parametrize("name", list(ATW_TEMPLATE_SENSOR_VARIANTS))
+def test_atw_template_sensor_variants_are_unavailable(name):
+    """Repeated ``03,<c>`` group templates are not telemetry (#123, #124, #132)."""
+    sensors = decode_its_sensors(ATW_TEMPLATE_SENSOR_VARIANTS[name])
+    status = decode_atw_status(NORDIS_ATW_STATUS_FRAMES["unit2"])
+
+    out = apply_profile_to_sensors(ModelProfile.ATW, sensors, status)
+
+    assert out.th_temp == 58.0
+    for field in ("t4_temp", "t2_temp", "twin_temp", "twout_temp", "t1_temp"):
+        assert getattr(out, field) is None
+    assert out.odu_current is None
+    assert out.odu_voltage is None
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        # Group constants differ.
+        _bytes(
+            "02,00,03,1e,00,00,00,00,03,28,00,00,00,00,03,1e,00,00,00,00,"
+            "03,1e,00,00,00,00,03,1e,00,00,00,00,03,1e,00,00,00,00"
+        ),
+        # A group does not start with 0x03.
+        _bytes(
+            "02,00,03,1e,00,00,00,00,05,1e,00,00,00,00,03,1e,00,00,00,00,"
+            "03,1e,00,00,00,00,03,1e,00,00,00,00,03,1e,00,00,00,00"
+        ),
+        # Fewer than six groups.
+        _bytes("02,00,03,1e,00,00,00,00,03,1e,00,00,00,00,03,1e,00,00,00,00"),
+        # Trailing bytes that are not a whole group.
+        ATW_PLACEHOLDER_SENSORS_BODY + bytes([0x03, 0x1E, 0x00]),
+    ],
+)
+def test_atw_sensor_frames_outside_template_shape_are_preserved(body):
+    """Only frames made entirely of the repeated group are treated as templates."""
+    assert atw_sensors_are_placeholder(body) is False
 
 
 def test_atw_non_placeholder_sensors_are_preserved():
