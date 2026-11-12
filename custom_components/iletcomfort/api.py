@@ -704,6 +704,25 @@ class ILetComfortClient:
             f"msg={result.get('msg')}"
         )
 
+    def full_query(self, appliance_code: str) -> dict[str, Any]:
+        """KJRH-120L: fetch the cloud-decoded JSON state (read-only).
+
+        ``/appliance/fullQuery`` returns the vendor's own decode of the status
+        frame as ``{"query": {name: value, ...}}`` (all values are strings).
+        """
+        result = self._v2_request(
+            "/midea/open/business/v1/appliance/fullQuery",
+            {"applianceCode": appliance_code},
+        )
+        if result.get("code") == 0:
+            query = (result.get("data") or {}).get("query")
+            if isinstance(query, dict):
+                return query
+        raise ApiError(
+            f"fullQuery failed: code={result.get('code')}, "
+            f"msg={result.get('msg')}"
+        )
+
     def send_hex_command(
         self, appliance_code: str, command_hex: str,
     ) -> str:
