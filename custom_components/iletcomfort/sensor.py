@@ -196,6 +196,14 @@ async def async_setup_entry(
         ILetComfortSensor(coordinator, description)
         for description in SENSOR_DESCRIPTIONS
     )
+    # KJRH-120L: sensors from the cloud-decoded JSON state.
+    full = (coordinator.data or {}).get("full")
+    if isinstance(full, dict):
+        async_add_entities(
+            ILetComfortFullSensor(coordinator, key, name, kind, icon)
+            for key, name, kind, icon in FULL_SENSORS
+            if key in full
+        )
 
 
 class ILetComfortSensor(CoordinatorEntity[ILetComfortCoordinator], SensorEntity):
@@ -229,3 +237,77 @@ class ILetComfortSensor(CoordinatorEntity[ILetComfortCoordinator], SensorEntity)
             return None
         error_code = self.native_value
         return ERROR_CODES.get(error_code, {}).copy()
+
+
+# ---------------------------------------------------------------------------
+# KJRH-120L: sensors backed by /appliance/fullQuery (cloud-decoded JSON)
+# ---------------------------------------------------------------------------
+
+# (json key, name, kind, icon) — kind: "temp" numeric °C, "text" raw string.
+FULL_SENSORS: tuple[tuple[str, str, str, str | None], ...] = (
+    ("tank_actual_temp", "Tank Temperature", "temp", "mdi:water-boiler"),
+    ("t4", "Outdoor Temperature", "temp", "mdi:thermometer"),
+    ("dhw_temp_set", "DHW Target", "temp", "mdi:water-thermometer"),
+    ("zone1_temp_set", "Zone 1 Target", "temp", "mdi:radiator"),
+    ("zone2_temp_set", "Zone 2 Target", "temp", "mdi:heating-coil"),
+    ("room_temp_set", "Room Target", "temp", "mdi:home-thermometer"),
+    ("run_mode_set", "Run Mode", "text", "mdi:hvac"),
+    ("runmode_under_auto", "Run Mode Under Auto", "text", "mdi:hvac"),
+    ("zone1_power_state", "Zone 1 Power", "text", "mdi:radiator"),
+    ("zone2_power_state", "Zone 2 Power", "text", "mdi:heating-coil"),
+    ("dhw_power_state", "DHW Power", "text", "mdi:water-boiler"),
+    ("fastdhw_state", "Fast DHW", "text", "mdi:water-plus"),
+    ("forcetbh_state", "Tank Heater Forced", "text", "mdi:heating-coil"),
+    ("silence_on_state", "Silent Mode Active", "text", "mdi:volume-off"),
+    ("eco_on_state", "Eco Mode", "text", "mdi:leaf"),
+    ("holiday_on_state", "Holiday Mode", "text", "mdi:beach"),
+    ("time_set_state", "Schedule Active", "text", "mdi:calendar-clock"),
+    ("zone1_curve_state", "Zone 1 Weather Curve", "text", "mdi:chart-bell-curve"),
+    ("zone2_curve_state", "Zone 2 Weather Curve", "text", "mdi:chart-bell-curve"),
+    ("zone1_terminal_type", "Zone 1 Terminal", "text", "mdi:radiator"),
+    ("zone2_terminal_type", "Zone 2 Terminal", "text", "mdi:heating-coil"),
+    ("double_zone_enable", "Double Zone", "text", "mdi:numeric-2-box-multiple"),
+    ("error_code_str", "Panel Error", "text", "mdi:alert-circle-outline"),
+    ("version", "Protocol Version", "text", "mdi:tag"),
+)
+
+
+class ILetComfortFullSensor(CoordinatorEntity[ILetComfortCoordinator], SensorEntity):
+    """Sensor reading one field of the cloud-decoded JSON state."""
+
+    _attr_has_entity_name = True
+
+    def __init__(
+        self,
+        coordinator: ILetComfortCoordinator,
+        key: str,
+        name: str,
+        kind: str,
+        icon: str | None,
+    ) -> None:
+        super().__init__(coordinator)
+        self._key = key
+        self._kind = kind
+        self._attr_name = name
+        self._attr_icon = icon
+        self._attr_unique_id = f"{coordinator.appliance_code}_full_{key}"
+        self._attr_device_info = build_device_info(coordinator)
+        if kind == "temp":
+            self._attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
+            self._attr_device_class = SensorDeviceClass.TEMPERATURE
+            self._attr_state_class = SensorStateClass.MEASUREMENT
+
+    @property
+    def native_value(self) -> Any:
+        full = (self.coordinator.data or {}).get("full")
+        if not isinstance(full, dict):
+            return None
+        value = full.get(self._key)
+        if value is None:
+            return None
+        if self._kind == "temp":
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                return None
+        return str(value)
