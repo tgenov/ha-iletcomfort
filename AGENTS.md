@@ -124,7 +124,10 @@ Status `raw_body` (0-indexed; STANDARD misreads this 25-byte frame):
   show live Zone-1 water/outdoor values that do not occur in that frame. Suppress template-derived
   temperatures and ODU current/voltage as unavailable, while retaining the status-derived Zone-1/DHW
   setpoints and DHW tank temperature. Gate on the exact frame signature as well as the ATW profile;
-  never suppress or remap all `171H120F` sensor frames from `sn8` alone.
+  never suppress or remap all `171H120F` sensor frames from `sn8` alone. Rotenso Aquami units (#124)
+  return a shorter 38-byte form (subtype, `00`, six groups), and the repeated group byte varies per
+  unit (`03,1e` or `03,28`), so `atw_sensors_are_placeholder` matches the structure (identical
+  `03,XX,00,00,00,00` groups in the 38- or 75-byte form), not exact bytes.
 - **27-byte status variant (#38, Galmet Prima 8GT):** the same `sn8` also emits a status layout ending
   `e0,03,03`. In two same-moment captures, `body[6]` tracked the Zone-1 target directly (25/28 °C),
   while the Italtherm `body[9] / 2` field stayed at a false 24 °C. Gate this mapping on the status

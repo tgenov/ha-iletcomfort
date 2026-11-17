@@ -280,13 +280,9 @@ _KJRH120L_SUPPRESSED_TEMPS = {
 # template while the official app displayed live Zone-1 water and outdoor
 # values. It has no telemetry: after the subtype, it consists solely of 50
 # zeroes and twelve ``03,1e`` pairs. This is deliberately stricter than an
-# sn8-only rule because 171H120F covers more than one hardware variant.
-_ATW_PLACEHOLDER_SENSORS_BODY = (
-    b"\x02\x00"
-    + b"\x03\x1e\x00\x00\x00\x00" * 6
-    + b"\x00"
-    + b"\x03\x1e\x00\x00\x00\x00" * 6
-)
+# sn8-only rule because 171H120F covers more than one hardware variant. Rotenso
+# Aquami units (#124) return a shorter 38-byte form, and the repeated group
+# byte varies per unit (``1e`` or ``28``); see ``atw_sensors_are_placeholder``.
 _ATW_PLACEHOLDER_SENSOR_FIELDS = {
     "tf_temp": None,
     "tp_temp": None,
@@ -302,9 +298,26 @@ _ATW_PLACEHOLDER_SENSOR_FIELDS = {
 }
 
 
+def _placeholder_layouts(group_byte: int) -> tuple[bytes, bytes]:
+    group = bytes([0x03, group_byte, 0, 0, 0, 0])
+    return (
+        b"\x02\x00" + group * 6 + b"\x00" + group * 6,  # 75 bytes (Galmet, #38)
+        b"\x02\x00" + group * 6,  # 38 bytes (Rotenso Aquami, #124)
+    )
+
+
 def atw_sensors_are_placeholder(raw_body: bytes) -> bool:
-    """Return whether an ATW sensor frame is the known non-telemetry template."""
-    return raw_body == _ATW_PLACEHOLDER_SENSORS_BODY
+    """Return whether an ATW sensor frame is a known non-telemetry template.
+
+    The template is ``02 00`` followed by six (38-byte form) or six + ``00`` +
+    six (75-byte form) groups of ``03 XX 00 00 00 00`` with the same ``XX`` in
+    every group. ``XX`` varies between units (``1e`` on Galmet #38 and one
+    Rotenso Aquami, ``28`` on the #124 Rotenso), so only the structure is
+    matched; any other byte is treated as real telemetry.
+    """
+    if len(raw_body) < 4:
+        return False
+    return raw_body in _placeholder_layouts(raw_body[3])
 
 
 def kjrh120l_has_zone1(body: bytearray | bytes) -> bool:

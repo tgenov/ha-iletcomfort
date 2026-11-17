@@ -36,6 +36,7 @@ from custom_components.iletcomfort.model_profiles import (
     ModelProfile,
     apply_profile_to_sensors,
     apply_profile_to_status,
+    atw_sensors_are_placeholder,
     build_kjrh120l_set_temperature,
     build_query_command,
     decode_atw_status,
@@ -312,6 +313,47 @@ def test_atw_non_placeholder_sensors_are_preserved():
     assert out.t4_temp == 0.0
     assert out.twin_temp == 0.0
     assert out.odu_voltage == 35
+    assert out.th_temp == 46.0
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        # Galmet #38 (75 bytes, 03,1e groups).
+        (ATW_PLACEHOLDER_SENSORS_BODY, True),
+        # Rotenso Aquami (#124 reporter: 03,28; second unit: 03,1e), 38 bytes.
+        (bytes.fromhex("02 00" + " 03 28 00 00 00 00" * 6), True),
+        (bytes.fromhex("02 00" + " 03 1e 00 00 00 00" * 6), True),
+        (
+            bytes.fromhex(
+                "02 00" + " 03 28 00 00 00 00" * 6 + " 00" + " 03 28 00 00 00 00" * 6
+            ),
+            True,
+        ),
+        # Mixed group bytes, any non-zero payload byte or a truncated frame is
+        # treated as real telemetry.
+        (bytes.fromhex("02 00" + " 03 1e 00 00 00 00" * 5 + " 03 28 00 00 00 00"), False),
+        (bytes.fromhex("02 00" + " 03 1e 00 00 00 00" * 5 + " 03 1e 00 00 01 00"), False),
+        (bytes.fromhex("02 00" + " 03 1e 00 00 00 00" * 5), False),
+        (b"\x02\x00", False),
+        (b"", False),
+    ],
+)
+def test_atw_placeholder_detection_is_structural(raw, expected):
+    assert atw_sensors_are_placeholder(raw) is expected
+
+
+def test_rotenso_short_placeholder_sensors_are_unavailable():
+    """The 38-byte Rotenso template (#124) is suppressed like Galmet's."""
+    raw = bytes.fromhex("02 00" + " 03 28 00 00 00 00" * 6)
+    sensors = decode_its_sensors(raw)
+    status = decode_atw_status(ATW_FRAMES["state1"])
+
+    out = apply_profile_to_sensors(ModelProfile.ATW, sensors, status)
+
+    assert out.t4_temp is None
+    assert out.twin_temp is None
+    assert out.twout_temp is None
     assert out.th_temp == 46.0
 
 
