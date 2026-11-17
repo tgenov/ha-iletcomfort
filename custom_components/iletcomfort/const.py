@@ -1,7 +1,15 @@
 """Constants for the iLetComfort integration."""
 
 DOMAIN = "iletcomfort"
-PLATFORMS = ["climate", "sensor", "switch", "select", "binary_sensor", "number"]
+PLATFORMS = [
+    "climate",
+    "sensor",
+    "switch",
+    "select",
+    "binary_sensor",
+    "number",
+    "water_heater",
+]
 
 CONF_APPLIANCE_CODE = "appliance_code"
 CONF_REGION = "region"
@@ -29,6 +37,12 @@ CONF_OPERATION_MODE = "operation_mode"
 OPERATION_MODE_HA_PRIMARY = "ha_primary"
 OPERATION_MODE_PHONE_APP = "phone_app"
 DEFAULT_OPERATION_MODE = OPERATION_MODE_HA_PRIMARY
+
+# Opt-in standard Midea C3 control for sn8 171H120F units whose status frame
+# matches the C3 basic layout. Hardware-validated on a Rotenso Aquami only, so
+# it stays off until the owner confirms their unit behaves the same way.
+CONF_C3_BASIC_CONTROL = "c3_basic_control"
+DEFAULT_C3_BASIC_CONTROL = False
 
 # AWS IoT MQTT broker (TLS, mutual-cert auth). Endpoint/port come from the cert
 # response; this port is the documented default and a fallback.

@@ -28,11 +28,14 @@ from .api import (
     QUERY_TO_SET_MODE,
     mask_identifier,
 )
+from .c3_basic import C3BasicStatus
 from .const import (
     CONF_APPLIANCE_CODE,
+    CONF_C3_BASIC_CONTROL,
     CONF_ENABLE_MQTT_PUSH,
     CONF_OPERATION_MODE,
     CONF_REGION,
+    DEFAULT_C3_BASIC_CONTROL,
     DEFAULT_ENABLE_MQTT_PUSH,
     DEFAULT_OPERATION_MODE,
     DEFAULT_REGION,
@@ -45,6 +48,7 @@ from .const import (
 from .model_profiles import (
     apply_profile_to_sensors,
     apply_profile_to_status,
+    atw_c3_basic,
     resolve_profile,
 )
 from .mqtt import ILetComfortPushClient
@@ -107,6 +111,13 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             / f"iletcomfort_token_{entry.entry_id}"
         )
         self._last_on_state: tuple[int, int] | None = None
+        # Serialises writes for this appliance: a C3 basic SET is built from a
+        # fresh status read, so overlapping read/modify/write transactions
+        # would otherwise undo each other's changes.
+        self._write_lock = asyncio.Lock()
+        self._c3_basic_control: bool = bool(
+            entry.options.get(CONF_C3_BASIC_CONTROL, DEFAULT_C3_BASIC_CONTROL)
+        )
         # Track per-query cache-fallback state. ``_status_degraded`` /
         # ``_sensors_degraded`` drive the offline Repair card (issue #5). The
         # ``*_fail_streak`` counters drive log-level escalation: a query only
@@ -138,6 +149,21 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return None
         sn8 = self.appliance_meta.get("sn8")
         return str(sn8) if sn8 else None
+
+    @property
+    def c3_basic(self) -> C3BasicStatus | None:
+        """Decoded C3 basic status for an ATW unit (sn8 171H120F), else None."""
+        return atw_c3_basic(self.sn8, (self.data or {}).get("status"))
+
+    @property
+    def c3_basic_controllable(self) -> C3BasicStatus | None:
+        """The C3 basic status when the owner enabled C3 basic control.
+
+        Control is opt-in (options flow): it is hardware-validated on one
+        model variant only, so other 171H120F variants keep their existing
+        behaviour until an owner confirms it on their unit.
+        """
+        return self.c3_basic if self._c3_basic_control else None
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch status and sensors from the heat pump."""
@@ -403,41 +429,73 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         await self.async_start_push()
 
-    async def async_set_device(self, **kwargs: Any) -> None:
-        """Send a SET command with auto re-auth, then refresh data.
+    async def _async_write(self, func: Callable[[], Any]) -> None:
+        """Run one write transaction for this appliance.
 
-        The appliance ``sn8`` is forwarded so the client can branch the write
-        encoding per model (e.g. the KJRH-120L's short commands vs the legacy
-        C3 SET frame); see ``model_profiles`` and ``ILetComfortClient.set_device``.
+        Shared by every write path: blocks writes in phone-app coexistence
+        mode, serialises transactions per appliance (the lock spans the fresh
+        status read, the SET and any re-auth retry), re-authenticates once on
+        an evicted session, surfaces failures as ``HomeAssistantError`` and
+        refreshes the state afterwards.
         """
         if self._operation_mode == OPERATION_MODE_PHONE_APP:
             raise HomeAssistantError(
                 "Control is disabled in phone app coexistence mode; "
                 "switch to HA primary mode to send commands"
             )
-
-        sn8 = self.sn8
         try:
-            await self.hass.async_add_executor_job(
-                lambda: self.client.set_device(
-                    self.appliance_code,
-                    sn8=sn8,
-                    last_on_state=self._last_on_state,
-                    **kwargs,
-                )
+            async with self._write_lock:
+                try:
+                    await self.hass.async_add_executor_job(func)
+                except AuthError:
+                    _LOGGER.info("Auth error during set, re-authenticating")
+                    await self._async_login()
+                    await self.hass.async_add_executor_job(func)
+        except (ApiError, AuthError, ValueError) as err:
+            raise HomeAssistantError(f"Heat pump command failed: {err}") from err
+        finally:
+            await self.async_request_refresh()
+
+    async def async_set_device(self, **kwargs: Any) -> None:
+        """Send a SET command through the shared write path.
+
+        The appliance ``sn8`` is forwarded so the client can branch the write
+        encoding per model (e.g. the KJRH-120L's short commands vs the legacy
+        C3 SET frame); see ``model_profiles`` and ``ILetComfortClient.set_device``.
+        """
+        sn8 = self.sn8
+        await self._async_write(
+            lambda: self.client.set_device(
+                self.appliance_code,
+                sn8=sn8,
+                last_on_state=self._last_on_state,
+                **kwargs,
             )
-        except AuthError:
-            _LOGGER.info("Auth error during set, re-authenticating")
-            await self._async_login()
-            await self.hass.async_add_executor_job(
-                lambda: self.client.set_device(
-                    self.appliance_code,
-                    sn8=sn8,
-                    last_on_state=self._last_on_state,
-                    **kwargs,
-                )
+        )
+
+    def _require_c3_basic_control(self) -> None:
+        if self.c3_basic_controllable is None:
+            raise HomeAssistantError(
+                "C3 basic control is not enabled or not supported for this unit"
             )
-        await self.async_request_refresh()
+
+    async def async_set_c3_basic(self, **changes: Any) -> None:
+        """Change C3 basic fields (Zone-1/DHW power, setpoints, curve)."""
+        self._require_c3_basic_control()
+        sn8 = self.sn8
+        await self._async_write(
+            lambda: self.client.set_c3_basic(self.appliance_code, sn8=sn8, **changes)
+        )
+
+    async def async_set_c3_feature(self, feature: str, on: bool) -> None:
+        """Switch the C3 silent or ECO mode."""
+        self._require_c3_basic_control()
+        sn8 = self.sn8
+        await self._async_write(
+            lambda: self.client.set_c3_feature(
+                self.appliance_code, sn8=sn8, feature=feature, on=on,
+            )
+        )
 
     # -- MQTT real-time push (issue #55, phone-app coexistence mode) --
 

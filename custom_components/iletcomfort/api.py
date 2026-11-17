@@ -60,6 +60,12 @@ MODE_OFF = 0x00
 MODE_HEAT = 0x01
 MODE_COOL = 0x03
 MODE_WATERPUMP = 0x04
+
+# Status-frame (query response) mode values. Note these differ from the SET
+# modes above: Cool is 3 in a SET frame but 2 in a status frame.
+STATUS_MODE_OFF = 0
+STATUS_MODE_HEAT = 1
+STATUS_MODE_COOL = 2
 MODE_MAP: dict[str, int] = {
     "off": MODE_OFF,
     "heat": MODE_HEAT,
@@ -155,19 +161,27 @@ def sign_v2(method: str, path: str, body: str) -> str:
 # C3 heat pump protocol -- frame construction
 # ---------------------------------------------------------------------------
 
-def build_c3_query(subtype: int) -> str:
-    """Build a C3 query command frame."""
+def build_c3_frame(message_type: int, body: bytes) -> str:
+    """Build an AA-framed C3 message: header, ``body`` and checksum.
+
+    Shared by the status query (message type 0x03) and the standard Midea C3
+    SET (message type 0x02) used for sn8 171H120F (see ``c3_basic``).
+    """
     header = [
         0xAA, 0x00, DEVICE_TYPE_C3,
         0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x03,
+        0x00, message_type,
     ]
-    body = [subtype]
-    header[1] = len(header) + len(body)
-    frame = header + body
+    frame = header + list(body)
+    frame[1] = len(frame)
     checksum = (~sum(frame[1:]) + 1) & 0xFF
     frame.append(checksum)
     return bytes(frame).hex()
+
+
+def build_c3_query(subtype: int) -> str:
+    """Build a C3 query command frame."""
+    return build_c3_frame(0x03, bytes([subtype]))
 
 
 def build_c3_set(
@@ -294,6 +308,9 @@ class ITSStatus:
     fan_total_run_hours: int = 0
     # KJRH-120L dual variant's separate DHW target (status body[15], issue #5).
     kjrh120l_dhw_setpoint: float | None = None
+    # Standard Midea C3 basic status (``c3_basic.C3BasicStatus``) when an ATW
+    # (sn8 171H120F) status frame matches that layout; None otherwise.
+    c3_basic: Any = None
     raw_body: bytes = field(default_factory=bytes, repr=False)
 
 
@@ -927,6 +944,74 @@ class ILetComfortClient:
             "effective_mode": eff_mode,
             "effective_temp": eff_temp,
         }
+
+    # -- Standard Midea C3 SET (ATW profile, sn8 171H120F) --------------------
+    # Callers serialise these per appliance (coordinator write lock), so the
+    # fresh read and the SET built from it form one transaction.
+
+    @staticmethod
+    def _require_c3_basic_profile(sn8: str | None) -> None:
+        # Imported lazily to avoid a circular import (model_profiles imports api).
+        from .model_profiles import ModelProfile, resolve_profile
+
+        if resolve_profile(sn8) is not ModelProfile.ATW:
+            raise ApiError(
+                f"C3 basic control is not supported for model {sn8!r}"
+            )
+
+    def _query_c3_body(self, appliance_code: str, body_type: int) -> bytearray:
+        """Send a C3 query for ``body_type`` and return the response body."""
+        response_hex = self.send_hex_command(
+            appliance_code, build_c3_query(body_type),
+        )
+        _body_type, body = extract_c3_body(parse_hex_response(response_hex))
+        if not body or body[0] != body_type:
+            raise ApiError(
+                f"Unexpected response to C3 query 0x{body_type:02x}: "
+                f"{response_hex}"
+            )
+        return body
+
+    def set_c3_basic(
+        self, appliance_code: str, *, sn8: str | None, **changes: Any,
+    ) -> dict[str, Any]:
+        """Change C3 basic fields with a standard Midea C3 SET.
+
+        Reads a fresh status, applies ``changes`` (validated by
+        ``c3_basic.apply_basic_changes``) and writes every field back, so only
+        the requested ones change. Nothing is sent when the profile, the
+        current frame or the change is not supported.
+        """
+        from .c3_basic import apply_basic_changes, build_basic_set, decode_c3_basic
+
+        self._require_c3_basic_profile(sn8)
+        current = decode_c3_basic(self._query_c3_body(appliance_code, 0x01))
+        if current is None:
+            raise ApiError(
+                "Status frame is not a recognised C3 basic layout; refusing "
+                "to send a control command"
+            )
+        command = build_basic_set(apply_basic_changes(current, **changes))
+        _LOGGER.debug("set_c3_basic %s -> %s", changes, command)
+        response_hex = self.send_hex_command(appliance_code, command)
+        return {"sent": command, "response": response_hex}
+
+    def set_c3_feature(
+        self, appliance_code: str, *, sn8: str | None, feature: str, on: bool,
+    ) -> dict[str, Any]:
+        """Switch the C3 silent or ECO mode, keeping the device's schedule."""
+        from .c3_basic import FEATURE_BODY_TYPES, build_feature_set
+
+        self._require_c3_basic_profile(sn8)
+        body_type = FEATURE_BODY_TYPES.get(feature)
+        if body_type is None:
+            raise ValueError(f"Unknown C3 feature {feature!r}")
+        command = build_feature_set(
+            self._query_c3_body(appliance_code, body_type), on,
+        )
+        _LOGGER.debug("set_c3_feature %s on=%s -> %s", feature, on, command)
+        response_hex = self.send_hex_command(appliance_code, command)
+        return {"sent": command, "response": response_hex}
 
     def _set_device_kjrh120l(
         self,

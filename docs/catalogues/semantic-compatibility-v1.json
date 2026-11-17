@@ -78,9 +78,10 @@
       "notes": [
         "Validated local reads remain authoritative.",
         "Short and legacy long write candidates were rejected with vendor code 1214.",
-        "ATW control remains blocked on a successful official-app command capture."
+        "The standard Midea C3 SET (message type 0x02, basic body 01 + 7 bytes, direct degrees; silence 05 and ECO 07 bodies) was accepted with code 0 on a Rotenso Aquami (EU, 2026-11-17); each write was verified by re-query and reverted.",
+        "Semantic parsing remains unavailable; the runtime C3 SET path is opt-in, limited to the hardware-validated writes in Heat mode, and not inferred for other 171H120F variants."
       ],
-      "related_issues": [42, 49]
+      "related_issues": [42, 49, 124]
     },
     {
       "sn8": "17100003",
