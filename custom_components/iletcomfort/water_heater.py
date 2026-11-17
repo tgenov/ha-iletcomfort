@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from homeassistant.components.water_heater import (
     STATE_HEAT_PUMP,
     WaterHeaterEntity,
     WaterHeaterEntityFeature,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import STATE_OFF, UnitOfTemperature
+from homeassistant.const import ATTR_TEMPERATURE, STATE_OFF, UnitOfTemperature
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -56,7 +59,11 @@ async def async_setup_entry(
 
 
 class ILetComfortDhw(CoordinatorEntity[ILetComfortCoordinator], WaterHeaterEntity):
-    """Domestic hot water: state, target and tank temperature."""
+    """Domestic hot water: state, target and tank temperature.
+
+    On/off and the target are writable when the owner enabled C3 basic
+    control for the unit (options flow); otherwise the entity is read-only.
+    """
 
     _attr_has_entity_name = True
     _attr_name = "Hot Water"
@@ -79,8 +86,13 @@ class ILetComfortDhw(CoordinatorEntity[ILetComfortCoordinator], WaterHeaterEntit
 
     @property
     def supported_features(self) -> WaterHeaterEntityFeature:
-        # Read-only: DHW writes are not part of this entity yet.
-        return WaterHeaterEntityFeature(0)
+        if self.coordinator.c3_basic_controllable is None:
+            return WaterHeaterEntityFeature(0)
+        return (
+            WaterHeaterEntityFeature.TARGET_TEMPERATURE
+            | WaterHeaterEntityFeature.ON_OFF
+            | WaterHeaterEntityFeature.OPERATION_MODE
+        )
 
     @property
     def current_operation(self) -> str | None:
@@ -108,3 +120,23 @@ class ILetComfortDhw(CoordinatorEntity[ILetComfortCoordinator], WaterHeaterEntit
     def max_temp(self) -> float:
         basic = self._basic
         return float(basic.dhw_max) if basic is not None else super().max_temp
+
+    async def async_set_temperature(self, **kwargs: Any) -> None:
+        temp = kwargs.get(ATTR_TEMPERATURE)
+        if temp is None:
+            return
+        clamped = max(self.min_temp, min(float(temp), self.max_temp))
+        await self.coordinator.async_set_c3_basic(dhw_target=clamped)
+
+    async def async_set_operation_mode(self, operation_mode: str) -> None:
+        if operation_mode not in self._attr_operation_list:
+            raise HomeAssistantError(f"Unsupported operation mode {operation_mode}")
+        await self.coordinator.async_set_c3_basic(
+            dhw_power=operation_mode == STATE_HEAT_PUMP,
+        )
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        await self.coordinator.async_set_c3_basic(dhw_power=True)
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        await self.coordinator.async_set_c3_basic(dhw_power=False)

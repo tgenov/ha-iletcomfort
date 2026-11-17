@@ -158,6 +158,31 @@ Status `raw_body` (0-indexed; STANDARD misreads this 25-byte frame):
 - The DHW water-heater entity (`water_heater.py`) is added only after a status frame for an ATW unit
   matched the layout (re-evaluated on coordinator updates, since `sn8` can be unknown at setup).
 
+### `171H120F` control: standard Midea C3 SET — hardware-validated on one Rotenso Aquami, opt-in
+- **Writes work with the standard Midea C3 SET**, not the 62-byte ITS frame (`build_c3_set`, `1214`):
+  `api.build_c3_frame` (same AA header as the query), message type `0x02`, body `01 [power] [mode]
+  [z1] [z2] [dhw] [room×2] [curve flags]`, direct °C (no +35). Accepted with `code=0`; the device
+  answers with its full new status. Validated one at a time on a Rotenso Aquami (EU, 2026-11-17),
+  each re-queried and reverted, all in Heat mode with water-temperature control: DHW target, DHW
+  power, Zone-1 water target, Zone-1 curve, Zone-1 power (from HA, confirmed in the app). The exact
+  accepted frames are pinned in `tests/test_c3_basic.py`.
+- Silent = SET body `05` + 9 bytes, ECO = `07` + 6 bytes; bit 0 of the first byte is on/off and the
+  rest is the unit's timer schedule, copied from a fresh `05`/`07` query (midea-local zeroes it). A
+  reply shorter than the validated layout (silence 9 data bytes, ECO 5 + one accepted `00` pad) is
+  rejected before any SET — never zero-fill a schedule.
+- **Gating:** control is an options-flow opt-in (`CONF_C3_BASIC_CONTROL`, offered only for ATW units)
+  because Italtherm (#22) and Galmet (#38) frames also match the layout but are not validated. The
+  client refuses any non-ATW `sn8`; `c3_basic.apply_basic_changes` refuses mode changes, any Zone-1
+  power-on/setpoint/curve change unless the unit is already in Heat (a Heat request must never power
+  on Cool), and room-temperature setpoints. With control enabled the climate shows `[6]` (the field it
+  writes); the option text asks the owner to confirm that matches the app (#124).
+- **One write path:** `coordinator._async_write` handles the phone-app guard, a per-appliance lock
+  spanning the fresh read → SET (and any re-auth retry), one re-auth, `HomeAssistantError` wrapping
+  and the refresh, for `async_set_device` and the C3 writes alike. Frame builders live in
+  `c3_basic.py`; entities pass semantic arguments only (no hex).
+- Query support on this cloud/model: `01`, `05`, `07` real data; `02` placeholder template; `04`
+  zeros; `08`, `09`, `0A`, `10` rejected with `1214` → no water/outdoor/compressor telemetry over HTTP.
+
 ### KJRH-120L dual variant (`sn8 17100003`, #5) — hardware-validated reads
 - The same `sn8` covers pure-DHW and Zone-1 + DHW controllers. Gate the dual layout only when status
   `body[8] == 1` and `body[9] == 1`; pure-DHW captures have `0/0`.
@@ -286,7 +311,7 @@ does not enforce per-appliance topic ACLs.
 | `error_codes.py` | Vendor C3 numeric `error_code` → panel code + description table; `sensor.py` exposes known entries as attributes while preserving the numeric sensor state. |
 | `scripts/fetch_plugin.py` | **Dev tool, not shipped** — fetches the vendor per-model plugin bundle (`0xC3` = Weex JS) via the `version:"0.0.0"` downgrade on `/v1/product/upgrade/plugin/get/latest`. Source of truth for the control **schema** (not bytes) — see §4. |
 | `model_profiles.py` | `ModelProfile` enum, `_SN8_PROFILES` table, `resolve_profile`, `decode_atw_status`, `apply_profile_to_status`, `apply_profile_to_sensors`. **Add new model support here.** |
-| `c3_basic.py` | Standard Midea C3 basic status decode (`decode_c3_basic`, `C3BasicStatus`) for `171H120F` frames. |
+| `c3_basic.py` | Standard Midea C3 basic status decode (`decode_c3_basic`, `C3BasicStatus`) and validated SET builders (`apply_basic_changes`, `build_basic_set`, `build_feature_set`) for `171H120F`; client methods `set_c3_basic` / `set_c3_feature`. |
 | `water_heater.py` | DHW entity for ATW units whose status matches the C3 basic layout. |
 | `coordinator.py` | `ILetComfortCoordinator`: polling, re-auth, cache-fallback, offline Repair card. Caches `appliance_meta` (best-effort, never fatal) and exposes `sn8`; threads profile into decode. |
 | `diagnostics.py` | Redacted snapshot: raw frames, decoded status/sensors, `sensors_temperature_scan` (per-byte `_temp_offset` map — use it to find a model's misplaced temp byte), and the `appliance` metadata block. `APPLIANCE_TO_REDACT = {owner, sn, name}` (keeps `applianceType`/`modelNumber`/`sn8`). |

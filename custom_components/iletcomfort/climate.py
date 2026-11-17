@@ -24,6 +24,7 @@ from .api import (
     QUERY_TO_SET_MODE,
     TEMP_RANGES,
 )
+from .c3_basic import C3BasicStatus
 from .const import DOMAIN
 from .coordinator import ILetComfortCoordinator
 from .entity import build_device_info
@@ -96,7 +97,29 @@ class ILetComfortClimate(CoordinatorEntity[ILetComfortCoordinator], ClimateEntit
         return None
 
     @property
+    def _c3(self) -> C3BasicStatus | None:
+        """C3 basic status when the owner enabled C3 basic control (171H120F)."""
+        basic = self.coordinator.c3_basic_controllable
+        return basic if isinstance(basic, C3BasicStatus) else None
+
+    @property
+    def hvac_modes(self) -> list[HVACMode]:
+        basic = self._c3
+        if basic is None:
+            return self._attr_hvac_modes
+        # Only Heat/Off can be selected; Cool is listed only to report a unit
+        # that is already cooling (mode switching is not validated).
+        if basic.is_cooling_mode:
+            return [HVACMode.OFF, HVACMode.HEAT, HVACMode.COOL]
+        return [HVACMode.OFF, HVACMode.HEAT]
+
+    @property
     def hvac_mode(self) -> HVACMode:
+        basic = self._c3
+        if basic is not None:
+            if not basic.zone1_power:
+                return HVACMode.OFF
+            return HVACMode.COOL if basic.is_cooling_mode else HVACMode.HEAT
         if self._status is None:
             return HVACMode.OFF
         return _QUERY_MODE_TO_HVAC.get(self._status.mode, HVACMode.OFF)
@@ -176,6 +199,13 @@ class ILetComfortClimate(CoordinatorEntity[ILetComfortCoordinator], ClimateEntit
 
     @property
     def target_temperature(self) -> float | None:
+        basic = self._c3
+        if basic is not None:
+            # With control enabled the climate shows the field it writes. The
+            # option text asks the owner to confirm it matches the app (#124).
+            if basic.zone1_water_temp:
+                return float(basic.zone1_target)
+            return basic.room_target
         if self._status is None or self.hvac_mode is HVACMode.FAN_ONLY:
             return None
         # t5s_def (d+2, offset-encoded) is the active mode setpoint.
@@ -187,7 +217,22 @@ class ILetComfortClimate(CoordinatorEntity[ILetComfortCoordinator], ClimateEntit
 
 
     @property
+    def target_temperature_step(self) -> float:
+        basic = self._c3
+        if basic is not None and not basic.zone1_water_temp:
+            return 0.5
+        return self._attr_target_temperature_step
+
+    def _c3_range(self, basic: C3BasicStatus) -> tuple[float, float]:
+        if basic.zone1_water_temp:
+            return basic.zone1_water_range
+        return basic.room_min, basic.room_max
+
+    @property
     def min_temp(self) -> float:
+        basic = self._c3
+        if basic is not None:
+            return self._c3_range(basic)[0]
         # KJRH-120L is a DHW heat-pump water heater; its setpoint range sits
         # above the air-side HEAT range (issue #35).
         if self._profile is ModelProfile.KJRH120L:
@@ -199,6 +244,9 @@ class ILetComfortClimate(CoordinatorEntity[ILetComfortCoordinator], ClimateEntit
 
     @property
     def max_temp(self) -> float:
+        basic = self._c3
+        if basic is not None:
+            return self._c3_range(basic)[1]
         if self._profile is ModelProfile.KJRH120L:
             return float(KJRH120L_TEMP_MAX)
         set_mode = _HVAC_TO_SET_MODE.get(self.hvac_mode)
@@ -207,12 +255,30 @@ class ILetComfortClimate(CoordinatorEntity[ILetComfortCoordinator], ClimateEntit
         return 40.0
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
+        if self._c3 is not None:
+            if hvac_mode not in (HVACMode.OFF, HVACMode.HEAT):
+                raise HomeAssistantError(
+                    f"{hvac_mode} is not supported; only Heat and Off can be set"
+                )
+            # The coordinator refuses Heat unless the unit is in Heat mode.
+            await self.coordinator.async_set_c3_basic(
+                zone1_power=hvac_mode is HVACMode.HEAT,
+            )
+            return
         self._ensure_climate_control_supported()
         set_mode = _HVAC_TO_SET_MODE.get(hvac_mode)
         if set_mode is not None:
             await self.coordinator.async_set_device(mode=set_mode)
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
+        if self._c3 is not None:
+            temp = kwargs.get(ATTR_TEMPERATURE)
+            if temp is not None:
+                clamped = max(self.min_temp, min(float(temp), self.max_temp))
+                await self.coordinator.async_set_c3_basic(
+                    zone1_water_target=clamped,
+                )
+            return
         self._ensure_climate_control_supported()
         if self.hvac_mode is HVACMode.FAN_ONLY:
             raise HomeAssistantError(
@@ -227,9 +293,15 @@ class ILetComfortClimate(CoordinatorEntity[ILetComfortCoordinator], ClimateEntit
             await self.coordinator.async_set_device(temperature=int(clamped))
 
     async def async_turn_on(self) -> None:
+        if self._c3 is not None:
+            await self.async_set_hvac_mode(HVACMode.HEAT)
+            return
         self._ensure_climate_control_supported()
         await self.coordinator.async_set_device(power_on=True)
 
     async def async_turn_off(self) -> None:
+        if self._c3 is not None:
+            await self.async_set_hvac_mode(HVACMode.OFF)
+            return
         self._ensure_climate_control_supported()
         await self.coordinator.async_set_device(mode=MODE_OFF)

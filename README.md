@@ -89,6 +89,32 @@ This uses only core dashboard cards and therefore works in the web and mobile
 apps. If a model does not provide a trustworthy reading, its sensor appears as
 unavailable rather than displaying a guessed value.
 
+## `171H120F` units (KJRH-120F controller, e.g. Rotenso Aquami)
+
+Units whose diagnostics show `sn8` **`171H120F`** report the standard Midea C3
+status layout. They get a read-only **Hot Water** entity, and the **Heat Pump**
+climate shows Zone-1 Heat/Off. The climate attributes `zone1_water_target` and
+`room_target` show both setpoint fields the unit reports; please mention which
+one matches the official app when you report an issue (#124).
+
+**Control (experimental, opt-in).** Standard Midea C3 commands were validated
+on a Rotenso Aquami (EU account). To use them, open the integration's
+**Configure** dialog and enable *Enable standard Midea C3 control* — only if
+`zone1_water_target` matches the heating setpoint in the official app. Then:
+
+| Entity | What it does |
+|---|---|
+| **Heat Pump** (climate) | Zone-1 Heat/Off and water setpoint (limits come from the unit) |
+| **Hot Water** (water heater) | DHW on/off and target temperature |
+| **Weather Curve** (switch) | Zone-1 weather-compensation curve on/off |
+| **Silent Mode** / **ECO Mode** (switches) | On/off; the unit's own schedules are kept |
+
+Every command re-reads the current status first and changes only the
+requested field; commands are sent one at a time. Not supported: switching
+the operating mode, cooling (a unit in Cool mode is shown as Cool, but Heat
+and setpoint changes are refused), and room-temperature setpoints. Control
+requires the **HA is the primary client** operation mode.
+
 ## Troubleshooting & reporting issues
 
 If a sensor reads `0`/empty, the integration errors, or something else
