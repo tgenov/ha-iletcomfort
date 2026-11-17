@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.18.4](https://github.com/tgenov/ha-iletcomfort/compare/v0.18.3...v0.18.4) (2026-11-17)
+
+
+### Bug Fixes
+
+* decode NØRDIS 27-byte ATW status and template sensor frames ([#137](https://github.com/tgenov/ha-iletcomfort/issues/137)) ([64ab779](https://github.com/tgenov/ha-iletcomfort/commit/64ab77983f2b92664732d2c9b611deb60eeceddf))
+
 ## [0.18.3](https://github.com/tgenov/ha-iletcomfort/compare/v0.18.2...v0.18.3) (2026-09-21)
 
 
