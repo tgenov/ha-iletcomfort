@@ -322,13 +322,32 @@ def test_nordis_27_byte_status_zone1_off_when_power_bit_clear():
     assert decode_atw_status(bytes(body)).mode_name == "Off"
 
 
-@pytest.mark.parametrize("name", list(ATW_25_BYTE_STATUS_FRAMES))
-def test_25_byte_atw_frames_keep_italtherm_layout(name):
-    """Other brands' 25-byte frames are unaffected by the 27-byte detection."""
-    body = ATW_25_BYTE_STATUS_FRAMES[name]
+def test_25_byte_atw_frames_keep_italtherm_layout():
+    """Unvalidated 25-byte masks (Kaisai [2]=0x11) keep the established decode."""
+    body = ATW_25_BYTE_STATUS_FRAMES["kaisai"]
     status = decode_atw_status(body)
 
     assert status.t5s_def == body[9] / 2
+    assert status.mode_name == "Off"
+    assert status.comp_running is False
+
+
+def test_25_byte_rotenso_frame_decodes_zone1_power():
+    """Rotenso [2]=0x15 (#124): bit 0 of byte[1] is Zone-1 power."""
+    body = ATW_25_BYTE_STATUS_FRAMES["rotenso"]
+    status = decode_atw_status(body)
+
+    assert status.t5s_def == body[9] / 2  # setpoint mapping unchanged
+    assert status.mode_name == "Heat"
+    assert status.comp_running is None
+
+
+@pytest.mark.parametrize("mask", [0x05, 0x11, 0x13, 0x73])
+def test_other_25_byte_capability_masks_do_not_decode_zone1_power(mask):
+    body = bytearray(ATW_25_BYTE_STATUS_FRAMES["rotenso"])
+    body[2] = mask
+    status = decode_atw_status(bytes(body))
+
     assert status.mode_name == "Off"
     assert status.comp_running is False
 
