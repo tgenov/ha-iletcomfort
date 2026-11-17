@@ -296,7 +296,19 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         self._update_offline_repair()
 
-        return {"status": status, "sensors": sensors}
+        # KJRH-120L: cloud-decoded JSON state (read-only, best effort).
+        full = cached.get("full")
+        try:
+            await asyncio.sleep(1)
+            full = await self.hass.async_add_executor_job(
+                self.client.full_query, self.appliance_code,
+            )
+        except AuthError:
+            raise
+        except Exception as err:  # keep the last good snapshot
+            _LOGGER.debug("fullQuery failed, keeping cached snapshot: %s", err)
+
+        return {"status": status, "sensors": sensors, "full": full}
 
     def _update_offline_repair(self) -> None:
         """Surface or clear the 'device appears offline' Repair card.
@@ -439,6 +451,30 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
         await self.async_request_refresh()
 
+    async def async_send_raw(self, command: str) -> None:
+        """KJRH-120L: send a raw control/hexadecimal command, then refresh.
+
+        Used by the KJRH-120L Zone-1 and mode entities, whose frames were
+        captured from the official app (see docs/CONTROL_PROTOCOL.md). Re-auths
+        once on an expired session, mirroring async_set_device.
+        """
+        if self._operation_mode == OPERATION_MODE_PHONE_APP:
+            raise HomeAssistantError(
+                "Control is disabled in phone app coexistence mode; "
+                "switch to HA primary mode to send commands"
+            )
+        try:
+            await self.hass.async_add_executor_job(
+                self.client.send_hex_command, self.appliance_code, command,
+            )
+        except AuthError:
+            _LOGGER.info("Auth error during raw send, re-authenticating")
+            await self._async_login()
+            await self.hass.async_add_executor_job(
+                self.client.send_hex_command, self.appliance_code, command,
+            )
+        await self.async_request_refresh()
+
     # -- MQTT real-time push (issue #55, phone-app coexistence mode) --
 
     async def async_start_push(self) -> None:
@@ -521,7 +557,11 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
         status = apply_profile_to_status(resolve_profile(self.sn8), status)
         self.async_set_updated_data(
-            {"status": status, "sensors": self.data.get("sensors")}
+            {
+                "status": status,
+                "sensors": self.data.get("sensors"),
+                "full": self.data.get("full"),
+            }
         )
 
     def _cancel_push_status_watchdog(self) -> None:
