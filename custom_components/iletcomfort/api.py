@@ -60,6 +60,12 @@ MODE_OFF = 0x00
 MODE_HEAT = 0x01
 MODE_COOL = 0x03
 MODE_WATERPUMP = 0x04
+
+# Status-frame (query response) mode values. Note these differ from the SET
+# modes above: Cool is 3 in a SET frame but 2 in a status frame.
+STATUS_MODE_OFF = 0
+STATUS_MODE_HEAT = 1
+STATUS_MODE_COOL = 2
 MODE_MAP: dict[str, int] = {
     "off": MODE_OFF,
     "heat": MODE_HEAT,
@@ -294,6 +300,9 @@ class ITSStatus:
     fan_total_run_hours: int = 0
     # KJRH-120L dual variant's separate DHW target (status body[15], issue #5).
     kjrh120l_dhw_setpoint: float | None = None
+    # Standard Midea C3 basic status (``c3_basic.C3BasicStatus``) when an ATW
+    # (sn8 171H120F) status frame matches that layout; None otherwise.
+    c3_basic: Any = None
     raw_body: bytes = field(default_factory=bytes, repr=False)
 
 
