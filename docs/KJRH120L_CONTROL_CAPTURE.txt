@@ -1,0 +1,71 @@
+# KJRH-120L cloud control capture (control/hexadecimal, command=hex)
+# Session of 2026-11-12, iOS app TLS intercept. Hex commands and timings only; no account, token or appliance code.
+# The "[ N s]" prefix is seconds since the session started.
+# The writes between 413 s and 452 s (silent, holiday, away) and the weekly-timer frames (518 s, 529 s) were
+# captured, not validated by read-back. See KJRH120L_CONTROL_PROTOCOL.md.
+# Query form: ffff<ss><ss><ss>ff. Write form: <grp><field><len><value...>ff, chainable.
+
+## WRITES (user actions):
+[   38.2s] 00460101ff
+           00/0x46=[1]
+[   42.0s] 00820101ff
+           00/0x82=[1]
+[   72.3s] 00040133ff
+           00/0x04=[51]
+[   74.9s] 00070127ff
+           00/0x07=[39]
+[  290.4s] 0004013fff
+           00/0x04=[63]
+[  297.6s] 00040133ff
+           00/0x04=[51]
+[  299.3s] 00040132ff
+           00/0x04=[50]
+[  346.4s] 00030102ff00040132ff
+           00/0x03=[2] + 00/0x04=[50]
+[  396.9s] 00030103ff00040132ff
+           00/0x03=[3] + 00/0x04=[50]
+[  413.8s] 023a0101ff023b0100ff023c0101ff023d010cff023e0100ff023f010fff02400100ff02410100ff02420116ff02430100ff02440107ff02450100ff
+           02/0x3a=[1] + 02/0x3b=[0] + 02/0x3c=[1] + 02/0x3d=[12] + 02/0x3e=[0] + 02/0x3f=[15] + 02/0x40=[0] + 02/0x41=[0] + 02/0x42=[22] + 02/0x43=[0] + 02/0x44=[7] + 02/0x45=[0]
+[  428.2s] 02260101ff02270101ff02280101ff02290101ff022a011aff022b010bff022c010dff022d011aff022e010bff022f0114ff02300119ff02310119ff
+           02/0x26=[1] + 02/0x27=[1] + 02/0x28=[1] + 02/0x29=[1] + 02/0x2a=[26] + 02/0x2b=[11] + 02/0x2c=[13] + 02/0x2d=[26] + 02/0x2e=[11] + 02/0x2f=[20] + 02/0x30=[25] + 02/0x31=[25]
+[  439.4s] 02260100ff02270101ff02280101ff02290101ff022a011aff022b010bff022c010dff022d011aff022e010bff022f0114ff02300119ff02310119ff
+           02/0x26=[0] + 02/0x27=[1] + 02/0x28=[1] + 02/0x29=[1] + 02/0x2a=[26] + 02/0x2b=[11] + 02/0x2c=[13] + 02/0x2d=[26] + 02/0x2e=[11] + 02/0x2f=[20] + 02/0x30=[25] + 02/0x31=[25]
+[  445.0s] 024e0101ff024f011aff0250010bff0251010dff0252011aff0253010bff02540114ff02580101ff
+           02/0x4e=[1] + 02/0x4f=[26] + 02/0x50=[11] + 02/0x51=[13] + 02/0x52=[26] + 02/0x53=[11] + 02/0x54=[20] + 02/0x58=[1]
+[  446.8s] 024e0101ff024f011aff0250010bff0251010dff0252011aff0253010bff02540114ff
+           02/0x4e=[1] + 02/0x4f=[26] + 02/0x50=[11] + 02/0x51=[13] + 02/0x52=[26] + 02/0x53=[11] + 02/0x54=[20]
+[  452.1s] 024e0100ff024f011aff0250010bff0251010dff0252011aff0253010bff02540114ff
+           02/0x4e=[0] + 02/0x4f=[26] + 02/0x50=[11] + 02/0x51=[13] + 02/0x52=[26] + 02/0x53=[11] + 02/0x54=[20]
+[  495.6s] 00460100ff
+           00/0x46=[0]
+[  499.8s] 004b0101ff
+           00/0x4b=[1]
+[  508.6s] 004b0100ff
+           00/0x4b=[0]
+[  511.6s] 00820100ff
+           00/0x82=[0]
+[  518.0s] 00a80101ff0136017fff01370101ff01380100ff01390100ff013a0100ff013b0100ff013c0100ff013d0100ff013e0100ff013f0100ff01400100ff01410100ff01420100ff01430100ff01440100ff01450100ff01460100ff01470100ff01480100ff01490100ff014a0100ff
+           00/0xa8=[1] + 01/0x36=[127] + 01/0x37=[1] + 01/0x38=[0] + 01/0x39=[0] + 01/0x3a=[0] + 01/0x3b=[0] + 01/0x3c=[0] + 01/0x3d=[0] + 01/0x3e=[0] + 01/0x3f=[0] + 01/0x40=[0] + 01/0x41=[0] + 01/0x42=[0] + 01/0x43=[0] + 01/0x44=[0] + 01/0x45=[0] + 01/0x46=[0] + 01/0x47=[0] + 01/0x48=[0] + 01/0x49=[0] + 01/0x4a=[0]
+[  529.1s] 00a80100ff0136017fff01370100ff01380100ff01390100ff013a0100ff013b0100ff013c0100ff013d0100ff013e0100ff013f0100ff01400100ff01410100ff01420100ff01430100ff01440100ff01450100ff01460100ff01470100ff01480100ff01490100ff014a0100ff
+           00/0xa8=[0] + 01/0x36=[127] + 01/0x37=[0] + 01/0x38=[0] + 01/0x39=[0] + 01/0x3a=[0] + 01/0x3b=[0] + 01/0x3c=[0] + 01/0x3d=[0] + 01/0x3e=[0] + 01/0x3f=[0] + 01/0x40=[0] + 01/0x41=[0] + 01/0x42=[0] + 01/0x43=[0] + 01/0x44=[0] + 01/0x45=[0] + 01/0x46=[0] + 01/0x47=[0] + 01/0x48=[0] + 01/0x49=[0] + 01/0x4a=[0]
+
+## QUERY SUBTYPES SEEN: ['01', '02', '04', '05', '06', '07', '08', '09', '10', '30', '83', '84']
+
+## FINAL STATE AFTER RESTORE: zone1=50 dhw=40 mode=heat silent=off holiday=off timer=off
+
+## ZONE 1 POWER (session of 2026-11-14, no timings recorded)
+# Read-back confirmed: zone1_power_state and zone2_power_state follow, DHW power is untouched.
+00000101ff
+           00/0x00=[1]   Zone 1 power on
+00000100ff
+           00/0x00=[0]   Zone 1 power off
+
+## DHW POWER (confirmed by read-back)
+00020101ff
+           00/0x02=[1]   DHW power on
+00020100ff
+           00/0x02=[0]   DHW power off
+
+## ACKED, NO EFFECT
+00010100ff
+           00/0x01=[0]   acked with code 0, changes nothing
