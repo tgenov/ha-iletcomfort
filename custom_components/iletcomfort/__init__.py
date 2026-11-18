@@ -30,7 +30,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Reload the entry when its operation mode changes."""
+    """Reload the entry when its operation mode changes.
+
+    Update listeners also fire on data-only updates, such as the KJRH-120L
+    Zone 1 capability latch. Those leave the options unchanged and need no
+    reload, because the platforms add the new entities themselves.
+    """
+    coordinator = hass.data.get(DOMAIN, {}).get(entry.entry_id)
+    if coordinator is not None and dict(entry.options) == coordinator.options_snapshot:
+        return
     await hass.config_entries.async_reload(entry.entry_id)
 
 

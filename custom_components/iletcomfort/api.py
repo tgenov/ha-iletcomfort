@@ -294,6 +294,15 @@ class ITSStatus:
     fan_total_run_hours: int = 0
     # KJRH-120L dual variant's separate DHW target (status body[15], issue #5).
     kjrh120l_dhw_setpoint: float | None = None
+    # KJRH-120L Zone 1 fields from the subtype 0x01 body, decoded on every
+    # KJRH-120L frame regardless of body[8:10] (app capture 2026-11-12/14).
+    kjrh120l_zone1_power: bool | None = None  # body[8]
+    kjrh120l_run_mode: int | None = None  # body[11], heat=3, cool=2
+    kjrh120l_zone1_setpoint: float | None = None  # body[12]
+    kjrh120l_zone1_heat_max: int | None = None  # body[37]
+    kjrh120l_zone1_heat_min: int | None = None  # body[38]
+    kjrh120l_zone1_cool_max: int | None = None  # body[39]
+    kjrh120l_zone1_cool_min: int | None = None  # body[40]
     raw_body: bytes = field(default_factory=bytes, repr=False)
 
 
@@ -823,6 +832,9 @@ class ILetComfortClient:
         mute_level: int | None = None,
         power_on: bool = False,
         last_on_state: tuple[int, int] | None = None,
+        zone1_temperature: int | None = None,
+        zone1_run_mode: int | None = None,
+        zone1_power: bool | None = None,
     ) -> dict[str, Any]:
         """Send a SET command to the heat pump.
 
@@ -833,16 +845,30 @@ class ILetComfortClient:
         build_c3_set path unchanged: query current status for echo bytes, merge
         the requested changes, validate temperature ranges, build and send the
         SET frame.
+
+        ``zone1_temperature``, ``zone1_run_mode`` and ``zone1_power`` exist only
+        for the KJRH-120L. Any other sn8 raises ApiError before anything is sent.
         """
         # Imported lazily to avoid a circular import (model_profiles imports api).
         from .model_profiles import ModelProfile, resolve_profile
 
+        zone1 = {
+            "zone1_temperature": zone1_temperature,
+            "zone1_run_mode": zone1_run_mode,
+            "zone1_power": zone1_power,
+        }
         if resolve_profile(sn8) is ModelProfile.KJRH120L:
             return self._set_device_kjrh120l(
                 appliance_code,
                 mode=mode,
                 temperature=temperature,
                 power_on=power_on,
+                **zone1,
+            )
+        if any(value is not None for value in zone1.values()):
+            raise ApiError(
+                "Zone 1 setpoint, run mode and Zone 1 power writes are only "
+                "supported on the KJRH-120L (sn8 17100003)"
             )
 
         # Query current status for echo bytes
@@ -935,6 +961,9 @@ class ILetComfortClient:
         mode: int | None,
         temperature: int | None,
         power_on: bool,
+        zone1_temperature: int | None = None,
+        zone1_run_mode: int | None = None,
+        zone1_power: bool | None = None,
     ) -> dict[str, Any]:
         """Send a KJRH-120L (sn8 17100003) control command (issue #35).
 
@@ -943,16 +972,55 @@ class ILetComfortClient:
           - temperature → DHW setpoint write (``0007 01 <temp> ff``)
           - power_on / mode→heat → DHW power ON (``00020101ff``)
           - mode→off → DHW power OFF (``00020100ff``)
+          - zone1_temperature → Zone 1 setpoint (``0004 01 <temp> ff``)
+          - zone1_run_mode + zone1_temperature → run mode paired with the
+            Zone 1 setpoint, as the app sends it
+          - zone1_power → Zone 1 power (``0000 01 <0|1> ff``)
 
         The caller (climate entity) has already clamped ``temperature`` to the
         DHW range. Temperature takes priority over a same-call mode change.
+        A Zone 1 write cannot be combined with any other write; the frame
+        builders reject values that do not fit the captured shape.
         """
         # Imported lazily to avoid a circular import (model_profiles imports api).
         from .model_profiles import (
             KJRH120L_DHW_OFF,
             KJRH120L_DHW_ON,
+            build_kjrh120l_run_mode,
             build_kjrh120l_set_temperature,
+            build_kjrh120l_zone1_power,
+            build_kjrh120l_zone1_setpoint,
         )
+
+        if any(v is not None for v in (zone1_temperature, zone1_run_mode, zone1_power)):
+            if temperature is not None or mode is not None or power_on:
+                raise ValueError(
+                    "A KJRH-120L Zone 1 write cannot be combined with a DHW write"
+                )
+            if zone1_power is not None:
+                if zone1_temperature is not None or zone1_run_mode is not None:
+                    raise ValueError(
+                        "KJRH-120L Zone 1 power is a separate write from the "
+                        "setpoint and run mode"
+                    )
+                command = build_kjrh120l_zone1_power(zone1_power)
+                effective = {"effective_zone1_power": zone1_power}
+            elif zone1_run_mode is not None:
+                if zone1_temperature is None:
+                    raise ValueError(
+                        "A KJRH-120L run mode write needs the Zone 1 setpoint "
+                        "for the destination mode"
+                    )
+                command = build_kjrh120l_run_mode(zone1_run_mode, zone1_temperature)
+                effective = {
+                    "effective_run_mode": zone1_run_mode,
+                    "effective_zone1_temp": zone1_temperature,
+                }
+            else:
+                command = build_kjrh120l_zone1_setpoint(zone1_temperature)
+                effective = {"effective_zone1_temp": zone1_temperature}
+            response_hex = self.send_hex_command(appliance_code, command)
+            return {"sent": command, "response": response_hex, **effective}
 
         if temperature is not None:
             command = build_kjrh120l_set_temperature(int(temperature))

@@ -521,3 +521,67 @@ def test_v1_request_includes_access_token_header_when_requested():
     with patch.object(client._session, "post", side_effect=fake_post):
         client._v1_request("/x", {}, use_iot_key=True)
     assert "accessToken" not in captured["headers"]
+
+
+# --- KJRH-120L Zone 1 writes through set_device ----------------------------
+# Command strings pinned from the iOS app capture (2026-11-12, 2026-11-14).
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "expected"),
+    [
+        ({"zone1_temperature": 51}, "00040133ff"),
+        ({"zone1_temperature": 63}, "0004013fff"),
+        ({"zone1_run_mode": 2, "zone1_temperature": 50}, "00030102ff00040132ff"),
+        ({"zone1_run_mode": 3, "zone1_temperature": 50}, "00030103ff00040132ff"),
+        ({"zone1_power": True}, "00000101ff"),
+        ({"zone1_power": False}, "00000100ff"),
+    ],
+)
+def test_set_device_kjrh120l_zone1_writes_send_captured_command(kwargs, expected):
+    client = _make_client()
+    with patch.object(client, "send_hex_command") as mock_send:
+        client.set_device("APPL1", sn8=KJRH120L_SN8, **kwargs)
+
+    assert mock_send.call_count == 1
+    assert mock_send.call_args.args == ("APPL1", expected)
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"zone1_run_mode": 2},  # the app always pairs mode with the setpoint
+        {"zone1_run_mode": 1, "zone1_temperature": 50},
+        {"zone1_temperature": 300},
+        {"zone1_power": True, "zone1_temperature": 50},
+        {"zone1_temperature": 50, "temperature": 50},
+        {"zone1_power": True, "mode": MODE_OFF},
+        {"zone1_power": False, "power_on": True},
+    ],
+)
+def test_set_device_kjrh120l_refuses_invalid_zone1_requests_without_sending(kwargs):
+    client = _make_client()
+    with patch.object(client, "send_hex_command") as mock_send:
+        with pytest.raises(ValueError):
+            client.set_device("APPL1", sn8=KJRH120L_SN8, **kwargs)
+
+    mock_send.assert_not_called()
+
+
+@pytest.mark.parametrize("sn8", [None, "171H120F", "171000AU", "17100007", "UNKNOWN8"])
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"zone1_temperature": 50},
+        {"zone1_run_mode": 2, "zone1_temperature": 25},
+        {"zone1_power": True},
+    ],
+)
+def test_set_device_non_kjrh_refuses_zone1_writes_without_sending(sn8, kwargs):
+    """Other models must never receive a KJRH-120L frame or a status query."""
+    client = _make_client()
+    with patch.object(client, "send_hex_command") as mock_send:
+        with pytest.raises(ApiError, match="KJRH-120L"):
+            client.set_device("APPL1", sn8=sn8, **kwargs)
+
+    mock_send.assert_not_called()
