@@ -129,7 +129,9 @@ Status `raw_body` (0-indexed; STANDARD misreads this 25-byte frame):
   in Galmet's 75-byte shape with non-zero group payloads that read like `hh,00,hh,00` time slots — the
   app's live water/outdoor values appear nowhere in it. `atw_sensors_are_placeholder` therefore matches
   the structure: `02,00`, then only `03,<c>,x,x,x,x` groups sharing one `c` (≥ 6 groups, at most a
-  single `00` between groups).
+  single `00` between groups), plus the 38-byte active-schedule form (#128 Airwell Wellea M, #150
+  Sinclair MSH-100IB-3/9) with a 6-bit enable mask in `body[1]` and six `[03|05, temp, sh, sm, eh, em]`
+  slots carrying valid `HH:MM` clock bytes and uniform `03,<c>` idle slots.
 - **27-byte status variant (#38 Galmet Prima 8GT, #132 NØRDIS Optimus Pro):** the same `sn8` also
   emits a 27-byte status layout. Galmet ends `e0,03,03`; two NØRDIS units end `60,04,03` and `40,05,00`
   and differ at `body[2]` (`0x15`/`0x17`). The shared signature is length 27 with

@@ -325,6 +325,8 @@ _ATW_PLACEHOLDER_SENSOR_FIELDS = {
 # groups sharing one ``c``, with at most a single 0x00 between groups.
 _ATW_TEMPLATE_GROUP_LEN = 6
 _ATW_TEMPLATE_MIN_GROUPS = 6
+_ATW_ACTIVE_SCHEDULE_LEN = 2 + _ATW_TEMPLATE_MIN_GROUPS * _ATW_TEMPLATE_GROUP_LEN
+_ATW_ACTIVE_SCHEDULE_TAGS = (0x03, 0x05)
 
 
 def _atw_sensors_match_template_shape(raw_body: bytes) -> bool:
@@ -352,10 +354,53 @@ def _atw_sensors_match_template_shape(raw_body: bytes) -> bool:
     return groups >= _ATW_TEMPLATE_MIN_GROUPS and not after_separator
 
 
+def _atw_sensors_match_active_schedule_shape(raw_body: bytes) -> bool:
+    """Match 38-byte ATW 0x02 schedule frames with active 03/05 timer slots.
+
+    Airwell Wellea M (#128) and Sinclair MSH-100IB-3/9 (#150) emit 38-byte
+    ``0x02`` frames of six 6-byte ``[mode, target, start_h, start_m, end_h,
+    end_m]`` schedule slots with a 6-bit enable mask in ``body[1]`` (``0x00``
+    or ``0x0a``). Active slots can carry ``0x05`` with a different target byte
+    than idle ``0x03`` slots, while every slot carries valid ``HH:MM`` clock
+    bytes and idle ``00:00-00:00`` slots share one uniform ``03,<c>`` header.
+    """
+    if (
+        len(raw_body) != _ATW_ACTIVE_SCHEDULE_LEN
+        or raw_body[0] != 0x02
+        or raw_body[1] > 0x3F
+    ):
+        return False
+    idle_header: tuple[int, int] | None = None
+    has_active_slot = False
+    for offset in range(2, len(raw_body), _ATW_TEMPLATE_GROUP_LEN):
+        tag, val, start_h, start_m, end_h, end_m = raw_body[
+            offset : offset + _ATW_TEMPLATE_GROUP_LEN
+        ]
+        if tag not in _ATW_ACTIVE_SCHEDULE_TAGS or not (0 < val <= 0x50):
+            return False
+        if not (
+            start_h <= 23 and start_m <= 59 and end_h <= 23 and end_m <= 59
+        ):
+            return False
+        if (start_h, start_m, end_h, end_m) == (0, 0, 0, 0):
+            if tag != 0x03:
+                return False
+            if idle_header is None:
+                idle_header = (tag, val)
+            elif idle_header != (tag, val):
+                return False
+        else:
+            has_active_slot = True
+    return has_active_slot
+
+
 def atw_sensors_are_placeholder(raw_body: bytes) -> bool:
     """Return whether an ATW sensor frame is a known non-telemetry template."""
-    return raw_body == _ATW_PLACEHOLDER_SENSORS_BODY or _atw_sensors_match_template_shape(
-        bytes(raw_body)
+    raw = bytes(raw_body)
+    return (
+        raw == _ATW_PLACEHOLDER_SENSORS_BODY
+        or _atw_sensors_match_template_shape(raw)
+        or _atw_sensors_match_active_schedule_shape(raw)
     )
 
 
