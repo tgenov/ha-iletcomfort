@@ -147,20 +147,23 @@ Status `raw_body` (0-indexed; STANDARD misreads this 25-byte frame):
   frames were otherwise identical, so compressor running state and frequency are unavailable—never
   infer them from this bit or report false/0.
 
-### KJRH-120L dual variant (`sn8 17100003`, #5) — hardware-validated reads
+### KJRH-120L dual variant (`sn8 17100003`, #5 / #69) — hardware-validated reads & Zone-1 writes
 - The same `sn8` covers pure-DHW and Zone-1 + DHW controllers. Gate the dual layout only when status
   `body[8] == 1` and `body[9] == 1`; pure-DHW captures have `0/0`.
 - Dual layout: `body[12]` is the Zone-1 setpoint and `body[15]` is the DHW setpoint.
 - Zone-1 is read-only in the climate entity. A field `0x08` write was tested on hardware and always
   forced 23 °C, regardless of the requested value, so do **not** use it.
 - The app's Zone-1 setpoint write is field `0x04` (`00 04 01 <°C> ff`), confirmed by read-back. Run
-  mode is field `0x03` (heat 3, cool 2) and Zone-1 power is field `0x00`. These are documented
-  protocol facts only, in `docs/KJRH120L_CONTROL_PROTOCOL.md`. The integration does not write them
-  yet; support follows in a separate PR.
+  mode is field `0x03` (heat 3, cool 2; paired with the Zone-1 setpoint clamped into the destination
+  mode's reported range) and Zone-1 power is field `0x00`. Implemented in PR #149 / v0.19.0 as
+  dedicated Zone-1 Target (`number`), Mode (`select`), and Zone-1 Power (`switch`) entities gated on
+  a latched `CONF_KJRH120L_ZONE1_CAPABLE` observation in `entry.data`; see
+  `docs/KJRH120L_CONTROL_PROTOCOL.md`.
 - Evidence limit on the gate above: on one dual unit, `body[8]`/`body[9]` follow the Zone-1/Zone-2
-  power state, not a fixed hardware marker. With Zone 1 switched off they read `0/0`, so the current
-  gate reads that unit as pure-DHW. Whether the issue #5 pure-DHW hardware lacks a zone is not known.
-  See `docs/KJRH120L_SYSTEM_DECODE.md`.
+  power state, not a fixed hardware marker. With Zone 1 switched off they read `0/0`, so the
+  unlatched `kjrh120l_has_zone1` check reads that unit as pure-DHW (the new Zone-1 entities use the
+  latched flag to stay available across off states and restarts). Whether the issue #5 pure-DHW
+  hardware lacks a zone is not known. See `docs/KJRH120L_SYSTEM_DECODE.md`.
 - DHW uses a separate Number entity and the confirmed short field `0x07` write. Pure-DHW keeps its
   existing climate behavior.
 
