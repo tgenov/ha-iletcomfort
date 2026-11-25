@@ -985,3 +985,214 @@ async def test_async_stop_push_stops_client(hass: HomeAssistant):
         await coordinator.async_stop_push()
 
     instance.async_stop.assert_awaited_once()
+
+
+# --- KJRH-120L Zone 1 capability latch --------------------------------------
+
+
+def _kjrh_poll_coordinator(
+    hass: HomeAssistant, sn8: str | None, body: bytes
+) -> ILetComfortCoordinator:
+    from custom_components.iletcomfort.api import decode_its_status
+    from custom_components.iletcomfort.model_profiles import (
+        apply_profile_to_status,
+        resolve_profile,
+    )
+
+    entry = _entry(REGION_US)
+    entry.add_to_hass(hass)
+    with patch(
+        "custom_components.iletcomfort.coordinator.ILetComfortClient"
+    ) as mock_cls:
+        coord = ILetComfortCoordinator(hass, entry)
+    coord.appliance_meta = {"applianceCode": "APPL1", "sn8": sn8}
+    client = mock_cls.return_value
+    client.query_status.return_value = apply_profile_to_status(
+        resolve_profile(sn8), decode_its_status(bytearray(body))
+    )
+    client.query_sensors.return_value = ITSSensors()
+    return coord
+
+
+async def _poll_once(coord: ILetComfortCoordinator) -> None:
+    with patch(
+        "custom_components.iletcomfort.coordinator.asyncio.sleep",
+        new=AsyncMock(),
+    ):
+        await coord._poll()
+
+
+async def test_kjrh120l_dual_frame_latches_zone1_capability(hass: HomeAssistant):
+    from custom_components.iletcomfort.const import CONF_KJRH120L_ZONE1_CAPABLE
+    from tests.kjrh120l_snapshots import KJRH120L_SNAPSHOT_A
+
+    coord = _kjrh_poll_coordinator(hass, "17100003", KJRH120L_SNAPSHOT_A)
+    assert coord.kjrh120l_zone1_capable is False
+
+    await _poll_once(coord)
+
+    assert coord.entry.data[CONF_KJRH120L_ZONE1_CAPABLE] is True
+    assert coord.kjrh120l_zone1_capable is True
+
+
+async def test_kjrh120l_latch_survives_zone_switched_off(hass: HomeAssistant):
+    from custom_components.iletcomfort.const import CONF_KJRH120L_ZONE1_CAPABLE
+    from custom_components.iletcomfort.model_profiles import decode_kjrh120l_status
+    from tests.kjrh120l_snapshots import KJRH120L_SNAPSHOT_A, KJRH120L_SNAPSHOT_B
+
+    coord = _kjrh_poll_coordinator(hass, "17100003", KJRH120L_SNAPSHOT_A)
+    await _poll_once(coord)
+    coord.client.query_status.return_value = decode_kjrh120l_status(
+        KJRH120L_SNAPSHOT_B
+    )
+    await _poll_once(coord)
+
+    assert coord.entry.data[CONF_KJRH120L_ZONE1_CAPABLE] is True
+    assert coord.kjrh120l_zone1_capable is True
+
+
+async def test_kjrh120l_never_dual_unit_does_not_latch(hass: HomeAssistant):
+    from custom_components.iletcomfort.const import CONF_KJRH120L_ZONE1_CAPABLE
+    from tests.kjrh120l_snapshots import KJRH120L_SNAPSHOT_B
+
+    coord = _kjrh_poll_coordinator(hass, "17100003", KJRH120L_SNAPSHOT_B)
+    await _poll_once(coord)
+
+    assert CONF_KJRH120L_ZONE1_CAPABLE not in coord.entry.data
+    assert coord.kjrh120l_zone1_capable is False
+
+
+@pytest.mark.parametrize("sn8", [None, "171H120F", "171000AU", "17100007"])
+async def test_non_kjrh_unit_never_latches_zone1_capability(
+    hass: HomeAssistant, sn8
+):
+    """A non-KJRH frame whose body[8:10] happens to read 01 01 is not a Zone 1 unit."""
+    from custom_components.iletcomfort.const import CONF_KJRH120L_ZONE1_CAPABLE
+    from tests.kjrh120l_snapshots import KJRH120L_SNAPSHOT_A
+
+    coord = _kjrh_poll_coordinator(hass, sn8, KJRH120L_SNAPSHOT_A)
+    await _poll_once(coord)
+
+    assert CONF_KJRH120L_ZONE1_CAPABLE not in coord.entry.data
+    assert coord.kjrh120l_zone1_capable is False
+
+
+async def test_capability_flag_alone_does_not_make_non_kjrh_capable(
+    hass: HomeAssistant,
+):
+    from custom_components.iletcomfort.const import CONF_KJRH120L_ZONE1_CAPABLE
+
+    entry = _entry(REGION_US)
+    entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(
+        entry, data={**entry.data, CONF_KJRH120L_ZONE1_CAPABLE: True}
+    )
+    with patch("custom_components.iletcomfort.coordinator.ILetComfortClient"):
+        coord = ILetComfortCoordinator(hass, entry)
+    coord.appliance_meta = {"sn8": "171H120F"}
+
+    assert coord.kjrh120l_zone1_capable is False
+
+
+async def test_kjrh120l_push_status_latches_zone1_capability(hass: HomeAssistant):
+    from custom_components.iletcomfort.api import decode_its_status
+    from custom_components.iletcomfort.const import CONF_KJRH120L_ZONE1_CAPABLE
+    from tests.kjrh120l_snapshots import KJRH120L_SNAPSHOT_A, KJRH120L_SNAPSHOT_B
+
+    coord = _kjrh_poll_coordinator(hass, "17100003", KJRH120L_SNAPSHOT_B)
+    await _poll_once(coord)
+    coord.data = {"status": ITSStatus(), "sensors": ITSSensors()}
+    assert CONF_KJRH120L_ZONE1_CAPABLE not in coord.entry.data
+
+    coord._apply_push_status(decode_its_status(bytearray(KJRH120L_SNAPSHOT_A)))
+    coord._cancel_push_status_watchdog()
+
+    assert coord.entry.data[CONF_KJRH120L_ZONE1_CAPABLE] is True
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"zone1_temperature": 50},
+        {"zone1_run_mode": 2, "zone1_temperature": 25},
+        {"zone1_power": True},
+    ],
+)
+async def test_phone_app_mode_rejects_kjrh120l_zone1_writes(
+    hass: HomeAssistant, kwargs
+):
+    from homeassistant.exceptions import HomeAssistantError
+
+    from custom_components.iletcomfort.const import OPERATION_MODE_PHONE_APP
+
+    entry = _entry_operation_mode(OPERATION_MODE_PHONE_APP)
+    entry.add_to_hass(hass)
+    with patch("custom_components.iletcomfort.coordinator.ILetComfortClient") as cls:
+        coordinator = ILetComfortCoordinator(hass, entry)
+    coordinator.appliance_meta = {"sn8": "17100003"}
+
+    with pytest.raises(HomeAssistantError, match="HA primary"):
+        await coordinator.async_set_device(**kwargs)
+
+    cls.return_value.set_device.assert_not_called()
+    cls.return_value.send_hex_command.assert_not_called()
+
+
+async def test_async_set_device_threads_zone1_kwargs_to_client(hass: HomeAssistant):
+    entry = _entry(REGION_US)
+    entry.add_to_hass(hass)
+    with patch(
+        "custom_components.iletcomfort.coordinator.ILetComfortClient"
+    ) as mock_cls:
+        coord = ILetComfortCoordinator(hass, entry)
+    coord.appliance_meta = {"sn8": "17100003"}
+    coord.async_request_refresh = AsyncMock()
+
+    await coord.async_set_device(zone1_run_mode=2, zone1_temperature=25)
+
+    kwargs = mock_cls.return_value.set_device.call_args.kwargs
+    assert kwargs["sn8"] == "17100003"
+    assert kwargs["zone1_run_mode"] == 2
+    assert kwargs["zone1_temperature"] == 25
+    coord.async_request_refresh.assert_awaited_once()
+
+
+@pytest.mark.parametrize("error", [ApiError("code=1214"), ValueError("bad byte")])
+async def test_async_set_device_wraps_write_errors(hass: HomeAssistant, error):
+    from homeassistant.exceptions import HomeAssistantError
+
+    entry = _entry(REGION_US)
+    entry.add_to_hass(hass)
+    with patch(
+        "custom_components.iletcomfort.coordinator.ILetComfortClient"
+    ) as mock_cls:
+        coord = ILetComfortCoordinator(hass, entry)
+    coord.appliance_meta = {"sn8": "17100003"}
+    coord.async_request_refresh = AsyncMock()
+    mock_cls.return_value.set_device.side_effect = error
+
+    with pytest.raises(HomeAssistantError) as exc_info:
+        await coord.async_set_device(zone1_temperature=50)
+
+    assert exc_info.value.__cause__ is error
+    coord.async_request_refresh.assert_not_awaited()
+
+
+async def test_async_set_device_reauths_then_retries_zone1_write(hass: HomeAssistant):
+    entry = _entry(REGION_US)
+    entry.add_to_hass(hass)
+    with patch(
+        "custom_components.iletcomfort.coordinator.ILetComfortClient"
+    ) as mock_cls:
+        coord = ILetComfortCoordinator(hass, entry)
+    coord.appliance_meta = {"sn8": "17100003"}
+    coord.async_request_refresh = AsyncMock()
+    coord._async_login = AsyncMock()
+    client = mock_cls.return_value
+    client.set_device.side_effect = [AuthError("expired"), {"sent": "00000101ff"}]
+
+    await coord.async_set_device(zone1_power=True)
+
+    coord._async_login.assert_awaited_once()
+    assert client.set_device.call_count == 2
+    assert client.set_device.call_args.kwargs["zone1_power"] is True

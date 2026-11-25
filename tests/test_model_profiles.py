@@ -36,6 +36,7 @@ from custom_components.iletcomfort.model_profiles import (
     ModelProfile,
     apply_profile_to_sensors,
     apply_profile_to_status,
+    atw_sensors_are_placeholder,
     build_kjrh120l_set_temperature,
     build_query_command,
     decode_atw_status,
@@ -97,6 +98,29 @@ GALMET_ATW_STATUS_FRAMES = {
     ),
 }
 
+# NØRDIS Optimus Pro, sn8 171H120F (issue #132): the same 27-byte layout with
+# different bytes at [2] and the [24:27] tail. Both captures were taken while
+# the official app showed Zone-1 Heating: target 33 C / DHW 50 C / tank 46 C
+# (#132) and target 35 C / DHW 60 C / tank 57 C a minute later (second unit).
+NORDIS_ATW_STATUS_FRAMES = {
+    "issue132": _bytes(
+        "01,0d,15,a0,03,03,21,1e,32,30,37,19,19,05,37,19,19,05,3c,22,3c,14,2e,00,60,04,03"
+    ),
+    "unit2": _bytes(
+        "01,0d,17,a0,03,03,23,1e,3c,30,37,19,19,05,37,19,19,05,3c,22,3c,14,3a,00,40,05,00"
+    ),
+}
+
+# 25-byte status frames from other 171H120F brands (Rotenso #124, Kaisai #123).
+ATW_25_BYTE_STATUS_FRAMES = {
+    "rotenso": _bytes(
+        "01,0d,15,90,03,03,28,1e,32,30,41,23,19,05,37,19,19,05,3c,22,3c,14,32,00,80"
+    ),
+    "kaisai": _bytes(
+        "01,08,11,50,03,03,23,28,32,30,41,23,19,05,41,23,19,05,3c,22,3c,14,19,00,80"
+    ),
+}
+
 # Galmet Prima 8GT, sn8 171H120F (issue #38). The cloud returned this repeated
 # template instead of live sensor telemetry while the official app showed live
 # Zone-1 water and outdoor readings. It must not surface as measurements.
@@ -106,6 +130,23 @@ ATW_PLACEHOLDER_SENSORS_BODY = _bytes(
     "00,00,00,00,03,1e,00,00,00,00,03,1e,00,00,00,00,03,1e,00,00,"
     "00,00,03,1e,00,00,00,00,03,1e,00,00,00,00"
 )
+
+# Further non-telemetry variants of the same repeated-group template. Rotenso
+# (#124) and Kaisai (#123): 38 bytes, constant 0x28, no separator. NØRDIS:
+# Galmet's 75-byte shape, but four groups carry non-zero bytes (they read like
+# hh,00,hh,00 time slots); the app's live water 26 C / outdoor 8 C appear nowhere.
+ATW_TEMPLATE_SENSOR_VARIANTS = {
+    "rotenso_kaisai": _bytes(
+        "02,00,03,28,00,00,00,00,03,28,00,00,00,00,03,28,00,00,00,00,"
+        "03,28,00,00,00,00,03,28,00,00,00,00,03,28,00,00,00,00"
+    ),
+    "nordis": _bytes(
+        "02,00,03,1e,04,00,0a,00,03,1e,16,00,02,00,03,1e,0f,00,14,00,"
+        "03,1e,05,00,14,00,03,1e,00,00,00,00,03,1e,00,00,00,00,00,03,1e,"
+        "00,00,00,00,03,1e,00,00,00,00,03,1e,00,00,00,00,03,1e,00,00,"
+        "00,00,03,1e,00,00,00,00,03,1e,00,00,00,00"
+    ),
+}
 
 
 # ---------------------------------------------------------------------------
@@ -256,6 +297,42 @@ def test_galmet_atw_does_not_invent_compressor_telemetry(body):
     assert status.comp_frq is None
 
 
+@pytest.mark.parametrize(
+    ("name", "target", "dhw_set", "tank"),
+    [("issue132", 33.0, 50, 46.0), ("unit2", 35.0, 60, 58.0)],
+)
+def test_nordis_27_byte_status_uses_validated_27_byte_layout(name, target, dhw_set, tank):
+    """NØRDIS 27-byte frames decode like Galmet despite a different tail (#132)."""
+    status = decode_atw_status(NORDIS_ATW_STATUS_FRAMES[name])
+
+    assert status.mode_name == "Heat"
+    assert status.t5s_def == target
+    assert status.set_temperature == dhw_set
+    assert status.box_bottom_temp == tank
+    assert status.error_code == 0
+    assert status.comp_running is None
+    assert status.comp_frq is None
+
+
+def test_nordis_27_byte_status_zone1_off_when_power_bit_clear():
+    """Bit 0 of byte[1] is Zone-1 power on the 27-byte layout."""
+    body = bytearray(NORDIS_ATW_STATUS_FRAMES["unit2"])
+    body[1] = 0x0C
+
+    assert decode_atw_status(bytes(body)).mode_name == "Off"
+
+
+@pytest.mark.parametrize("name", list(ATW_25_BYTE_STATUS_FRAMES))
+def test_25_byte_atw_frames_keep_italtherm_layout(name):
+    """Other brands' 25-byte frames are unaffected by the 27-byte detection."""
+    body = ATW_25_BYTE_STATUS_FRAMES[name]
+    status = decode_atw_status(body)
+
+    assert status.t5s_def == body[9] / 2
+    assert status.mode_name == "Off"
+    assert status.comp_running is False
+
+
 def test_atw_profile_applied_to_status_object():
     """apply_profile_to_status(ATW) re-decodes the frame via the ATW layout."""
     std = decode_its_status(ATW_FRAMES["state1"])
@@ -300,6 +377,45 @@ def test_atw_placeholder_sensors_are_unavailable():
     assert out.twout_temp is None
     assert out.odu_current is None
     assert out.odu_voltage is None
+
+
+@pytest.mark.parametrize("name", list(ATW_TEMPLATE_SENSOR_VARIANTS))
+def test_atw_template_sensor_variants_are_unavailable(name):
+    """Repeated ``03,<c>`` group templates are not telemetry (#123, #124, #132)."""
+    sensors = decode_its_sensors(ATW_TEMPLATE_SENSOR_VARIANTS[name])
+    status = decode_atw_status(NORDIS_ATW_STATUS_FRAMES["unit2"])
+
+    out = apply_profile_to_sensors(ModelProfile.ATW, sensors, status)
+
+    assert out.th_temp == 58.0
+    for field in ("t4_temp", "t2_temp", "twin_temp", "twout_temp", "t1_temp"):
+        assert getattr(out, field) is None
+    assert out.odu_current is None
+    assert out.odu_voltage is None
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        # Group constants differ.
+        _bytes(
+            "02,00,03,1e,00,00,00,00,03,28,00,00,00,00,03,1e,00,00,00,00,"
+            "03,1e,00,00,00,00,03,1e,00,00,00,00,03,1e,00,00,00,00"
+        ),
+        # A group does not start with 0x03.
+        _bytes(
+            "02,00,03,1e,00,00,00,00,05,1e,00,00,00,00,03,1e,00,00,00,00,"
+            "03,1e,00,00,00,00,03,1e,00,00,00,00,03,1e,00,00,00,00"
+        ),
+        # Fewer than six groups.
+        _bytes("02,00,03,1e,00,00,00,00,03,1e,00,00,00,00,03,1e,00,00,00,00"),
+        # Trailing bytes that are not a whole group.
+        ATW_PLACEHOLDER_SENSORS_BODY + bytes([0x03, 0x1E, 0x00]),
+    ],
+)
+def test_atw_sensor_frames_outside_template_shape_are_preserved(body):
+    """Only frames made entirely of the repeated group are treated as templates."""
+    assert atw_sensors_are_placeholder(body) is False
 
 
 def test_atw_non_placeholder_sensors_are_preserved():
@@ -665,3 +781,228 @@ def patch_send(client, return_value):
     from unittest.mock import patch
 
     return patch.object(client, "send_hex_command", return_value=return_value)
+
+
+# ---------------------------------------------------------------------------
+# KJRH-120L Zone 1 setpoint, run mode and Zone 1 power (app capture 2026-11-12
+# and 2026-11-14)
+# ---------------------------------------------------------------------------
+
+from tests.kjrh120l_snapshots import KJRH120L_SNAPSHOT_A, KJRH120L_SNAPSHOT_B  # noqa: E402
+
+
+def _with(body: bytes, **index_values: int) -> bytes:
+    out = bytearray(body)
+    for key, value in index_values.items():
+        out[int(key.lstrip("b"))] = value
+    return bytes(out)
+
+
+def test_kjrh120l_zone1_builders_match_app_capture():
+    from custom_components.iletcomfort.model_profiles import (
+        KJRH120L_RUN_MODE_COOL,
+        KJRH120L_RUN_MODE_HEAT,
+        build_kjrh120l_run_mode,
+        build_kjrh120l_zone1_power,
+        build_kjrh120l_zone1_setpoint,
+    )
+
+    assert build_kjrh120l_zone1_setpoint(51) == "00040133ff"
+    assert build_kjrh120l_zone1_setpoint(63) == "0004013fff"
+    assert build_kjrh120l_zone1_setpoint(50) == "00040132ff"
+    assert build_kjrh120l_run_mode(KJRH120L_RUN_MODE_COOL, 50) == "00030102ff00040132ff"
+    assert build_kjrh120l_run_mode(KJRH120L_RUN_MODE_HEAT, 50) == "00030103ff00040132ff"
+    assert build_kjrh120l_zone1_power(True) == "00000101ff"
+    assert build_kjrh120l_zone1_power(False) == "00000100ff"
+
+
+@pytest.mark.parametrize("value", [-1, 256, 1000, 50.5, True, None, "50"])
+def test_kjrh120l_zone1_setpoint_builder_rejects_values_outside_one_byte(value):
+    from custom_components.iletcomfort.model_profiles import (
+        build_kjrh120l_zone1_setpoint,
+    )
+
+    with pytest.raises(ValueError):
+        build_kjrh120l_zone1_setpoint(value)
+
+
+@pytest.mark.parametrize(
+    ("run_mode", "setpoint"),
+    [(1, 50), (0, 50), (4, 50), (256, 50), (2, 256), (3, -1), (3, None)],
+)
+def test_kjrh120l_run_mode_builder_rejects_uncaptured_modes_and_bad_setpoints(
+    run_mode, setpoint
+):
+    from custom_components.iletcomfort.model_profiles import build_kjrh120l_run_mode
+
+    with pytest.raises(ValueError):
+        build_kjrh120l_run_mode(run_mode, setpoint)
+
+
+@pytest.mark.parametrize("value", [None, 1, 0, "on"])
+def test_kjrh120l_zone1_power_builder_requires_bool(value):
+    from custom_components.iletcomfort.model_profiles import build_kjrh120l_zone1_power
+
+    with pytest.raises(ValueError):
+        build_kjrh120l_zone1_power(value)
+
+
+def test_kjrh120l_decode_snapshot_a_zone1_fields():
+    from custom_components.iletcomfort.model_profiles import kjrh120l_zone1_range
+
+    status = decode_kjrh120l_status(KJRH120L_SNAPSHOT_A)
+
+    assert status.kjrh120l_zone1_power is True
+    assert status.kjrh120l_run_mode == 3
+    assert status.kjrh120l_zone1_setpoint == 50.0
+    assert status.kjrh120l_zone1_heat_max == 75
+    assert status.kjrh120l_zone1_heat_min == 35
+    assert status.kjrh120l_zone1_cool_max == 25
+    assert status.kjrh120l_zone1_cool_min == 5
+    assert kjrh120l_zone1_range(status) == (35, 75)
+    assert kjrh120l_zone1_range(status, 2) == (5, 25)
+    # Existing fields keep their behaviour: dual gate holds, DHW is body[15].
+    assert status.t5s_def == 50.0
+    assert status.kjrh120l_dhw_setpoint == 40.0
+
+
+def test_kjrh120l_decode_snapshot_b_zone_off_still_decodes_zone1_fields():
+    from custom_components.iletcomfort.model_profiles import (
+        kjrh120l_has_zone1,
+        kjrh120l_zone1_range,
+    )
+
+    status = decode_kjrh120l_status(KJRH120L_SNAPSHOT_B)
+
+    assert not kjrh120l_has_zone1(KJRH120L_SNAPSHOT_B)
+    assert status.kjrh120l_zone1_power is False
+    assert status.kjrh120l_run_mode == 3
+    assert status.kjrh120l_zone1_setpoint == 37.0
+    assert kjrh120l_zone1_range(status) == (35, 75)
+    # Existing fields unchanged: with the dual gate false, body[15] stays the
+    # climate setpoint and the DHW number field stays empty.
+    assert status.t5s_def == 35.0
+    assert status.kjrh120l_dhw_setpoint is None
+
+
+def test_kjrh120l_decode_cool_mode_uses_cool_range():
+    from custom_components.iletcomfort.model_profiles import kjrh120l_zone1_range
+
+    status = decode_kjrh120l_status(_with(KJRH120L_SNAPSHOT_A, b11=2, b12=20))
+
+    assert status.kjrh120l_run_mode == 2
+    assert kjrh120l_zone1_range(status) == (5, 25)
+
+
+def test_kjrh120l_zone1_fields_absent_on_short_frame():
+    from custom_components.iletcomfort.model_profiles import kjrh120l_zone1_range
+
+    status = decode_kjrh120l_status(KJRH120L_SNAPSHOT_A[:40])
+
+    assert status.kjrh120l_zone1_setpoint == 50.0
+    assert status.kjrh120l_zone1_cool_min is None
+    assert kjrh120l_zone1_range(status) is None
+    assert decode_kjrh120l_status(bytes([0x01, 0x00])).kjrh120l_run_mode is None
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"b11": 1},  # run mode not heat or cool
+        {"b11": 0},
+        {"b11": 4},
+        {"b37": 35, "b38": 35},  # heat min == max
+        {"b37": 30, "b38": 35},  # heat min > max
+    ],
+)
+def test_kjrh120l_zone1_range_missing_for_malformed_current_mode(overrides):
+    from custom_components.iletcomfort.model_profiles import kjrh120l_zone1_range
+
+    status = decode_kjrh120l_status(_with(KJRH120L_SNAPSHOT_A, **overrides))
+
+    assert kjrh120l_zone1_range(status) is None
+
+
+@pytest.mark.parametrize(
+    ("low", "high"),
+    [(float("nan"), 75), (35, float("inf")), (-1, 75), (35, 256), (None, 75)],
+)
+def test_kjrh120l_zone1_range_rejects_non_finite_and_non_byte_limits(low, high):
+    import dataclasses
+
+    from custom_components.iletcomfort.model_profiles import kjrh120l_zone1_range
+
+    status = dataclasses.replace(
+        decode_kjrh120l_status(KJRH120L_SNAPSHOT_A),
+        kjrh120l_zone1_heat_min=low,
+        kjrh120l_zone1_heat_max=high,
+    )
+
+    assert kjrh120l_zone1_range(status) is None
+
+
+def test_kjrh120l_mode_change_heat_to_cool_clamps_into_cool_range():
+    """Reviewer P1: Heat 50 with cool range 5-25 must send 25, never 50."""
+    from custom_components.iletcomfort.model_profiles import (
+        KJRH120L_RUN_MODE_COOL,
+        build_kjrh120l_run_mode,
+        kjrh120l_mode_change_setpoint,
+    )
+
+    status = decode_kjrh120l_status(KJRH120L_SNAPSHOT_A)
+    target = kjrh120l_mode_change_setpoint(status, KJRH120L_RUN_MODE_COOL)
+
+    assert target == 25
+    assert build_kjrh120l_run_mode(KJRH120L_RUN_MODE_COOL, target) == "00030102ff00040119ff"
+
+
+def test_kjrh120l_mode_change_cool_to_heat_clamps_up_into_heat_range():
+    from custom_components.iletcomfort.model_profiles import (
+        KJRH120L_RUN_MODE_HEAT,
+        kjrh120l_mode_change_setpoint,
+    )
+
+    status = decode_kjrh120l_status(_with(KJRH120L_SNAPSHOT_A, b11=2, b12=20))
+
+    assert kjrh120l_mode_change_setpoint(status, KJRH120L_RUN_MODE_HEAT) == 35
+
+
+def test_kjrh120l_mode_change_keeps_setpoint_inside_destination_range():
+    from custom_components.iletcomfort.model_profiles import (
+        KJRH120L_RUN_MODE_HEAT,
+        kjrh120l_mode_change_setpoint,
+    )
+
+    status = decode_kjrh120l_status(KJRH120L_SNAPSHOT_A)
+
+    assert kjrh120l_mode_change_setpoint(status, KJRH120L_RUN_MODE_HEAT) == 50
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        _with(KJRH120L_SNAPSHOT_A, b39=5, b40=25),  # cool range inverted
+        _with(KJRH120L_SNAPSHOT_A, b39=5, b40=5),  # cool min == max
+        KJRH120L_SNAPSHOT_A[:12],  # setpoint byte missing
+        KJRH120L_SNAPSHOT_A[:39],  # cool limits missing
+    ],
+)
+def test_kjrh120l_mode_change_refused_without_setpoint_or_destination_range(body):
+    from custom_components.iletcomfort.model_profiles import (
+        KJRH120L_RUN_MODE_COOL,
+        kjrh120l_mode_change_setpoint,
+    )
+
+    with pytest.raises(ValueError):
+        kjrh120l_mode_change_setpoint(
+            decode_kjrh120l_status(body), KJRH120L_RUN_MODE_COOL
+        )
+
+
+def test_kjrh120l_mode_change_refuses_uncaptured_destination_mode():
+    from custom_components.iletcomfort.model_profiles import (
+        kjrh120l_mode_change_setpoint,
+    )
+
+    with pytest.raises(ValueError):
+        kjrh120l_mode_change_setpoint(decode_kjrh120l_status(KJRH120L_SNAPSHOT_A), 1)

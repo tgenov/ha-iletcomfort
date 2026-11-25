@@ -123,10 +123,19 @@ Status `raw_body` (0-indexed; STANDARD misreads this 25-byte frame):
   subtype, 50 zeroes, and twelve `03,1e` pairs is a cloud placeholder, not live telemetry. The app can
   show live Zone-1 water/outdoor values that do not occur in that frame. Suppress template-derived
   temperatures and ODU current/voltage as unavailable, while retaining the status-derived Zone-1/DHW
-  setpoints and DHW tank temperature. Gate on the exact frame signature as well as the ATW profile;
-  never suppress or remap all `171H120F` sensor frames from `sn8` alone.
-- **27-byte status variant (#38, Galmet Prima 8GT):** the same `sn8` also emits a status layout ending
-  `e0,03,03`. In two same-moment captures, `body[6]` tracked the Zone-1 target directly (25/28 °C),
+  setpoints and DHW tank temperature. Gate on the frame structure as well as the ATW profile;
+  never suppress or remap all `171H120F` sensor frames from `sn8` alone. The template also appears as
+  38 bytes with constant `0x28` and no separator (Rotenso #124, Kaisai #123) and, on NØRDIS (#132),
+  in Galmet's 75-byte shape with non-zero group payloads that read like `hh,00,hh,00` time slots — the
+  app's live water/outdoor values appear nowhere in it. `atw_sensors_are_placeholder` therefore matches
+  the structure: `02,00`, then only `03,<c>,x,x,x,x` groups sharing one `c` (≥ 6 groups, at most a
+  single `00` between groups).
+- **27-byte status variant (#38 Galmet Prima 8GT, #132 NØRDIS Optimus Pro):** the same `sn8` also
+  emits a 27-byte status layout. Galmet ends `e0,03,03`; two NØRDIS units end `60,04,03` and `40,05,00`
+  and differ at `body[2]` (`0x15`/`0x17`). The shared signature is length 27 with
+  `body[3:6] == a0,03,03`; every captured 25-byte frame has `0x90`/`0x50`/`0x68` at `body[3]`. Both
+  NØRDIS captures match the app (Zone-1 Heating, target 33/35 °C at `body[6]`, DHW 50/60 °C, tank
+  46/57–58 °C). In two same-moment Galmet captures, `body[6]` tracked the Zone-1 target directly (25/28 °C),
   while the Italtherm `body[9] / 2` field stayed at a false 24 °C. Gate this mapping on the status
   frame's structural signature, not `sn8` alone. When paired with the sensor template, climate current
   temperature is unavailable; do not relabel the separately exposed DHW tank temperature as Zone-1
@@ -142,6 +151,14 @@ Status `raw_body` (0-indexed; STANDARD misreads this 25-byte frame):
 - Dual layout: `body[12]` is the Zone-1 setpoint and `body[15]` is the DHW setpoint.
 - Zone-1 is read-only in the climate entity. A field `0x08` write was tested on hardware and always
   forced 23 °C, regardless of the requested value, so do **not** use it.
+- The app's Zone-1 setpoint write is field `0x04` (`00 04 01 <°C> ff`), confirmed by read-back. Run
+  mode is field `0x03` (heat 3, cool 2) and Zone-1 power is field `0x00`. These are documented
+  protocol facts only, in `docs/KJRH120L_CONTROL_PROTOCOL.md`. The integration does not write them
+  yet; support follows in a separate PR.
+- Evidence limit on the gate above: on one dual unit, `body[8]`/`body[9]` follow the Zone-1/Zone-2
+  power state, not a fixed hardware marker. With Zone 1 switched off they read `0/0`, so the current
+  gate reads that unit as pure-DHW. Whether the issue #5 pure-DHW hardware lacks a zone is not known.
+  See `docs/KJRH120L_SYSTEM_DECODE.md`.
 - DHW uses a separate Number entity and the confirmed short field `0x07` write. Pure-DHW keeps its
   existing climate behavior.
 

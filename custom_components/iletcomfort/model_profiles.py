@@ -53,6 +53,7 @@ validated tank behavior; AQUAPURA returns ``th_temp`` and STANDARD returns
 from __future__ import annotations
 
 import dataclasses
+import math
 from enum import Enum
 
 from .api import MODE_HEAT, MODE_OFF, ITSSensors, ITSStatus
@@ -113,8 +114,9 @@ def build_query_command(profile: ModelProfile, subtype: int) -> str:
 # status raw_body, 0-indexed ([0] = 0x01 subtype byte):
 #   byte[1]  flags: on the 25-byte Italtherm layout bit0 (0x01) tracks
 #            space-heat demand and 0x04 tracks DHW activity. On the 27-byte
-#            Galmet layout bit0 is confirmed Zone-1 power (ON in both active
-#            and stopped Heating states; clear when Zone-1 is OFF).
+#            layout (Galmet #38, NØRDIS #132) bit0 is confirmed Zone-1 power
+#            (ON in both active and stopped Heating states; clear when Zone-1
+#            is OFF).
 #   byte[8]  DHW setpoint in °C — DIRECT value (not +35-offset encoded).
 #   byte[9]  Zone-1 setpoint × 2 (0.5° resolution) → zone1 = byte[9] / 2.
 #   byte[22] DHW tank current temp in °C — DIRECT value.
@@ -140,7 +142,7 @@ def build_query_command(profile: ModelProfile, subtype: int) -> str:
 #     path misread as a comp flag).
 #   - The 25-byte Italtherm HVAC mode/action semantics remain at the dataclass
 #     defaults (mode 0 / "Off"); its bit0 is demand, not persistent power. The
-#     27-byte Galmet layout is separately hardware-validated as Heat/Off power.
+#     27-byte layout is separately hardware-validated as Heat/Off power.
 
 ATW_DHW_SETPOINT_INDEX = 8
 ATW_ZONE1_SETPOINT_X2_INDEX = 9
@@ -150,14 +152,14 @@ ATW_SPACE_HEAT_DEMAND_BIT = 0x01
 ATW_GALMET_ZONE1_SETPOINT_INDEX = 6
 
 
-def _is_galmet_atw_status(body: bytearray | bytes) -> bool:
-    """Return whether ``body`` has the hardware-validated Galmet layout."""
-    return (
-        len(body) == 27
-        and body[0] == 0x01
-        and body[2:6] == b"\x15\xa0\x03\x03"
-        and body[24:27] == b"\xe0\x03\x03"
-    )
+def _is_27_byte_atw_status(body: bytearray | bytes) -> bool:
+    """Return whether ``body`` has the hardware-validated 27-byte ATW layout.
+
+    Galmet (#38) and NØRDIS (#132) units share this layout but differ at
+    byte[2] and the [24:27] tail, so neither is part of the signature. Every
+    captured 25-byte 171H120F frame has 0x90/0x50/0x68 at byte[3] instead.
+    """
+    return len(body) == 27 and body[0] == 0x01 and body[3:6] == b"\xa0\x03\x03"
 
 
 def decode_atw_status(body: bytearray | bytes) -> ITSStatus:
@@ -181,8 +183,8 @@ def decode_atw_status(body: bytearray | bytes) -> ITSStatus:
     status.status_flags_raw = flags
     # The bit's exact semantics depend on the frame layout; see module notes.
     status.pump_system = bool(flags & ATW_SPACE_HEAT_DEMAND_BIT)
-    is_galmet = _is_galmet_atw_status(body)
-    if is_galmet:
+    is_27_byte = _is_27_byte_atw_status(body)
+    if is_27_byte:
         # Three controlled hardware states establish bit 0 as Zone-1 power for
         # this layout: set for both active and idle Heating, clear when Off.
         status.mode = MODE_HEAT if status.pump_system else MODE_OFF
@@ -192,8 +194,8 @@ def decode_atw_status(body: bytearray | bytes) -> ITSStatus:
     status.set_temperature = body[ATW_DHW_SETPOINT_INDEX]
     # Zone-1 / climate target setpoint. The original 25-byte Italtherm layout
     # stores a half-degree value at byte[9]. The hardware-validated 27-byte
-    # Galmet variant stores direct degrees at byte[6] despite sharing the sn8.
-    if is_galmet:
+    # variant stores direct degrees at byte[6] despite sharing the sn8.
+    if is_27_byte:
         status.t5s_def = float(body[ATW_GALMET_ZONE1_SETPOINT_INDEX])
     else:
         status.t5s_def = body[ATW_ZONE1_SETPOINT_X2_INDEX] / 2
@@ -206,7 +208,7 @@ def decode_atw_status(body: bytearray | bytes) -> ITSStatus:
     # frequency are unavailable rather than false zeroes. Preserve the older
     # conservative False/0 behavior for the 25-byte Italtherm layout.
     status.error_code = 0
-    if is_galmet:
+    if is_27_byte:
         status.comp_running = None
         status.comp_frq = None
     else:
@@ -263,6 +265,19 @@ KJRH120L_ZONE1_CAP_INDEX_B = 9
 KJRH120L_ZONE1_SETPOINT_INDEX = 12
 KJRH120L_DHW_TEMP_MIN = 35
 KJRH120L_DHW_TEMP_MAX = 60
+# Zone 1 fields in the subtype 0x01 body. Write field N of group 00 lands at
+# body[8 + N]: two status snapshots (2026-11-12, 2026-11-18) agree with the
+# vendor fullQuery taken at the same moment, and the app's writes read back.
+KJRH120L_ZONE1_POWER_INDEX = 8  # field 0x00, 1 = on, 0 = off
+KJRH120L_RUN_MODE_INDEX = 11  # field 0x03
+KJRH120L_RUN_MODE_HEAT = 3
+KJRH120L_RUN_MODE_COOL = 2
+# fullQuery zone1_heat_max/min = 75/35 and zone1_cool_max/min = 25/5 sit at
+# body[37..40] in both snapshots.
+KJRH120L_ZONE1_HEAT_MAX_INDEX = 37
+KJRH120L_ZONE1_HEAT_MIN_INDEX = 38
+KJRH120L_ZONE1_COOL_MAX_INDEX = 39
+KJRH120L_ZONE1_COOL_MIN_INDEX = 40
 _KJRH120L_MODES = {0: "Off", 1: "Heat", 2: "Cool", 3: "Auto", 4: "Water Pump"}
 
 # Temperature fields suppressed for the KJRH-120L (not exposed by its API).
@@ -302,9 +317,46 @@ _ATW_PLACEHOLDER_SENSOR_FIELDS = {
 }
 
 
+# The same template appears in other shapes: 38 bytes with constant 0x28 and no
+# separator (Rotenso #124, Kaisai #123), and Galmet's 75-byte shape whose group
+# payloads are not all zero (NØRDIS #132; they read like hh,00,hh,00 time slots,
+# while the app's live water and outdoor values appear nowhere in the frame).
+# Match the structure: subtype 0x02, a 0x00, then only ``03,<c>,x,x,x,x``
+# groups sharing one ``c``, with at most a single 0x00 between groups.
+_ATW_TEMPLATE_GROUP_LEN = 6
+_ATW_TEMPLATE_MIN_GROUPS = 6
+
+
+def _atw_sensors_match_template_shape(raw_body: bytes) -> bool:
+    if len(raw_body) < 4 or raw_body[:2] != b"\x02\x00":
+        return False
+    constant = raw_body[3]
+    groups = 0
+    after_separator = False
+    i = 2
+    while i < len(raw_body):
+        if raw_body[i] == 0x00 and groups and not after_separator:
+            after_separator = True
+            i += 1
+            continue
+        group = raw_body[i : i + _ATW_TEMPLATE_GROUP_LEN]
+        if (
+            len(group) != _ATW_TEMPLATE_GROUP_LEN
+            or group[0] != 0x03
+            or group[1] != constant
+        ):
+            return False
+        groups += 1
+        after_separator = False
+        i += _ATW_TEMPLATE_GROUP_LEN
+    return groups >= _ATW_TEMPLATE_MIN_GROUPS and not after_separator
+
+
 def atw_sensors_are_placeholder(raw_body: bytes) -> bool:
-    """Return whether an ATW sensor frame is the known non-telemetry template."""
-    return raw_body == _ATW_PLACEHOLDER_SENSORS_BODY
+    """Return whether an ATW sensor frame is a known non-telemetry template."""
+    return raw_body == _ATW_PLACEHOLDER_SENSORS_BODY or _atw_sensors_match_template_shape(
+        bytes(raw_body)
+    )
 
 
 def kjrh120l_has_zone1(body: bytearray | bytes) -> bool:
@@ -359,7 +411,32 @@ def decode_kjrh120l_status(body: bytearray | bytes) -> ITSStatus:
             status.t5s_def = float(dhw_setpoint)
             status.set_temperature = dhw_setpoint
 
+    _decode_kjrh120l_zone1(status, body)
     return status
+
+
+def _decode_kjrh120l_zone1(status: ITSStatus, body: bytearray | bytes) -> None:
+    """Fill the Zone 1 fields of ``status`` from a KJRH-120L status body.
+
+    Independent of ``kjrh120l_has_zone1``: body[8] is the Zone 1 power state
+    itself, so it reads 0 whenever the zone is off. A byte the frame does not
+    carry leaves its field None.
+    """
+    body_len = len(body)
+    if body_len > KJRH120L_ZONE1_POWER_INDEX:
+        status.kjrh120l_zone1_power = {0: False, 1: True}.get(
+            body[KJRH120L_ZONE1_POWER_INDEX]
+        )
+    if body_len > KJRH120L_RUN_MODE_INDEX:
+        status.kjrh120l_run_mode = body[KJRH120L_RUN_MODE_INDEX]
+    if body_len > KJRH120L_ZONE1_SETPOINT_INDEX:
+        status.kjrh120l_zone1_setpoint = float(body[KJRH120L_ZONE1_SETPOINT_INDEX])
+    # Read the four limits only when the frame carries all of them.
+    if body_len > KJRH120L_ZONE1_COOL_MIN_INDEX:
+        status.kjrh120l_zone1_heat_max = body[KJRH120L_ZONE1_HEAT_MAX_INDEX]
+        status.kjrh120l_zone1_heat_min = body[KJRH120L_ZONE1_HEAT_MIN_INDEX]
+        status.kjrh120l_zone1_cool_max = body[KJRH120L_ZONE1_COOL_MAX_INDEX]
+        status.kjrh120l_zone1_cool_min = body[KJRH120L_ZONE1_COOL_MIN_INDEX]
 
 
 # ---------------------------------------------------------------------------
@@ -395,6 +472,107 @@ def build_kjrh120l_set_temperature(temp: int) -> str:
     49 → ``00070131ff`` (confirmed captures). No checksum; the cloud frames it.
     """
     return "000701%02xff" % temp
+
+
+# Zone 1 writes, from the iOS app capture (2026-11-12, Zone 1 power 2026-11-14),
+# all acked with code 0:
+#   field 0x04 Zone 1 setpoint  00040133ff (51), 0004013fff (63), 00040132ff (50)
+#   field 0x03 run mode         00030102ff00040132ff (cool), 00030103ff00040132ff
+#                               (heat); the app always sends the Zone 1 setpoint
+#                               right after the mode
+#   field 0x00 Zone 1 power     00000101ff on, 00000100ff off
+KJRH120L_ZONE1_POWER_ON = "00000101ff"
+KJRH120L_ZONE1_POWER_OFF = "00000100ff"
+_KJRH120L_CAPTURED_RUN_MODES = (KJRH120L_RUN_MODE_HEAT, KJRH120L_RUN_MODE_COOL)
+
+
+def _kjrh120l_byte(value: object, what: str) -> int:
+    """Return ``value`` if it is an int that fits in one byte, else raise."""
+    if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 0xFF:
+        raise ValueError(f"KJRH-120L {what} must be an integer 0-255, got {value!r}")
+    return value
+
+
+def build_kjrh120l_zone1_setpoint(temp: int) -> str:
+    """Return the Zone 1 setpoint write ``0004 01 <temp> ff``."""
+    return "000401%02xff" % _kjrh120l_byte(temp, "Zone 1 setpoint")
+
+
+def build_kjrh120l_run_mode(run_mode: int, zone1_setpoint: int) -> str:
+    """Return the run mode write paired with the Zone 1 setpoint.
+
+    Only the two captured codes are accepted (heat=3, cool=2). The Auto code
+    was never captured, so it cannot be sent. The setpoint must already be
+    valid for ``run_mode``; see ``kjrh120l_mode_change_setpoint``.
+    """
+    if isinstance(run_mode, bool) or run_mode not in _KJRH120L_CAPTURED_RUN_MODES:
+        raise ValueError(f"KJRH-120L run mode must be 2 or 3, got {run_mode!r}")
+    return ("000301%02xff" % run_mode) + build_kjrh120l_zone1_setpoint(zone1_setpoint)
+
+
+def build_kjrh120l_zone1_power(on: bool) -> str:
+    """Return the Zone 1 power write for ``on``."""
+    if not isinstance(on, bool):
+        raise ValueError(f"KJRH-120L Zone 1 power must be a bool, got {on!r}")
+    return KJRH120L_ZONE1_POWER_ON if on else KJRH120L_ZONE1_POWER_OFF
+
+
+def _kjrh120l_valid_range(low: object, high: object) -> tuple[int, int] | None:
+    """Return ``(low, high)`` when both are byte-sized finite ints and low < high."""
+    limits = []
+    for value in (low, high):
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return None
+        if not math.isfinite(value) or value != int(value):
+            return None
+        if not 0 <= value <= 0xFF:
+            return None
+        limits.append(int(value))
+    if limits[0] >= limits[1]:
+        return None
+    return limits[0], limits[1]
+
+
+def kjrh120l_zone1_range(
+    status: ITSStatus, run_mode: int | None = None
+) -> tuple[int, int] | None:
+    """Return the device-reported Zone 1 ``(min, max)`` for ``run_mode``.
+
+    ``run_mode`` defaults to the mode in ``status``. None when the mode is not
+    heat or cool or the reported limits are missing or malformed. There is no
+    fallback range.
+    """
+    if run_mode is None:
+        run_mode = status.kjrh120l_run_mode
+    if run_mode == KJRH120L_RUN_MODE_HEAT:
+        return _kjrh120l_valid_range(
+            status.kjrh120l_zone1_heat_min, status.kjrh120l_zone1_heat_max
+        )
+    if run_mode == KJRH120L_RUN_MODE_COOL:
+        return _kjrh120l_valid_range(
+            status.kjrh120l_zone1_cool_min, status.kjrh120l_zone1_cool_max
+        )
+    return None
+
+
+def kjrh120l_mode_change_setpoint(status: ITSStatus, run_mode: int) -> int:
+    """Return the Zone 1 setpoint to pair with a switch to ``run_mode``.
+
+    The app sends the mode and the Zone 1 setpoint together. Sending the
+    current setpoint unchanged would put a heating target into Cool (50 with a
+    5-25 cool range), so the current setpoint is clamped into the destination
+    range. Raises ValueError when the setpoint or that range is unavailable.
+    """
+    if run_mode not in _KJRH120L_CAPTURED_RUN_MODES:
+        raise ValueError(f"KJRH-120L run mode must be 2 or 3, got {run_mode!r}")
+    limits = kjrh120l_zone1_range(status, run_mode)
+    if limits is None:
+        raise ValueError("The device has not reported a valid Zone 1 range for that mode")
+    current = status.kjrh120l_zone1_setpoint
+    if current is None or not math.isfinite(current):
+        raise ValueError("The device has not reported a Zone 1 setpoint")
+    low, high = limits
+    return max(low, min(int(current), high))
 
 
 def apply_profile_to_status(profile: ModelProfile, status: ITSStatus) -> ITSStatus:
@@ -456,17 +634,26 @@ __all__ = [
     "KJRH120L_DHW_ON",
     "KJRH120L_DHW_TEMP_MAX",
     "KJRH120L_DHW_TEMP_MIN",
+    "KJRH120L_RUN_MODE_COOL",
+    "KJRH120L_RUN_MODE_HEAT",
     "KJRH120L_SN8",
     "KJRH120L_TEMP_MAX",
     "KJRH120L_TEMP_MIN",
+    "KJRH120L_ZONE1_POWER_OFF",
+    "KJRH120L_ZONE1_POWER_ON",
     "ModelProfile",
     "apply_profile_to_sensors",
     "apply_profile_to_status",
     "atw_sensors_are_placeholder",
+    "build_kjrh120l_run_mode",
     "build_kjrh120l_set_temperature",
+    "build_kjrh120l_zone1_power",
+    "build_kjrh120l_zone1_setpoint",
     "build_query_command",
     "decode_atw_status",
     "decode_kjrh120l_status",
     "kjrh120l_has_zone1",
+    "kjrh120l_mode_change_setpoint",
+    "kjrh120l_zone1_range",
     "resolve_profile",
 ]
