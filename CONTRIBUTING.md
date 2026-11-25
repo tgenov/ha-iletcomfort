@@ -68,6 +68,25 @@ python3 -m venv .venv
 
 CI runs the same suite on every PR via `.github/workflows/tests.yml`.
 
+## Reading raw C3 frames (`scripts/c3_probe.py`)
+
+A dev-only, **read-only** probe for `sn8 171H120F` units: it sends C3 queries
+(message type `0x03`) and decodes the replies; it cannot send control frames.
+Put exactly these keys in a git-ignored `.env` in the repository root — no
+other key is read:
+
+```
+ILET_EMAIL=...
+ILET_PASSWORD=...
+ILET_REGION=eu
+```
+
+Disable the Home Assistant integration first (one active session per account),
+then run `python3 scripts/c3_probe.py status`, `probe` (every known query body
+type) or `decode "<hex>"` (offline). Replies are appended to the git-ignored
+`captures/c3_probe.jsonl` without account data, tokens or the full appliance
+code.
+
 ## Fetching a vendor plugin bundle (reverse-engineering aid)
 
 `scripts/fetch_plugin.py` downloads the vendor's own per-model plugin bundle from the Dollin cloud. For `0xC3` that bundle is a [Weex](https://weex.apache.org/) package — one readable (minified) JS file per app screen — and it is the vendor's source of truth for **control field names, their value domains, and the fault-code table**.
