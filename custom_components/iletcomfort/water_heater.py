@@ -19,7 +19,7 @@ from .c3_basic import C3BasicStatus
 from .const import DOMAIN
 from .coordinator import ILetComfortCoordinator
 from .entity import build_device_info
-from .model_profiles import atw_c3_basic
+from .model_profiles import ModelProfile, atw_c3_basic, resolve_profile
 
 
 def _coordinator_c3_basic(coordinator: ILetComfortCoordinator) -> C3BasicStatus | None:
@@ -54,6 +54,11 @@ async def async_setup_entry(
         return True
 
     if _maybe_add():
+        return
+    if (
+        coordinator.sn8 is not None
+        and resolve_profile(coordinator.sn8) is not ModelProfile.ATW
+    ):
         return
     unsubscribe = coordinator.async_add_listener(_maybe_add)
 
