@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.21.0](https://github.com/tgenov/ha-iletcomfort/compare/v0.20.1...v0.21.0) (2026-11-25)
+
+
+### Features
+
+* **atw:** poll subtype 0x10 live telemetry when supported ([#160](https://github.com/tgenov/ha-iletcomfort/issues/160)) ([980eb6a](https://github.com/tgenov/ha-iletcomfort/commit/980eb6aecb4950bf79612f4a9c8632124c0994fc))
+
 ## [0.20.1](https://github.com/tgenov/ha-iletcomfort/compare/v0.20.0...v0.20.1) (2026-11-25)
 
 
