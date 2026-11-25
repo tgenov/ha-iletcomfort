@@ -16,6 +16,12 @@ DEFAULT_REGION = REGION_US
 
 DEFAULT_SCAN_INTERVAL = 60
 
+# Set once a KJRH-120L (sn8 17100003) status frame has shown body[8:10] == 01 01.
+# Those bytes are the Zone 1 / Zone 2 power state and drop to 00 00 when Zone 1
+# is off (status snapshot 2026-11-18), so the observation is kept in entry.data
+# instead of being re-read from the current frame.
+CONF_KJRH120L_ZONE1_CAPABLE = "kjrh120l_zone1_capable"
+
 # --- Operation modes / MQTT real-time push (issue #55) ---------------------
 # Legacy v0.9-v0.11 option. True migrates at runtime to phone-app mode and is
 # removed the next time the options form is saved.
