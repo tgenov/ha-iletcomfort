@@ -56,7 +56,16 @@ import dataclasses
 import math
 from enum import Enum
 
-from .api import MODE_HEAT, MODE_OFF, ITSSensors, ITSStatus
+from .api import (
+    MODE_HEAT,
+    MODE_OFF,
+    STATUS_MODE_COOL,
+    STATUS_MODE_HEAT,
+    STATUS_MODE_OFF,
+    ITSSensors,
+    ITSStatus,
+)
+from .c3_basic import C3BasicStatus, decode_c3_basic
 
 # sn8 model codes (8-char serial prefixes) → profile.
 ATW_SN8 = "171H120F"
@@ -162,6 +171,16 @@ def _is_27_byte_atw_status(body: bytearray | bytes) -> bool:
     return len(body) == 27 and body[0] == 0x01 and body[3:6] == b"\xa0\x03\x03"
 
 
+def _is_rotenso_atw_status(body: bytearray | bytes) -> bool:
+    """Return whether ``body`` has the validated 25-byte Rotenso layout (#124).
+
+    Only ``[2] == 0x15`` is validated. Other 25-byte capability masks
+    (Italtherm 0x07, Kaisai 0x11, ...) keep the established decode, where
+    byte[1] bit 0 is space-heat demand rather than Zone-1 power.
+    """
+    return len(body) == 25 and body[0] == 0x01 and body[2] == 0x15
+
+
 def decode_atw_status(body: bytearray | bytes) -> ITSStatus:
     """Decode an ATW (sn8 171H120F) status frame into an ITSStatus.
 
@@ -213,6 +232,29 @@ def decode_atw_status(body: bytearray | bytes) -> ITSStatus:
         status.comp_frq = None
     else:
         status.comp_running = False
+
+    # Every 171H120F capture so far also matches the standard Midea C3 basic
+    # layout (see c3_basic); keep the raw decode for entities that need it.
+    basic = decode_c3_basic(body)
+    status.c3_basic = basic
+    if basic is not None and _is_rotenso_atw_status(body):
+        # Rotenso Aquami layout (#124): byte[1] bit 0 is the Zone-1 power
+        # switch. Confirmed by the #124 reporter (heating on in the app while
+        # the old decode said Off) and on a second unit by switching Zone-1
+        # on from Home Assistant and seeing it in the official app. Byte[4]
+        # carries the operating mode, so a powered zone in Cool is reported
+        # as Cool, never as Heat. The setpoint mapping above is unchanged
+        # (#124 reports the app showing byte[9] / 2 on that unit).
+        if basic.zone1_power:
+            cooling = basic.is_cooling_mode
+            status.mode = STATUS_MODE_COOL if cooling else STATUS_MODE_HEAT
+            status.mode_name = "Cool" if cooling else "Heat"
+        else:
+            status.mode = STATUS_MODE_OFF
+            status.mode_name = "Off"
+        # The frame has no compressor signal: unknown rather than False/0.
+        status.comp_running = None
+        status.comp_frq = None
 
     return status
 
@@ -486,6 +528,17 @@ def apply_atw_unit_params(
         dataclasses.replace(status, **status_updates),
         dataclasses.replace(sensors, **sensor_updates),
     )
+
+
+def atw_c3_basic(sn8: str | None, status: ITSStatus | None) -> C3BasicStatus | None:
+    """Return the decoded C3 basic status for an ATW unit, else None.
+
+    Requires both the ATW profile (sn8 171H120F) and a status frame that
+    matched the C3 basic layout, so entities never rely on the sn8 alone.
+    """
+    if status is None or resolve_profile(sn8) is not ModelProfile.ATW:
+        return None
+    return status.c3_basic
 
 
 def kjrh120l_has_zone1(body: bytearray | bytes) -> bool:
@@ -785,6 +838,7 @@ __all__ = [
     "apply_atw_unit_params",
     "apply_profile_to_sensors",
     "apply_profile_to_status",
+    "atw_c3_basic",
     "atw_sensors_are_placeholder",
     "build_kjrh120l_run_mode",
     "build_kjrh120l_set_temperature",

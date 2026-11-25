@@ -31,6 +31,7 @@ from .model_profiles import (
     KJRH120L_TEMP_MAX,
     KJRH120L_TEMP_MIN,
     ModelProfile,
+    atw_c3_basic,
     atw_sensors_are_placeholder,
     kjrh120l_has_zone1,
     resolve_profile,
@@ -173,6 +174,14 @@ class ILetComfortClimate(CoordinatorEntity[ILetComfortCoordinator], ClimateEntit
                 attrs["water_outlet"] = self._sensors.twout_temp
             if self._sensors.t4_temp is not None:
                 attrs["outdoor_ambient"] = self._sensors.t4_temp
+        basic = atw_c3_basic(self.coordinator.sn8, self._status)
+        if basic is not None:
+            # Both candidate Zone-1 setpoints of the C3 basic layout. Which
+            # one the official app shows is not settled for every unit (#124),
+            # so expose both raw values as evidence.
+            attrs["zone1_water_target"] = float(basic.zone1_target)
+            attrs["room_target"] = basic.room_target
+            attrs["weather_curve"] = basic.zone1_curve
         return attrs
 
     @property

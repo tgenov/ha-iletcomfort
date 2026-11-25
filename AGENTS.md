@@ -147,6 +147,29 @@ Status `raw_body` (0-indexed; STANDARD misreads this 25-byte frame):
   frames were otherwise identical, so compressor running state and frequency are unavailable—never
   infer them from this bit or report false/0.
 
+### `171H120F` frames match the standard Midea C3 basic body (`c3_basic.py`)
+- Every `171H120F` status capture so far (Italtherm #22, Galmet #38, Rotenso Aquami #124 and a second
+  Rotenso) is laid out like midea-local's `C3BasicBody` (`data_offset=1`): `[1]` power/flags (zone1
+  `0x01`, zone2 `0x02`, DHW `0x04`, zone1 curve `0x08`, TBH `0x20`, fast DHW `0x40`), `[2]`
+  capabilities (`0x10` = zone1 water-temperature control), `[3]` silent `0x02` / ECO `0x08`, `[4]`
+  mode (3 heat, 2 cool), `[6]` zone1 water target, `[7]` zone2, `[8]` DHW target, `[9]` room target
+  ×2, `[10..21]` limits, `[22]` tank, `[23]` error. `decode_c3_basic` decodes the raw fields into
+  `ITSStatus.c3_basic`; `model_profiles.atw_c3_basic(sn8, status)` returns it only for the ATW profile.
+- **Rotenso layout (25 bytes, `[2]=0x15`):** `[1]` bit 0 is Zone-1 power — confirmed by the #124
+  reporter (heating on in the app) and on a second unit by switching Zone-1 from HA and seeing it in
+  the app. Decoded as Heat/Off, or Cool when `[4]` is Cool. Compressor state is unknown (`None`).
+- **Every other 25-byte mask** (Italtherm `0x07`, Kaisai #123 `0x11`, …): unchanged — `[1]` bit 0
+  stays space-heat demand, not Heat/Off, until validated on that hardware. The gate is the exact
+  Rotenso signature (`len == 25 and [2] == 0x15`), never "not Italtherm".
+- **Zone-1 setpoint is unresolved for the Rotenso layout.** The #124 reporter's app showed 24 °C =
+  `[9]/2` while `[6]` was 40; the second Rotenso's app shows 29 °C = `[6]` while `[9]/2` is 24. Both
+  frames carry `[2]=0x15` (water-temperature control) and `[9]/2` lies below the zone1 heat minimum
+  in both. Until corrected evidence or a validated discriminator exists, the climate keeps the
+  established `[9]/2` mapping; both candidates are exposed as the `zone1_water_target` /
+  `room_target` climate attributes so reporters can compare them with the app.
+- The DHW water-heater entity (`water_heater.py`) is added only after a status frame for an ATW unit
+  matched the layout (re-evaluated on coordinator updates, since `sn8` can be unknown at setup).
+
 ### KJRH-120L dual variant (`sn8 17100003`, #5 / #69) — hardware-validated reads & Zone-1 writes
 - The same `sn8` covers pure-DHW and Zone-1 + DHW controllers. Gate the dual layout only when status
   `body[8] == 1` and `body[9] == 1`; pure-DHW captures have `0/0`.
@@ -287,6 +310,8 @@ does not enforce per-appliance topic ACLs.
 | `scripts/fetch_plugin.py` | **Dev tool, not shipped** — fetches the vendor per-model plugin bundle (`0xC3` = Weex JS) via the `version:"0.0.0"` downgrade on `/v1/product/upgrade/plugin/get/latest`. Source of truth for the control **schema** (not bytes) — see §4. |
 | `scripts/c3_probe.py` | **Dev tool, not shipped, read-only** — sends C3 queries for `171H120F` units and decodes them (midea-local C3 layouts); reads only `ILET_EMAIL`/`ILET_PASSWORD`/`ILET_REGION` from `.env`. Cannot send SET frames. |
 | `model_profiles.py` | `ModelProfile` enum, `_SN8_PROFILES` table, `resolve_profile`, `decode_atw_status`, `apply_profile_to_status`, `apply_profile_to_sensors`. **Add new model support here.** |
+| `c3_basic.py` | Standard Midea C3 basic status decode (`decode_c3_basic`, `C3BasicStatus`) for `171H120F` frames. |
+| `water_heater.py` | DHW entity for ATW units whose status matches the C3 basic layout. |
 | `coordinator.py` | `ILetComfortCoordinator`: polling, re-auth, cache-fallback, offline Repair card. Caches `appliance_meta` (best-effort, never fatal) and exposes `sn8`; threads profile into decode. |
 | `diagnostics.py` | Redacted snapshot: raw frames, decoded status/sensors, `sensors_temperature_scan` (per-byte `_temp_offset` map — use it to find a model's misplaced temp byte), and the `appliance` metadata block. `APPLIANCE_TO_REDACT = {owner, sn, name}` (keeps `applianceType`/`modelNumber`/`sn8`). |
 | `climate.py` / `number.py` / `sensor.py` / `binary_sensor.py` / `switch.py` / `select.py` | HA entities. See §4 for which field backs which entity. |
