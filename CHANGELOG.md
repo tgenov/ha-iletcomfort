@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.19.0](https://github.com/tgenov/ha-iletcomfort/compare/v0.18.4...v0.19.0) (2026-11-25)
+
+
+### Features
+
+* **kjrh120l:** control Zone 1 setpoint, run mode and Zone 1 power ([#149](https://github.com/tgenov/ha-iletcomfort/issues/149)) ([52982cd](https://github.com/tgenov/ha-iletcomfort/commit/52982cd19e557669a5ea3e9738b4c0e3643b0dd3))
+
 ## [0.18.4](https://github.com/tgenov/ha-iletcomfort/compare/v0.18.3...v0.18.4) (2026-11-17)
 
 
