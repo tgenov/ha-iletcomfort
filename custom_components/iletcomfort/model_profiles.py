@@ -411,6 +411,83 @@ def atw_sensors_are_placeholder(raw_body: bytes) -> bool:
     )
 
 
+# ---------------------------------------------------------------------------
+# ATW subtype 0x10 ("unit parameters") live telemetry (issue #120)
+# ---------------------------------------------------------------------------
+#
+# Some 171H120F units (e.g. NØRDIS Optimus Pro, #120) return a schedule
+# template on subtype 0x02 but answer subtype 0x10 with live telemetry verified
+# against the physical controller's service menu (direct signed int8 °C,
+# 0x7F = sensor not connected). Other 171H120F firmwares (e.g. Rotenso #143)
+# reject 0x10 with code=1214, so polling is gated on an ATW placeholder 0x02
+# frame and self-disables on the first ApiError.
+ATW_UNIT_PARAMS_SUBTYPE = 0x10
+ATW_UNIT_PARAMS_MIN_LEN = 65
+ATW_UNIT_PARAMS_ENERGY_MIN_LEN = 71
+_ATW_UNIT_SENSOR_DISCONNECTED = 0x7F
+
+
+def _atw_unit_s8(raw_byte: int) -> float | None:
+    """Decode a signed 8-bit °C byte from ATW subtype 0x10 (0x7F = absent)."""
+    if raw_byte == _ATW_UNIT_SENSOR_DISCONNECTED:
+        return None
+    return float(raw_byte - 256 if raw_byte > 127 else raw_byte)
+
+
+def apply_atw_unit_params(
+    unit_body: bytes | bytearray,
+    status: ITSStatus,
+    sensors: ITSSensors,
+) -> tuple[ITSStatus, ITSSensors]:
+    """Overlay hardware-validated ATW subtype 0x10 telemetry onto status/sensors.
+
+    Unvalidated bytes (e.g. fan speed, low pressure, disabled sensors) are left
+    untouched. Returns inputs unchanged if ``unit_body`` is not a valid 0x10
+    payload.
+    """
+    body = bytes(unit_body)
+    if len(body) < ATW_UNIT_PARAMS_MIN_LEN or body[0] != ATW_UNIT_PARAMS_SUBTYPE:
+        return status, sensors
+
+    comp_frq = body[1]
+    status_updates: dict[str, object] = {
+        "comp_frq": comp_frq,
+        "comp_running": comp_frq > 0,
+        "exv_drg": (body[20] << 8) | body[21],
+        "pressure_h": (body[43] << 8) | body[44],
+    }
+    if len(body) >= ATW_UNIT_PARAMS_ENERGY_MIN_LEN:
+        status_updates["total_kwh"] = (
+            (body[67] << 24) | (body[68] << 16) | (body[69] << 8) | body[70]
+        )
+
+    sensor_updates: dict[str, object] = {
+        "t3_temp": _atw_unit_s8(body[7]),
+        "t4_temp": _atw_unit_s8(body[8]),
+        "tp_temp": _atw_unit_s8(body[9]),
+        "twin_temp": _atw_unit_s8(body[10]),
+        "twout_temp": _atw_unit_s8(body[11]),
+        "odu_voltage": (body[18] << 8) | body[19],
+        "t1_temp": _atw_unit_s8(body[34]),
+        "t2_temp": _atw_unit_s8(body[36]),
+        "t2b_temp": _atw_unit_s8(body[37]),
+        "dc_current": body[50],
+        "dc_voltage": body[51] * 10,
+        "tf_temp": _atw_unit_s8(body[52]),
+        "water_flow": (body[55] << 8) | body[56],
+        "raw_body": body,
+    }
+    if sensors.th_temp is None:
+        tank = _atw_unit_s8(body[38])
+        if tank is not None:
+            sensor_updates["th_temp"] = tank
+
+    return (
+        dataclasses.replace(status, **status_updates),
+        dataclasses.replace(sensors, **sensor_updates),
+    )
+
+
 def kjrh120l_has_zone1(body: bytearray | bytes) -> bool:
     """Return whether a KJRH-120L frame carries the validated Zone-1 variant."""
     return (
@@ -691,6 +768,8 @@ def apply_profile_to_sensors(
 __all__ = [
     "AQUAPURA_SN8",
     "ATW_SN8",
+    "ATW_UNIT_PARAMS_MIN_LEN",
+    "ATW_UNIT_PARAMS_SUBTYPE",
     "KJRH120L_DHW_OFF",
     "KJRH120L_DHW_ON",
     "KJRH120L_DHW_TEMP_MAX",
@@ -703,6 +782,7 @@ __all__ = [
     "KJRH120L_ZONE1_POWER_OFF",
     "KJRH120L_ZONE1_POWER_ON",
     "ModelProfile",
+    "apply_atw_unit_params",
     "apply_profile_to_sensors",
     "apply_profile_to_status",
     "atw_sensors_are_placeholder",

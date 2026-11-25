@@ -138,8 +138,15 @@ class ILetComfortClimate(CoordinatorEntity[ILetComfortCoordinator], ClimateEntit
     def current_temperature(self) -> float | None:
         if self._sensors is None:
             return None
-        # ATW exposes its meaningful current value as the DHW tank temperature.
+        # ATW exposes its meaningful current value as the DHW tank temperature,
+        # except when subtype 0x10 provides live Zone-1 water outlet telemetry
+        # (#120) or when the 0x02 frame is a non-telemetry schedule template.
         if self._profile is ModelProfile.ATW:
+            if (
+                self._sensors.raw_body[:1] == b"\x10"
+                and self._sensors.twout_temp is not None
+            ):
+                return self._sensors.twout_temp
             # The confirmed Galmet sensor template contains no Zone-1 telemetry;
             # do not relabel the separately exposed DHW tank as current water.
             if atw_sensors_are_placeholder(self._sensors.raw_body):
