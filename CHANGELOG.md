@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.20.0](https://github.com/tgenov/ha-iletcomfort/compare/v0.19.1...v0.20.0) (2026-11-25)
+
+
+### Features
+
+* **kjrh120l:** decode outdoor temperature from status body[57] ([#156](https://github.com/tgenov/ha-iletcomfort/issues/156)) ([f9cf9a3](https://github.com/tgenov/ha-iletcomfort/commit/f9cf9a3d108ebafa06397b8b26229be78dc6b9e2))
+
 ## [0.19.1](https://github.com/tgenov/ha-iletcomfort/compare/v0.19.0...v0.19.1) (2026-11-25)
 
 
