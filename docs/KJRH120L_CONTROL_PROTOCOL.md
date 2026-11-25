@@ -9,7 +9,9 @@ POST /midea/open/business/v1/appliance/control/hexadecimal
 {"applianceCode": "<code>", "command": "<hex>"}
 ```
 
-This page documents the protocol only. The integration does not send any of these frames yet.
+The confirmed group `00` writes below (`0x00`, `0x02`, `0x03`, `0x04`, `0x07`) are used by the
+integration (v0.19.0, #149); the unvalidated frames in the second table are documented only and are
+not sent by the integration.
 
 ## Evidence levels
 
