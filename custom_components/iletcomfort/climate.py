@@ -108,9 +108,12 @@ class ILetComfortClimate(CoordinatorEntity[ILetComfortCoordinator], ClimateEntit
 
     @property
     def _is_kjrh120l_dual(self) -> bool:
+        if self._profile is not ModelProfile.KJRH120L:
+            return False
+        if self.coordinator.kjrh120l_zone1_capable is True:
+            return True
         return (
-            self._profile is ModelProfile.KJRH120L
-            and self._status is not None
+            self._status is not None
             and kjrh120l_has_zone1(self._status.raw_body)
         )
 
@@ -136,8 +139,15 @@ class ILetComfortClimate(CoordinatorEntity[ILetComfortCoordinator], ClimateEntit
     def current_temperature(self) -> float | None:
         if self._sensors is None:
             return None
-        # ATW exposes its meaningful current value as the DHW tank temperature.
+        # ATW exposes its meaningful current value as the DHW tank temperature,
+        # except when subtype 0x10 provides live Zone-1 water outlet telemetry
+        # (#120) or when the 0x02 frame is a non-telemetry schedule template.
         if self._profile is ModelProfile.ATW:
+            if (
+                self._sensors.raw_body[:1] == b"\x10"
+                and self._sensors.twout_temp is not None
+            ):
+                return self._sensors.twout_temp
             # The confirmed Galmet sensor template contains no Zone-1 telemetry;
             # do not relabel the separately exposed DHW tank as current water.
             if atw_sensors_are_placeholder(self._sensors.raw_body):
@@ -178,6 +188,14 @@ class ILetComfortClimate(CoordinatorEntity[ILetComfortCoordinator], ClimateEntit
     def target_temperature(self) -> float | None:
         if self._status is None or self.hvac_mode is HVACMode.FAN_ONLY:
             return None
+        # On a latched dual KJRH-120L unit, keep showing the Zone-1 setpoint
+        # (body[12]) even when Zone 1 is switched off rather than flipping to
+        # the DHW setpoint (body[15]).
+        if (
+            self._is_kjrh120l_dual
+            and self._status.kjrh120l_zone1_setpoint is not None
+        ):
+            return self._status.kjrh120l_zone1_setpoint
         # t5s_def (d+2, offset-encoded) is the active mode setpoint.
         # set_temperature (d+4, direct) is the DHW tank target.
         if self._status.t5s_def is not None:

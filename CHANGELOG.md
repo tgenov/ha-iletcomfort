@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.21.0](https://github.com/tgenov/ha-iletcomfort/compare/v0.20.1...v0.21.0) (2026-11-25)
+
+
+### Features
+
+* **atw:** poll subtype 0x10 live telemetry when supported ([#160](https://github.com/tgenov/ha-iletcomfort/issues/160)) ([980eb6a](https://github.com/tgenov/ha-iletcomfort/commit/980eb6aecb4950bf79612f4a9c8632124c0994fc))
+
+## [0.20.1](https://github.com/tgenov/ha-iletcomfort/compare/v0.20.0...v0.20.1) (2026-11-25)
+
+
+### Bug Fixes
+
+* **kjrh120l:** keep DHW setpoint and climate consistent when Zone 1 is off ([#158](https://github.com/tgenov/ha-iletcomfort/issues/158)) ([7e8924a](https://github.com/tgenov/ha-iletcomfort/commit/7e8924a4df7e224a165782a4e1596cbf54a81b92))
+
+## [0.20.0](https://github.com/tgenov/ha-iletcomfort/compare/v0.19.1...v0.20.0) (2026-11-25)
+
+
+### Features
+
+* **kjrh120l:** decode outdoor temperature from status body[57] ([#156](https://github.com/tgenov/ha-iletcomfort/issues/156)) ([f9cf9a3](https://github.com/tgenov/ha-iletcomfort/commit/f9cf9a3d108ebafa06397b8b26229be78dc6b9e2))
+
+## [0.19.1](https://github.com/tgenov/ha-iletcomfort/compare/v0.19.0...v0.19.1) (2026-11-25)
+
+
+### Bug Fixes
+
+* suppress ATW active schedule-slot sensor frames ([#153](https://github.com/tgenov/ha-iletcomfort/issues/153)) ([cca9a2b](https://github.com/tgenov/ha-iletcomfort/commit/cca9a2bf5ef5a1d6fbe00f6f6991f1762512c185))
+
 ## [0.19.0](https://github.com/tgenov/ha-iletcomfort/compare/v0.18.4...v0.19.0) (2026-11-25)
 
 

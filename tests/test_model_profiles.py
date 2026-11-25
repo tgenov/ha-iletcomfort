@@ -146,6 +146,18 @@ ATW_TEMPLATE_SENSOR_VARIANTS = {
         "00,00,00,00,03,1e,00,00,00,00,03,1e,00,00,00,00,03,1e,00,00,"
         "00,00,03,1e,00,00,00,00,03,1e,00,00,00,00"
     ),
+    # Airwell Wellea M (#128): 38-byte schedule frame with non-zero slot mask
+    # (0x0a) and mixed 03/05 active time slots.
+    "airwell_active_schedule": _bytes(
+        "02,0a,03,28,05,00,0c,00,05,36,16,00,06,00,03,28,0c,00,10,00,"
+        "05,34,11,00,14,00,03,28,16,00,05,00,03,28,00,00,00,00"
+    ),
+    # Sinclair MSH-100IB-3/9 (#150): 38-byte schedule frame where slot 1 holds
+    # an active 05,32 window (11:00-15:00) while remaining slots are 03,28.
+    "sinclair_active_schedule": _bytes(
+        "02,00,05,32,0b,00,0f,00,03,28,12,00,16,1e,03,28,00,00,00,00,"
+        "03,28,00,00,00,00,03,28,00,00,00,00,03,28,00,00,00,00"
+    ),
 }
 
 
@@ -430,6 +442,16 @@ def test_atw_template_sensor_variants_are_unavailable(name):
         _bytes("02,00,03,1e,00,00,00,00,03,1e,00,00,00,00,03,1e,00,00,00,00"),
         # Trailing bytes that are not a whole group.
         ATW_PLACEHOLDER_SENSORS_BODY + bytes([0x03, 0x1E, 0x00]),
+        # Active schedule shape with out-of-range hour (25:00) is not a schedule.
+        _bytes(
+            "02,0a,03,28,19,00,0c,00,05,36,16,00,06,00,03,28,0c,00,10,00,"
+            "05,34,11,00,14,00,03,28,16,00,05,00,03,28,00,00,00,00"
+        ),
+        # Slot mask byte above the 6-slot range (0x40).
+        _bytes(
+            "02,40,03,28,05,00,0c,00,05,36,16,00,06,00,03,28,0c,00,10,00,"
+            "05,34,11,00,14,00,03,28,16,00,05,00,03,28,00,00,00,00"
+        ),
     ],
 )
 def test_atw_sensor_frames_outside_template_shape_are_preserved(body):
@@ -712,19 +734,20 @@ def test_kjrh120l_climate_target_temperature_shows_setpoint():
     assert target == 60.0
 
 
-def test_kjrh120l_sensors_temps_suppressed():
-    """All temperature fields are suppressed (None) — water/outdoor not in API.
+def test_kjrh120l_sensors_temps_suppressed_except_confirmed_outdoor():
+    """Unmapped sensors-frame temps stay None while body[57] surfaces t4_temp.
 
-    The sensors frame is static/cached and carries no live temps; the STANDARD
-    decode would emit a misleading constant -35 for every temp. The KJRH profile
-    nulls them so HA shows them unavailable instead of wrong.
+    The 0x02 sensors frame is static/cached, so its fields are suppressed; the
+    confirmed outdoor ambient temperature from status body[57] (raw - 196;
+    #148/#142/#136/#119) is routed into ``t4_temp``.
     """
     sensors = decode_its_sensors(KJRH120L_SENSORS_BODY)
     status = decode_kjrh120l_status(KJRH120L_STATUS_BODY)
     out = apply_profile_to_sensors(ModelProfile.KJRH120L, sensors, status)
 
     assert out.t3_temp is None
-    assert out.t4_temp is None
+    # KJRH120L_STATUS_BODY[57] = 0xe7 (231) → 231 - 196 = 35.0 °C
+    assert out.t4_temp == 35.0
     assert out.t2_temp is None
     assert out.t2b_temp is None
     assert out.twin_temp is None
@@ -732,6 +755,41 @@ def test_kjrh120l_sensors_temps_suppressed():
     assert out.t1_temp is None
     # raw_body preserved.
     assert out.raw_body == sensors.raw_body
+
+
+@pytest.mark.parametrize(
+    ("raw_t4", "expected"),
+    [
+        (0xD0, 12.0),  # #148 Snapshot A (fullQuery t4=12)
+        (0xCC, 8.0),   # #148 Snapshot B (fullQuery t4=8)
+        (0xCE, 10.0),  # #142 Inventor MX290-10S & #136 Mundoclima (app 10 °C)
+        (0xCD, 9.0),   # #119 Airwell Wellea 07:12
+        (0xD9, 21.0),  # #119 Airwell Wellea 10:25
+        (0xBF, -5.0),  # sub-zero outdoor temp (-5 °C)
+        (0xFF, None),  # disconnected/fill sentinel
+        (0x00, None),  # zero-fill outside plausible range
+    ],
+)
+def test_kjrh120l_outdoor_temp_from_status_body57(raw_t4, expected):
+    body = bytearray(KJRH120L_STATUS_BODY)
+    body[57] = raw_t4
+    status = decode_kjrh120l_status(bytes(body))
+    sensors = apply_profile_to_sensors(
+        ModelProfile.KJRH120L, decode_its_sensors(KJRH120L_SENSORS_BODY), status
+    )
+
+    assert status.kjrh120l_outdoor_temp == expected
+    assert sensors.t4_temp == expected
+
+
+def test_kjrh120l_short_status_leaves_outdoor_temp_none():
+    status = decode_kjrh120l_status(KJRH120L_STATUS_BODY[:57])
+    sensors = apply_profile_to_sensors(
+        ModelProfile.KJRH120L, decode_its_sensors(KJRH120L_SENSORS_BODY), status
+    )
+
+    assert status.kjrh120l_outdoor_temp is None
+    assert sensors.t4_temp is None
 
 
 # ---------------------------------------------------------------------------

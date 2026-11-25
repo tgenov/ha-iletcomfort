@@ -309,6 +309,8 @@ class ITSStatus:
     kjrh120l_zone1_heat_min: int | None = None  # body[38]
     kjrh120l_zone1_cool_max: int | None = None  # body[39]
     kjrh120l_zone1_cool_min: int | None = None  # body[40]
+    # KJRH-120L outdoor ambient temp (status body[57] - 196; #148/#142/#136/#119).
+    kjrh120l_outdoor_temp: float | None = None
     # Standard Midea C3 basic status (``c3_basic.C3BasicStatus``) when an ATW
     # (sn8 171H120F) status frame matches that layout; None otherwise.
     c3_basic: Any = None
@@ -828,6 +830,22 @@ class ILetComfortClient:
                 f"unsupported. Raw: {response_hex}"
             )
         return decode_its_sensors(body)
+
+    def query_atw_unit_params(self, appliance_code: str) -> bytes:
+        """Query ATW subtype 0x10 unit parameters for live telemetry (#120)."""
+        from .model_profiles import ATW_UNIT_PARAMS_MIN_LEN, ATW_UNIT_PARAMS_SUBTYPE
+
+        command = build_c3_query(ATW_UNIT_PARAMS_SUBTYPE)
+        response_hex = self.send_hex_command(appliance_code, command)
+        _LOGGER.debug("query_atw_unit_params raw response: %s", response_hex)
+        raw = parse_hex_response(response_hex)
+        body_type, body = extract_c3_body(raw)
+        if body_type != ATW_UNIT_PARAMS_SUBTYPE or len(body) < ATW_UNIT_PARAMS_MIN_LEN:
+            raise ApiError(
+                f"ATW unit_params (0x10) returned unexpected or truncated frame "
+                f"(type=0x{body_type:02x}, {len(body)} body bytes)"
+            )
+        return bytes(body)
 
     def set_device(
         self,
