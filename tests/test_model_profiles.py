@@ -146,6 +146,18 @@ ATW_TEMPLATE_SENSOR_VARIANTS = {
         "00,00,00,00,03,1e,00,00,00,00,03,1e,00,00,00,00,03,1e,00,00,"
         "00,00,03,1e,00,00,00,00,03,1e,00,00,00,00"
     ),
+    # Airwell Wellea M (#128): 38-byte schedule frame with non-zero slot mask
+    # (0x0a) and mixed 03/05 active time slots.
+    "airwell_active_schedule": _bytes(
+        "02,0a,03,28,05,00,0c,00,05,36,16,00,06,00,03,28,0c,00,10,00,"
+        "05,34,11,00,14,00,03,28,16,00,05,00,03,28,00,00,00,00"
+    ),
+    # Sinclair MSH-100IB-3/9 (#150): 38-byte schedule frame where slot 1 holds
+    # an active 05,32 window (11:00-15:00) while remaining slots are 03,28.
+    "sinclair_active_schedule": _bytes(
+        "02,00,05,32,0b,00,0f,00,03,28,12,00,16,1e,03,28,00,00,00,00,"
+        "03,28,00,00,00,00,03,28,00,00,00,00,03,28,00,00,00,00"
+    ),
 }
 
 
@@ -411,6 +423,16 @@ def test_atw_template_sensor_variants_are_unavailable(name):
         _bytes("02,00,03,1e,00,00,00,00,03,1e,00,00,00,00,03,1e,00,00,00,00"),
         # Trailing bytes that are not a whole group.
         ATW_PLACEHOLDER_SENSORS_BODY + bytes([0x03, 0x1E, 0x00]),
+        # Active schedule shape with out-of-range hour (25:00) is not a schedule.
+        _bytes(
+            "02,0a,03,28,19,00,0c,00,05,36,16,00,06,00,03,28,0c,00,10,00,"
+            "05,34,11,00,14,00,03,28,16,00,05,00,03,28,00,00,00,00"
+        ),
+        # Slot mask byte above the 6-slot range (0x40).
+        _bytes(
+            "02,40,03,28,05,00,0c,00,05,36,16,00,06,00,03,28,0c,00,10,00,"
+            "05,34,11,00,14,00,03,28,16,00,05,00,03,28,00,00,00,00"
+        ),
     ],
 )
 def test_atw_sensor_frames_outside_template_shape_are_preserved(body):
