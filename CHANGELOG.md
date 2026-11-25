@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.22.0](https://github.com/tgenov/ha-iletcomfort/compare/v0.21.0...v0.22.0) (2026-11-25)
+
+
+### Features
+
+* decode the C3 basic layout of 171H120F units ([#124](https://github.com/tgenov/ha-iletcomfort/issues/124)) ([#146](https://github.com/tgenov/ha-iletcomfort/issues/146)) ([cd3f759](https://github.com/tgenov/ha-iletcomfort/commit/cd3f759cbc8fcc70d5acf70f0c7661c37167066e))
+
 ## [0.21.0](https://github.com/tgenov/ha-iletcomfort/compare/v0.20.1...v0.21.0) (2026-11-25)
 
 
