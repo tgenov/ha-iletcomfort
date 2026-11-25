@@ -278,6 +278,13 @@ KJRH120L_ZONE1_HEAT_MAX_INDEX = 37
 KJRH120L_ZONE1_HEAT_MIN_INDEX = 38
 KJRH120L_ZONE1_COOL_MAX_INDEX = 39
 KJRH120L_ZONE1_COOL_MIN_INDEX = 40
+# Outdoor ambient temperature (T4) in status subtype 0x01: raw = T4 + 196.
+# Confirmed across four independent units (#148 Snapshots A/B: 12/8 °C,
+# #142: 10 °C, #136: 10 °C, plus #119 diurnal 9→21 °C). 0xFF is sentinel fill.
+KJRH120L_OUTDOOR_TEMP_INDEX = 57
+KJRH120L_OUTDOOR_TEMP_OFFSET = 196
+KJRH120L_OUTDOOR_TEMP_MIN = -50
+KJRH120L_OUTDOOR_TEMP_MAX = 58
 _KJRH120L_MODES = {0: "Off", 1: "Heat", 2: "Cool", 3: "Auto", 4: "Water Pump"}
 
 # Temperature fields suppressed for the KJRH-120L (not exposed by its API).
@@ -482,6 +489,12 @@ def _decode_kjrh120l_zone1(status: ITSStatus, body: bytearray | bytes) -> None:
         status.kjrh120l_zone1_heat_min = body[KJRH120L_ZONE1_HEAT_MIN_INDEX]
         status.kjrh120l_zone1_cool_max = body[KJRH120L_ZONE1_COOL_MAX_INDEX]
         status.kjrh120l_zone1_cool_min = body[KJRH120L_ZONE1_COOL_MIN_INDEX]
+    if body_len > KJRH120L_OUTDOOR_TEMP_INDEX:
+        raw_t4 = body[KJRH120L_OUTDOOR_TEMP_INDEX]
+        if raw_t4 != 0xFF:
+            t4 = raw_t4 - KJRH120L_OUTDOOR_TEMP_OFFSET
+            if KJRH120L_OUTDOOR_TEMP_MIN <= t4 <= KJRH120L_OUTDOOR_TEMP_MAX:
+                status.kjrh120l_outdoor_temp = float(t4)
 
 
 # ---------------------------------------------------------------------------
@@ -661,7 +674,10 @@ def apply_profile_to_sensors(
       decode would produce (issues #21 / #5).
     """
     if profile is ModelProfile.KJRH120L:
-        return dataclasses.replace(sensors, **_KJRH120L_SUPPRESSED_TEMPS)
+        overrides = dict(_KJRH120L_SUPPRESSED_TEMPS)
+        if status is not None and status.kjrh120l_outdoor_temp is not None:
+            overrides["t4_temp"] = status.kjrh120l_outdoor_temp
+        return dataclasses.replace(sensors, **overrides)
     if profile in (ModelProfile.ATW, ModelProfile.AQUAPURA):
         if profile is ModelProfile.ATW and atw_sensors_are_placeholder(
             sensors.raw_body,

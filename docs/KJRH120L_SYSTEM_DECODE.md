@@ -53,12 +53,14 @@ as pure DHW whenever Zone 1 is off. The pure-DHW frames from issue #5 in the tes
 `body[8:10] == 00 00`, `body[11] == 03`, `body[12] == 0x41` and the same limit bytes. Whether that
 hardware lacks a zone or had it switched off is not known.
 
-### Tank and outdoor temperature (candidates)
+### Tank and outdoor temperature
 
-Both snapshots fit these two relations. Two samples each is not enough to call them decoded.
-
-- `body[49]` equals `tank_actual_temp` + 196 (238 with tank 42, 240 with tank 44).
-- `body[57]` equals `t4` + 196 (208 with t4 12, 204 with t4 8).
+- **`body[57]` = `t4` + 196 (confirmed across four independent units):** Snapshot A (`0xd0` = 208 →
+  12 °C), Snapshot B (`0xcc` = 204 → 8 °C), #142 Inventor MX290-10S (`0xce` = 206 → 10 °C), and
+  #136 Mundoclima MUAMR-H14 (`0xce` = 206 → 10 °C), plus diurnal warming in #119 (`0xcd` → 9 °C to
+  `0xd9` → 21 °C). Decoded into `t4_temp` (Outdoor Ambient Temperature) by the integration.
+- **`body[49]` = `tank_actual_temp` + 196 (candidate only):** matches Snapshots A/B (238 → 42 °C,
+  240 → 44 °C), but issue #5's frame carries `0x13` (19) at `body[49]`, so it is not decoded yet.
 
 The older note that the tank temperature sits at `body[233]` of subtype 0x10 is retracted. That byte
 was 78 in both snapshots while the tank went from 42 to 44.
