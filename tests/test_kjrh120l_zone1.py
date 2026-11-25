@@ -401,6 +401,15 @@ async def test_latched_unit_restarting_with_zone_off_keeps_entities_available(
     assert hass.states.get(ids["APPL1_kjrh120l_zone1_setpoint"]).state == "37.0"
     assert hass.states.get(ids["APPL1_kjrh120l_mode"]).state == "heat"
 
+    # DHW setpoint number and read-only climate stay consistent when Zone 1 is off.
+    registry = er.async_get(hass)
+    dhw_id = registry.async_get_entity_id("number", DOMAIN, "APPL1_kjrh120l_dhw_setpoint")
+    assert dhw_id is not None
+    assert hass.states.get(dhw_id).state == "35.0"
+    climate_id = registry.async_get_entity_id("climate", DOMAIN, "APPL1_climate")
+    climate_state = hass.states.get(climate_id)
+    assert climate_state.attributes["supported_features"] == 0
+
 
 async def test_zone_switched_off_after_setup_keeps_entities_available(
     hass: HomeAssistant, mock_client
@@ -417,6 +426,25 @@ async def test_zone_switched_off_after_setup_keeps_entities_available(
     assert hass.states.get(ids["APPL1_kjrh120l_zone1_power"]).state == STATE_OFF
     assert hass.states.get(ids["APPL1_kjrh120l_zone1_setpoint"]).state == "37.0"
     assert entry.data[CONF_KJRH120L_ZONE1_CAPABLE] is True
+
+    registry = er.async_get(hass)
+    dhw_id = registry.async_get_entity_id("number", DOMAIN, "APPL1_kjrh120l_dhw_setpoint")
+    assert dhw_id is not None
+    assert hass.states.get(dhw_id).state == "35.0"
+    climate_id = registry.async_get_entity_id("climate", DOMAIN, "APPL1_climate")
+    climate_state = hass.states.get(climate_id)
+    assert climate_state.attributes["supported_features"] == 0
+
+
+def test_latched_dual_climate_keeps_zone1_target_when_zone_off():
+    from custom_components.iletcomfort.climate import ILetComfortClimate
+
+    coord = _coordinator(KJRH120L_SNAPSHOT_B)
+    coord.kjrh120l_zone1_capable = True
+    entity = ILetComfortClimate(coord)
+
+    assert entity.supported_features == 0
+    assert entity.target_temperature == 37.0
 
 
 async def test_late_capability_adds_entities_without_reload(

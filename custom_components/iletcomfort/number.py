@@ -34,6 +34,8 @@ from .model_profiles import (
 def _is_kjrh120l_dual(coordinator: ILetComfortCoordinator) -> bool:
     if resolve_profile(coordinator.sn8) is not ModelProfile.KJRH120L:
         return False
+    if coordinator.kjrh120l_zone1_capable is True:
+        return True
     status = (coordinator.data or {}).get("status")
     return bool(status and kjrh120l_has_zone1(status.raw_body))
 
@@ -43,19 +45,21 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Create a DHW control only for the validated dual KJRH-120L variant.
+    """Create DHW and Zone 1 controls for the latched dual KJRH-120L variant.
 
-    The Zone 1 target follows the latched Zone 1 capability instead, see
-    ``async_add_kjrh120l_zone1_entities``.
+    Both entities follow the latched Zone 1 capability (see
+    ``async_add_kjrh120l_zone1_entities``) so they stay available across Zone 1
+    off states and restarts while leaving pure-DHW #5 units untouched.
     """
     coordinator: ILetComfortCoordinator = hass.data[DOMAIN][entry.entry_id]
-    if _is_kjrh120l_dual(coordinator):
-        async_add_entities([ILetComfortKjrh120lDhwSetpoint(coordinator)])
     async_add_kjrh120l_zone1_entities(
         coordinator,
         entry,
         async_add_entities,
-        lambda: [ILetComfortKjrh120lZone1Setpoint(coordinator)],
+        lambda: [
+            ILetComfortKjrh120lDhwSetpoint(coordinator),
+            ILetComfortKjrh120lZone1Setpoint(coordinator),
+        ],
     )
 
 
@@ -81,7 +85,14 @@ class ILetComfortKjrh120lDhwSetpoint(
     @property
     def native_value(self) -> float | None:
         status = (self.coordinator.data or {}).get("status")
-        return status.kjrh120l_dhw_setpoint if status else None
+        if status is None:
+            return None
+        if status.kjrh120l_dhw_setpoint is not None:
+            return status.kjrh120l_dhw_setpoint
+        # When Zone 1 is off (body[8:10] == 00 00), decode_kjrh120l_status
+        # leaves body[15] (the DHW setpoint) in t5s_def so pure-DHW units
+        # keep their existing single-setpoint behavior.
+        return status.t5s_def
 
     async def async_set_native_value(self, value: float) -> None:
         clamped = max(
