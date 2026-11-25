@@ -45,9 +45,12 @@ from .const import (
     MQTT_STATUS_STALE_AFTER,
 )
 from .model_profiles import (
+    ATW_UNIT_PARAMS_MIN_LEN,
     ModelProfile,
+    apply_atw_unit_params,
     apply_profile_to_sensors,
     apply_profile_to_status,
+    atw_sensors_are_placeholder,
     kjrh120l_has_zone1,
     resolve_profile,
 )
@@ -128,6 +131,9 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._repair_issued = False
         self._last_push_status_at: float | None = None
         self._push_status_watchdog: Callable[[], None] | None = None
+        # ATW subtype 0x10 live-telemetry probe state (#120): None=untested,
+        # True=supported, False=rejected/unsupported for this session.
+        self._atw_unit_params_supported: bool | None = None
 
     @property
     def last_on_state(self) -> tuple[int, int] | None:
@@ -242,6 +248,7 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # They cannot be used as fallback for the newly discovered model.
             self.data = None
             self._last_on_state = None
+            self._atw_unit_params_supported = None
         cached = self.data or {}
         sn8 = self.sn8
 
@@ -331,9 +338,43 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._last_on_state = (set_mode, temp)
 
         # Apply any model-specific sensors override (e.g. ATW/AQUAPURA route a
-        # tank/water temp into twin_temp, the field the climate
-        # current_temperature and Water Inlet sensor read). STANDARD is a no-op.
-        sensors = apply_profile_to_sensors(resolve_profile(sn8), sensors, status)
+        # tank/water temp into th_temp). STANDARD is a no-op.
+        profile = resolve_profile(sn8)
+        sensors = apply_profile_to_sensors(profile, sensors, status)
+
+        # On ATW (171H120F) units whose 0x02 frame is a non-telemetry schedule
+        # template, probe subtype 0x10 once for live telemetry (#120). Units
+        # that reject 0x10 (e.g. code=1214 on Rotenso) latch unsupported and
+        # keep the placeholder-suppressed sensors without extra cloud traffic.
+        if (
+            profile is ModelProfile.ATW
+            and atw_sensors_are_placeholder(sensors.raw_body)
+            and self._atw_unit_params_supported is not False
+        ):
+            try:
+                unit_body = await self.hass.async_add_executor_job(
+                    self.client.query_atw_unit_params, self.appliance_code,
+                )
+            except AuthError:
+                raise
+            except ApiError as err:
+                self._atw_unit_params_supported = False
+                _LOGGER.info(
+                    "ATW subtype 0x10 unit parameters not supported (%s); "
+                    "disabling 0x10 telemetry polling for this session",
+                    err,
+                )
+            except Exception as err:  # noqa: BLE001 — transient error, retry later
+                _LOGGER.debug("ATW subtype 0x10 query failed: %s", err)
+            else:
+                if (
+                    isinstance(unit_body, (bytes, bytearray))
+                    and len(unit_body) >= ATW_UNIT_PARAMS_MIN_LEN
+                ):
+                    self._atw_unit_params_supported = True
+                    status, sensors = apply_atw_unit_params(
+                        unit_body, status, sensors
+                    )
 
         self._update_offline_repair()
         self._observe_kjrh120l_zone1(status)
