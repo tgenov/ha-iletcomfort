@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.20.1](https://github.com/tgenov/ha-iletcomfort/compare/v0.20.0...v0.20.1) (2026-11-25)
+
+
+### Bug Fixes
+
+* **kjrh120l:** keep DHW setpoint and climate consistent when Zone 1 is off ([#158](https://github.com/tgenov/ha-iletcomfort/issues/158)) ([7e8924a](https://github.com/tgenov/ha-iletcomfort/commit/7e8924a4df7e224a165782a4e1596cbf54a81b92))
+
 ## [0.20.0](https://github.com/tgenov/ha-iletcomfort/compare/v0.19.1...v0.20.0) (2026-11-25)
 
 
