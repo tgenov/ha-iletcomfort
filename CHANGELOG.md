@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.19.1](https://github.com/tgenov/ha-iletcomfort/compare/v0.19.0...v0.19.1) (2026-11-25)
+
+
+### Bug Fixes
+
+* suppress ATW active schedule-slot sensor frames ([#153](https://github.com/tgenov/ha-iletcomfort/issues/153)) ([cca9a2b](https://github.com/tgenov/ha-iletcomfort/commit/cca9a2bf5ef5a1d6fbe00f6f6991f1762512c185))
+
 ## [0.19.0](https://github.com/tgenov/ha-iletcomfort/compare/v0.18.4...v0.19.0) (2026-11-25)
 
 
