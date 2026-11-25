@@ -303,6 +303,8 @@ class ITSStatus:
     kjrh120l_zone1_heat_min: int | None = None  # body[38]
     kjrh120l_zone1_cool_max: int | None = None  # body[39]
     kjrh120l_zone1_cool_min: int | None = None  # body[40]
+    # KJRH-120L outdoor ambient temp (status body[57] - 196; #148/#142/#136/#119).
+    kjrh120l_outdoor_temp: float | None = None
     raw_body: bytes = field(default_factory=bytes, repr=False)
 
 
