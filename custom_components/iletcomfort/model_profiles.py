@@ -168,11 +168,13 @@ def decode_atw_status(body: bytearray | bytes) -> ITSStatus:
     """
     status = ITSStatus()
     status.raw_body = bytes(body)
-    # ATW subtype 0x01 never carries cumulative energy or compressor run hours
-    # (those come from 0x10 / 0x0A). Keeping them None avoids reporting a bogus
-    # 0 kWh / 0 h that would reset HA TOTAL_INCREASING statistics (#118).
+    # ATW subtype 0x01 never carries cumulative energy, compressor run hours,
+    # or refrigerant pressures (those come from 0x10 / 0x0A). Keeping them None
+    # avoids reporting bogus 0s or resetting HA TOTAL_INCREASING stats (#118/#134).
     status.total_kwh = None
     status.comp_total_run_hours = None
+    status.pressure_h = None
+    status.pressure_l = None
     body_len = len(body)
 
     # Defensive: a frame too short to carry the confirmed fields decodes to an
@@ -596,6 +598,47 @@ def apply_atw_eco(
     )
 
 
+# ---------------------------------------------------------------------------
+# ATW MQTT unsolicited subtype 0x04 ("C3EnergyBody", issue #129)
+# ---------------------------------------------------------------------------
+#
+# Hyundai ATW (sn8 171H120F, #129) pushes unsolicited 0x04 notify1 frames over
+# MQTT matching midea-local's C3EnergyBody (data_offset=1):
+#   body[1]: status flags (0x01 heating, 0x02 cooling, 0x04 dhw, 0x08 tbh, 0x10 ibh)
+#   body[2..5]: total_kwh (uint32 BE)
+#   body[6..9]: total_thermal_kwh (uint32 BE)
+#   body[10]: outdoor ambient temp t4_temp (int8 °C, 0x7F = disconnected)
+ATW_ENERGY_NOTIFY_SUBTYPE = 0x04
+ATW_ENERGY_NOTIFY_MIN_LEN = 11
+
+
+def apply_atw_energy_notify(
+    energy_body: bytes | bytearray,
+    status: ITSStatus,
+    sensors: ITSSensors | None,
+) -> tuple[ITSStatus, ITSSensors | None]:
+    """Overlay verified ATW MQTT 0x04 (C3EnergyBody) fields onto status/sensors."""
+    body = bytes(energy_body)
+    if len(body) < ATW_ENERGY_NOTIFY_MIN_LEN or body[0] != ATW_ENERGY_NOTIFY_SUBTYPE:
+        return status, sensors
+
+    status_updates: dict[str, Any] = {}
+    total_kwh = (body[2] << 24) | (body[3] << 16) | (body[4] << 8) | body[5]
+    if 0 < total_kwh < 0xFFFFFFFF:
+        status_updates["total_kwh"] = total_kwh
+    total_thermal = (body[6] << 24) | (body[7] << 16) | (body[8] << 8) | body[9]
+    if 0 < total_thermal < 0xFFFFFFFF:
+        status_updates["total_thermal_kwh"] = total_thermal
+    if status_updates:
+        status = dataclasses.replace(status, **status_updates)
+
+    outdoor = _atw_unit_s8(body[10])
+    if sensors is not None and outdoor is not None:
+        sensors = dataclasses.replace(sensors, t4_temp=outdoor)
+
+    return status, sensors
+
+
 def atw_c3_basic(sn8: str | None, status: ITSStatus | None) -> C3BasicStatus | None:
     """Return the decoded C3 basic status for an ATW unit, else None.
 
@@ -634,6 +677,8 @@ def decode_kjrh120l_status(body: bytearray | bytes) -> ITSStatus:
     status.comp_running = False
     status.total_kwh = None
     status.comp_total_run_hours = None
+    status.pressure_h = None
+    status.pressure_l = None
 
     # Power state from body[10]: 0 → Off, non-zero → On. When On we report mode 1
     # ("Heat") so the climate entity resolves a non-off hvac_mode (HVACMode.HEAT)

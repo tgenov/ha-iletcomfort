@@ -396,3 +396,147 @@ async def test_successful_certificate_renewal_retires_old_transport_and_files(
     assert not os.path.exists(old_tmpdir)
     assert client._renewal_handle is not None
     await client.async_stop()
+
+
+# Real Hyundai ATW (sn8 171H120F, #129) unsolicited MQTT 0x04 C3EnergyBody push.
+HYUNDAI_MQTT_0X04_HEX = (
+    "aab9c30000000000000404010000372e00007db5002f1e3230ffff01"
+    + "00" * 145
+    + "e80000000000000000000000000000001e000030"
+)
+
+
+def test_decode_push_energy_payload_hyundai_issue129():
+    from custom_components.iletcomfort.mqtt import decode_push_energy_payload
+
+    payload = json.dumps(
+        {"messageType": "status", "data": {"commandHex": HYUNDAI_MQTT_0X04_HEX}}
+    )
+    assert decode_push_payload(payload) is None
+    body = decode_push_energy_payload(payload)
+    assert body is not None
+    assert body[0] == 0x04
+    assert body[1] == 0x01
+    assert int.from_bytes(body[2:6], "big") == 14126
+    assert int.from_bytes(body[6:10], "big") == 32181
+    assert body[10] == 0x00
+
+
+async def test_push_client_dispatches_0x04_energy_callback(hass, fake_paho):
+    received_energy: list[bytes] = []
+    api = MagicMock()
+    api.create_app_cert.return_value = _cert()
+    client = ILetComfortPushClient(
+        hass,
+        api,
+        region="eu",
+        appliance_code="APPL1",
+        on_status=lambda *_: None,
+        on_energy=received_energy.append,
+        on_connected_change=lambda *_: None,
+    )
+    await client.async_start()
+
+    msg = MagicMock()
+    msg.payload = json.dumps(
+        {"messageType": "status", "data": {"commandHex": HYUNDAI_MQTT_0X04_HEX}}
+    ).encode()
+    client._on_message(client._mqtt, None, msg)
+
+    assert len(received_energy) == 1
+    assert received_energy[0][0] == 0x04
+    await client.async_stop()
+
+
+async def test_coordinator_apply_push_energy_refreshes_watchdog_and_overlays_atw(
+    hass,
+):
+    from custom_components.iletcomfort.api import ITSSensors
+    from custom_components.iletcomfort.const import (
+        CONF_APPLIANCE_CODE,
+        CONF_OPERATION_MODE,
+        CONF_REGION,
+        DOMAIN,
+        OPERATION_MODE_PHONE_APP,
+        REGION_EU,
+    )
+    from custom_components.iletcomfort.coordinator import ILetComfortCoordinator
+    from custom_components.iletcomfort.model_profiles import ATW_SN8, decode_atw_status
+    from custom_components.iletcomfort.mqtt import decode_push_energy_payload
+    from custom_components.iletcomfort.sensor import SENSOR_DESCRIPTIONS
+    from unittest.mock import patch
+
+    from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_EMAIL: "u@example.com",
+            CONF_PASSWORD: "p",
+            CONF_APPLIANCE_CODE: "APPL1",
+            CONF_REGION: REGION_EU,
+        },
+        options={CONF_OPERATION_MODE: OPERATION_MODE_PHONE_APP},
+        version=2,
+    )
+    entry.add_to_hass(hass)
+    with patch("custom_components.iletcomfort.coordinator.ILetComfortClient"):
+        coord = ILetComfortCoordinator(hass, entry)
+
+    coord.appliance_meta = {"sn8": ATW_SN8}
+    initial_status = decode_atw_status(
+        bytes.fromhex(
+            "01 0d 15 90 03 03 28 1e 32 30 41 23 19 05 37 19 19 05 3c 22 3c 14 32 00 80"
+        )
+    )
+    coord.data = {
+        "status": initial_status,
+        "sensors": ITSSensors(),
+        "raw_frames": {0x01: initial_status.raw_body},
+    }
+
+    energy_body = decode_push_energy_payload(
+        json.dumps({"messageType": "status", "data": {"commandHex": HYUNDAI_MQTT_0X04_HEX}})
+    )
+    assert energy_body is not None
+    coord._apply_push_energy(energy_body)
+
+    assert coord._last_push_status_at is not None
+    assert coord._push_status_watchdog is not None
+    assert coord.data["status"].total_kwh == 14126
+    assert coord.data["status"].total_thermal_kwh == 32181
+    assert coord.data["sensors"].t4_temp == 0.0
+    assert 0x04 in coord.data["raw_frames"]
+
+    by_key = {desc.key: desc for desc in SENSOR_DESCRIPTIONS}
+    assert by_key["total_thermal_energy"].value_fn(coord.data) == 32181
+
+    # A subsequent 0x01 status push must NOT clobber 0x04 energy fields back to None.
+    next_0x01 = decode_atw_status(
+        bytes.fromhex(
+            "01 0c 15 90 03 03 28 1e 32 30 41 23 19 05 37 19 19 05 3c 22 3c 14 32 00 80"
+        )
+    )
+    coord._apply_push_status(next_0x01)
+    assert coord.data["status"].total_kwh == 14126
+    assert coord.data["status"].total_thermal_kwh == 32181
+    assert coord.data["sensors"].t4_temp == 0.0
+
+    # Negative outdoor temp (0xFB -> -5.0 °C) and 0x7F disconnected sentinel / 0xFFFFFFFF guard.
+    neg_body = bytearray(energy_body)
+    neg_body[10] = 0xFB
+    coord._apply_push_energy(bytes(neg_body))
+    assert coord.data["sensors"].t4_temp == -5.0
+
+    sentinel_body = bytearray(energy_body)
+    sentinel_body[2:6] = b"\xff\xff\xff\xff"
+    sentinel_body[6:10] = b"\x00\x00\x00\x00"
+    sentinel_body[10] = 0x7F
+    coord._apply_push_energy(bytes(sentinel_body))
+    assert coord.data["status"].total_kwh == 14126
+    assert coord.data["status"].total_thermal_kwh == 32181
+    assert coord.data["sensors"].t4_temp == -5.0
+
+    coord._cancel_push_status_watchdog()
+    await coord.async_shutdown()

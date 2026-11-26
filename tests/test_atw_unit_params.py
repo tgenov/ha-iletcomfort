@@ -412,11 +412,13 @@ async def test_coordinator_transient_api_error_after_0x10_supported_retries_next
 
 
 def test_atw_status_without_0x10_leaves_cumulative_counters_none():
-    """ATW 0x01 never carries energy or run hours; never emit a fake 0 (#118)."""
+    """ATW 0x01 never carries energy, run hours, or pressures; never emit a fake 0 (#118/#134)."""
     st = decode_atw_status(NORDIS_ATW_STATUS_FRAMES["issue132"])
     assert st.total_kwh is None
     assert st.total_thermal_kwh is None
     assert st.comp_total_run_hours is None
+    assert st.pressure_h is None
+    assert st.pressure_l is None
 
 
 def test_galmet_issue118_0x10_decodes_total_thermal_energy_and_sensor():

@@ -72,6 +72,24 @@ def _atw_0x10_s(attr: str) -> Callable[[dict[str, Any]], Any]:
     return _get
 
 
+def _has_atw_energy_frame(data: dict[str, Any]) -> bool:
+    """Return True when ATW 0x10 or MQTT 0x04 energy telemetry populated this snapshot."""
+    if _has_atw_0x10(data):
+        return True
+    raw_frames = data.get("raw_frames")
+    return isinstance(raw_frames, dict) and 0x04 in raw_frames
+
+
+def _atw_energy_st(attr: str) -> Callable[[dict[str, Any]], Any]:
+    """Read a status energy field when ATW 0x10 or MQTT 0x04 telemetry is present."""
+    def _get(data: dict[str, Any]) -> Any:
+        if not _has_atw_energy_frame(data):
+            return None
+        status = data.get("status")
+        return getattr(status, attr, None) if status is not None else None
+    return _get
+
+
 def _atw_0x10_st(attr: str) -> Callable[[dict[str, Any]], Any]:
     """Read a status field only when ATW 0x10 telemetry is present."""
     def _get(data: dict[str, Any]) -> Any:
@@ -266,7 +284,7 @@ SENSOR_DESCRIPTIONS: tuple[ILetComfortSensorDescription, ...] = (
         device_class=SensorDeviceClass.ENERGY,
         state_class=SensorStateClass.TOTAL_INCREASING,
         entity_registry_enabled_default=False,
-        value_fn=_atw_0x10_st("total_thermal_kwh"),
+        value_fn=_atw_energy_st("total_thermal_kwh"),
     ),
 )
 

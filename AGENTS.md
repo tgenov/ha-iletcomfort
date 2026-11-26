@@ -191,7 +191,7 @@ Status `raw_body` (0-indexed; STANDARD misreads this 25-byte frame):
   `MessageSetSilent`). Treat `midea-local` as the candidate byte map and still verify against at
   least one real Dollin hardware capture before shipping.
 
-### `171H120F` control: standard Midea C3 SET — hardware-validated on one Rotenso Aquami, opt-in
+### `171H120F` control: standard Midea C3 SET — hardware-validated on Rotenso Aquami (water) & Heiwa (#42, room), opt-in
 - **Writes work with the standard Midea C3 SET**, not the 62-byte ITS frame (`build_c3_set`, `1214`):
   `c3_frame.build_c3_frame` (same AA header as the query), message type `0x02`, body `01 [power]
   [mode] [z1] [z2] [dhw] [room×2] [curve flags]`, direct °C (no +35). Accepted with `code=0`; the

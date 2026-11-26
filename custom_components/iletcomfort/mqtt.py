@@ -47,6 +47,7 @@ from .api import (
     mask_identifier,
     parse_hex_response,
 )
+from .model_profiles import ATW_ENERGY_NOTIFY_MIN_LEN, ATW_ENERGY_NOTIFY_SUBTYPE
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -56,6 +57,7 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 StatusCallback = Callable[[ITSStatus], None]
+EnergyCallback = Callable[[bytes], None]
 ConnectedCallback = Callable[[bool], None]
 CertificateProvider = Callable[[], Awaitable[AppCert]]
 
@@ -86,14 +88,8 @@ def push_topics(region: str, appliance_code: str) -> list[str]:
     return [f"{region}/midea/dev/{appliance_code}"]
 
 
-def decode_push_payload(payload: str) -> ITSStatus | None:
-    """Decode a ``dev`` push payload into an :class:`ITSStatus`, or None.
-
-    Returns None (rather than raising) for anything that isn't a decodable C3
-    status message, so a malformed or non-status push can't break the listener.
-    Profile-specific re-decoding (ATW/KJRH-120L/AQUAPURA) is applied by the
-    caller, which knows the appliance's sn8.
-    """
+def _extract_push_frame(payload: str) -> tuple[int, bytearray] | None:
+    """Parse a ``dev`` JSON push payload into ``(subtype, body)``, or None."""
     try:
         message = json.loads(payload)
     except (ValueError, TypeError):
@@ -110,17 +106,40 @@ def decode_push_payload(payload: str) -> ITSStatus | None:
         return None
     try:
         raw = parse_hex_response(command_hex)
-        subtype, body = extract_c3_body(raw)
+        return extract_c3_body(raw)
     except (ValueError, IndexError):
         return None
+
+
+def decode_push_payload(payload: str) -> ITSStatus | None:
+    """Decode a ``dev`` push payload into an :class:`ITSStatus`, or None.
+
+    Returns None (rather than raising) for anything that isn't a decodable C3
+    subtype-0x01 status message, so a malformed or non-status push can't break
+    the listener. Profile-specific re-decoding (ATW/KJRH-120L/AQUAPURA) is
+    applied by the caller, which knows the appliance's sn8.
+    """
+    extracted = _extract_push_frame(payload)
+    if extracted is None:
+        return None
+    subtype, body = extracted
     if subtype != 0x01:
-        # Only status frames update entity state here; other subtypes are
-        # ignored (the push topic carries status frames only).
         return None
     try:
         return decode_its_status(body)
     except (ValueError, IndexError):
         return None
+
+
+def decode_push_energy_payload(payload: str) -> bytes | None:
+    """Extract a C3 subtype-0x04 (C3EnergyBody) push body, or None (#129)."""
+    extracted = _extract_push_frame(payload)
+    if extracted is None:
+        return None
+    subtype, body = extracted
+    if subtype != ATW_ENERGY_NOTIFY_SUBTYPE or len(body) < ATW_ENERGY_NOTIFY_MIN_LEN:
+        return None
+    return bytes(body)
 
 
 class ILetComfortPushClient:
@@ -135,6 +154,7 @@ class ILetComfortPushClient:
         appliance_code: str,
         on_status: StatusCallback,
         on_connected_change: ConnectedCallback,
+        on_energy: EnergyCallback | None = None,
         get_certificate: CertificateProvider | None = None,
     ) -> None:
         self._hass = hass
@@ -142,6 +162,7 @@ class ILetComfortPushClient:
         self._region = region
         self._appliance_code = appliance_code
         self._on_status = on_status
+        self._on_energy = on_energy
         self._on_connected_change = on_connected_change
         self._get_certificate = get_certificate or self._async_create_certificate
         self._mqtt: mqtt.Client | None = None
@@ -318,6 +339,10 @@ class ILetComfortPushClient:
             return
         status = decode_push_payload(payload)
         if status is None:
+            energy_body = decode_push_energy_payload(payload)
+            if energy_body is not None and self._on_energy is not None:
+                self._on_energy(energy_body)
+                return
             # The phone app may publish control frames on this same appliance-
             # scoped topic. Keep a deliberately narrow debug trail so the
             # write protocol can be established from hardware evidence. Never
