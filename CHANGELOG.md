@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.33.2](https://github.com/tgenov/ha-iletcomfort/compare/v0.33.1...v0.33.2) (2026-11-26)
+
+
+### Bug Fixes
+
+* **coordinator:** preserve ATW subtype overlays on MQTT status push ([#225](https://github.com/tgenov/ha-iletcomfort/issues/225)) ([#228](https://github.com/tgenov/ha-iletcomfort/issues/228)) ([bd8e6b9](https://github.com/tgenov/ha-iletcomfort/commit/bd8e6b915b7d8e28dd351a63741e877db0db96dc))
+
 ## [0.33.1](https://github.com/tgenov/ha-iletcomfort/compare/v0.33.0...v0.33.1) (2026-11-26)
 
 
