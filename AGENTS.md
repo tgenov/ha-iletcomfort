@@ -176,7 +176,8 @@ Status `raw_body` (0-indexed; STANDARD misreads this 25-byte frame):
   on Rotenso (#143) and Midea M-Thermal 16 kW (#142 `@blahavl`, 25-byte `[2]=0x11` with 38-byte
   schedule template). `coordinator.py` probes `0x10` only when `0x02` is a placeholder and disables
   it for the session after the first `ApiError` or invalid frame. Compressor total run hours are not
-  in `0x10`; they sit in subtype `0x0A` (`body[4..5]`, verified on NØRDIS #120), not yet polled.
+  in `0x10`; they sit in subtype `0x0A` (`body[4..5]`, verified on NØRDIS #120) and are polled only
+  when `0x10` succeeds, with their own single-probe `ApiError` session disable.
 - **Airwell Wellea Split (`sn8 171H120F`, #139) controlled Silent/ECO test:** 27-byte status with
   `body[2]=0x73`, `body[3]=0x90`, tail `e0,05,00` (does not match the `body[3:6] == a0,03,03`
   Galmet/NØRDIS signature). Both Silent Level 1 and Super Silent (Level 2) set `body[3] & 0x02`

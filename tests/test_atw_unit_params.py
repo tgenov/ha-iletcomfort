@@ -26,6 +26,7 @@ from custom_components.iletcomfort.coordinator import ILetComfortCoordinator
 from custom_components.iletcomfort.model_profiles import (
     ATW_SN8,
     ModelProfile,
+    apply_atw_hmi_params,
     apply_atw_unit_params,
     apply_profile_to_sensors,
     decode_atw_status,
@@ -47,6 +48,12 @@ NORDIS_UNIT_PARAMS_0X10 = _bytes(
     "00,00,00,00,04,00,07,40,00,68,18,19,18,18,23,19,7f,7f,1e,04,c4,08,34,13,"
     "02,00,00,20,15,1c,ff,00,3d,00,00,00,00,00,00,00,00,00,3d,00,00,19,3f,00,"
     "00,5e,f8,00,00,19,3f,00,00,5e,e9,00,05,00,00,00,00,4b,70,00,00,00,10,41"
+)
+
+# Real subtype 0x0A HMI parameters prefix from NØRDIS Optimus Pro (issue #120):
+# body[4..5] = 0x1c, 0x8f → 7311 compressor total run hours.
+NORDIS_HMI_PARAMS_0X0A = _bytes(
+    "0a,38,00,22,1c,8f,1c,47,3f,e1,00,94,00,20,00,00"
 )
 
 
@@ -218,7 +225,75 @@ async def test_coordinator_disables_0x10_after_1214_and_keeps_placeholder_safe(
         data2 = await coord._poll()
 
     assert client.query_atw_unit_params.call_count == 1
+    assert client.query_atw_hmi_params.call_count == 0
     assert coord._atw_unit_params_supported is False
     assert data1["sensors"].t4_temp is None
     assert data1["sensors"].th_temp == 46.0
     assert data2["sensors"].t4_temp is None
+
+
+def test_apply_atw_hmi_params_decodes_verified_issue120_run_hours():
+    status = decode_atw_status(NORDIS_ATW_STATUS_FRAMES["issue132"])
+    out_status = apply_atw_hmi_params(NORDIS_HMI_PARAMS_0X0A, status)
+    assert out_status.comp_total_run_hours == 7311
+
+
+def test_apply_atw_hmi_params_ignores_short_or_wrong_subtype():
+    status = decode_atw_status(NORDIS_ATW_STATUS_FRAMES["issue132"])
+    for bad in (b"", NORDIS_HMI_PARAMS_0X0A[:5], b"\x10" + NORDIS_HMI_PARAMS_0X0A[1:]):
+        assert apply_atw_hmi_params(bad, status) is status
+
+
+def test_client_query_atw_hmi_params_sends_0x0a_and_validates():
+    client = ILetComfortClient(api_base="https://eu.dollin.net")
+    with patch.object(
+        client, "send_hex_command", return_value=_c3_frame(NORDIS_HMI_PARAMS_0X0A)
+    ) as mock_send:
+        body = client.query_atw_hmi_params("APPL1")
+
+    mock_send.assert_called_once_with("APPL1", build_c3_query(0x0A))
+    assert body == NORDIS_HMI_PARAMS_0X0A
+
+
+def test_client_query_atw_hmi_params_rejects_short_reply():
+    client = ILetComfortClient(api_base="https://eu.dollin.net")
+    with (
+        patch.object(client, "send_hex_command", return_value=_c3_frame(b"\x0a\x00")),
+        pytest.raises(ApiError, match="0x0A"),
+    ):
+        client.query_atw_hmi_params("APPL1")
+
+
+async def test_coordinator_polls_0x0a_after_0x10_and_populates_run_hours(
+    hass: HomeAssistant,
+):
+    coord, client = _atw_coordinator(hass)
+    client.query_atw_unit_params.return_value = NORDIS_UNIT_PARAMS_0X10
+    client.query_atw_hmi_params.return_value = NORDIS_HMI_PARAMS_0X0A
+
+    with patch("custom_components.iletcomfort.coordinator.asyncio.sleep", new=AsyncMock()):
+        data = await coord._poll()
+
+    client.query_atw_hmi_params.assert_called_once_with("APPL1")
+    assert coord._atw_hmi_params_supported is True
+    assert data["status"].comp_total_run_hours == 7311
+    assert data["status"].total_kwh == 6463
+
+
+async def test_coordinator_disables_0x0a_after_api_error_while_keeping_0x10(
+    hass: HomeAssistant,
+):
+    coord, client = _atw_coordinator(hass)
+    client.query_atw_unit_params.return_value = NORDIS_UNIT_PARAMS_0X10
+    client.query_atw_hmi_params.side_effect = ApiError("Send command failed: code=1214")
+
+    with patch("custom_components.iletcomfort.coordinator.asyncio.sleep", new=AsyncMock()):
+        data1 = await coord._poll()
+        data2 = await coord._poll()
+
+    assert client.query_atw_unit_params.call_count == 2
+    assert client.query_atw_hmi_params.call_count == 1
+    assert coord._atw_unit_params_supported is True
+    assert coord._atw_hmi_params_supported is False
+    assert data1["status"].comp_total_run_hours == 0
+    assert data2["status"].total_kwh == 6463

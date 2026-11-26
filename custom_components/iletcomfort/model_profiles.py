@@ -530,6 +530,32 @@ def apply_atw_unit_params(
     )
 
 
+# ---------------------------------------------------------------------------
+# ATW subtype 0x0A ("HMI parameters") compressor run hours (issues #120 / #139)
+# ---------------------------------------------------------------------------
+#
+# On 171H120F units that answer subtype 0x10 (e.g. NØRDIS #120, Airwell #139),
+# compressor total run hours live in subtype 0x0A body[4..5] (big-endian uint16,
+# verified on NØRDIS #120: 0x1c, 0x8f → 7311 Hrs matching service menu).
+ATW_HMI_PARAMS_SUBTYPE = 0x0A
+ATW_HMI_PARAMS_MIN_LEN = 6
+
+
+def apply_atw_hmi_params(
+    hmi_body: bytes | bytearray,
+    status: ITSStatus,
+) -> ITSStatus:
+    """Overlay verified ATW subtype 0x0A compressor run hours onto status.
+
+    Returns ``status`` unchanged if ``hmi_body`` is not a valid 0x0A payload.
+    """
+    body = bytes(hmi_body)
+    if len(body) < ATW_HMI_PARAMS_MIN_LEN or body[0] != ATW_HMI_PARAMS_SUBTYPE:
+        return status
+    comp_total_run_hours = (body[4] << 8) | body[5]
+    return dataclasses.replace(status, comp_total_run_hours=comp_total_run_hours)
+
+
 def atw_c3_basic(sn8: str | None, status: ITSStatus | None) -> C3BasicStatus | None:
     """Return the decoded C3 basic status for an ATW unit, else None.
 
@@ -820,6 +846,8 @@ def apply_profile_to_sensors(
 
 __all__ = [
     "AQUAPURA_SN8",
+    "ATW_HMI_PARAMS_MIN_LEN",
+    "ATW_HMI_PARAMS_SUBTYPE",
     "ATW_SN8",
     "ATW_UNIT_PARAMS_MIN_LEN",
     "ATW_UNIT_PARAMS_SUBTYPE",
@@ -835,6 +863,7 @@ __all__ = [
     "KJRH120L_ZONE1_POWER_OFF",
     "KJRH120L_ZONE1_POWER_ON",
     "ModelProfile",
+    "apply_atw_hmi_params",
     "apply_atw_unit_params",
     "apply_profile_to_sensors",
     "apply_profile_to_status",
