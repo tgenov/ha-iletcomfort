@@ -1,22 +1,27 @@
 [project]
 name = "ha-iletcomfort"
 version = "0.0.0"
-requires-python = ">=3.13"
+requires-python = ">=3.14.2"
 dependencies = []
 
 [dependency-groups]
 dev = [
   "mypy",
-  "pytest-homeassistant-custom-component",
+  "pytest-homeassistant-custom-component>=0.13.375",
   "ruff",
   "types-requests",
 ]
 
 [tool.uv]
 package = false
+# Home Assistant 2026.10.4 pins pillow==12.3.0; override to 13.0+ for CVE fixes
+# in dev/CI without downgrading Home Assistant.
+override-dependencies = [
+  "pillow>=13.0.0",
+]
 
 [tool.ruff]
-target-version = "py313"
+target-version = "py314"
 line-length = 100
 
 [tool.ruff.lint]
@@ -27,7 +32,7 @@ select = ["E4", "E7", "E9", "F"]
 "scripts/*.py" = ["E402"]
 
 [tool.mypy]
-python_version = "3.13"
+python_version = "3.14"
 ignore_missing_imports = true
 check_untyped_defs = true
 warn_unused_ignores = true
