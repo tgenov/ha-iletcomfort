@@ -65,13 +65,16 @@ from .model_profiles import (
 )
 from .mqtt import ILetComfortPushClient
 from .protocols import (
+    ClimateView,
     EntityCapabilities,
     HeatPumpState,
     ViewContext,
     build_snapshot,
     get_adapter,
     merge_atw_energy_notify,
+    project_climate_view,
     project_entity_capabilities,
+    project_zone2_climate_view,
     run_write_plan,
     WriteContext,
     WritePlan,
@@ -252,6 +255,16 @@ class ILetComfortCoordinator(DataUpdateCoordinator[HeatPumpState]):
     def entity_capabilities(self) -> EntityCapabilities:
         """Which optional entities the selected dialect exposes now (#192)."""
         return project_entity_capabilities(self.sn8, self.data, self.view_context)
+
+    @property
+    def climate_view(self) -> ClimateView:
+        """The main climate entity as the selected dialect projects it (#192)."""
+        return project_climate_view(self.sn8, self.data, self.view_context)
+
+    @property
+    def zone2_climate_view(self) -> ClimateView:
+        """The Zone-2 climate entity as the selected dialect projects it (#192)."""
+        return project_zone2_climate_view(self.sn8, self.data, self.view_context)
 
     @callback
     def _observe_kjrh120l_zone1(self, status: ITSStatus) -> None:

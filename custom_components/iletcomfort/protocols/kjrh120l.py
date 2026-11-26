@@ -26,7 +26,15 @@ from ..commands import (
     ZoneRunModeIntent,
 )
 from .profile import ModelProfile
-from .views import EntityCapabilities, EntitySupport, ViewContext
+from .views import (
+    KJRH120L_ZONE1_READ_ONLY,
+    NO_ZONE2_VIEW,
+    ClimateView,
+    EntityCapabilities,
+    EntitySupport,
+    ViewContext,
+    legacy_climate_view,
+)
 from .write import (
     C3_CONTROL_DISABLED,
     STATUS_NOT_REPORTED,
@@ -251,13 +259,61 @@ def zone1_run_mode_setpoint(
     return run_mode, setpoint
 
 
+def kjrh120l_is_dual(status: ITSStatus | None, zone1_latched: bool) -> bool:
+    """Return whether this is the dual Zone-1 + DHW variant (latched or seen now)."""
+    if zone1_latched is True:
+        return True
+    return bool(status is not None and kjrh120l_has_zone1(status.raw_body))
+
+
+def kjrh120l_climate_view(status: ITSStatus | None, ctx: ViewContext) -> ClimateView:
+    """Climate view: DHW control on pure-DHW units, a read-only Zone-1 card on dual.
+
+    A latched dual unit keeps showing the Zone-1 setpoint (body[12]) even when
+    Zone 1 is switched off, rather than flipping to the DHW setpoint (body[15]).
+    """
+    dual = kjrh120l_is_dual(status, ctx.kjrh120l_zone1_latched)
+    zone1 = status.kjrh120l_zone1_setpoint if dual and status is not None else None
+    return legacy_climate_view(
+        status,
+        lambda _set_mode: (float(KJRH120L_TEMP_MIN), float(KJRH120L_TEMP_MAX)),
+        read_only_reason=KJRH120L_ZONE1_READ_ONLY if dual else None,
+        controls_hidden=dual,
+        zone1_target=zone1,
+    )
+
+
+def kjrh120l_zone1_target(status: ITSStatus | None, value: float) -> int:
+    """Validate a Zone 1 target against the device-reported range (whole °C).
+
+    Raises ``WriteRefused`` when the unit has not reported a valid range for
+    its current run mode, the value is not a whole degree, or it is outside
+    that range. Nothing is clamped: the app never sends an out-of-range value.
+    """
+    limits = kjrh120l_zone1_range(status) if status is not None else None
+    if limits is None:
+        raise WriteRefused(
+            "The heat pump has not reported a valid Zone 1 range for its "
+            "current mode"
+        )
+    if not math.isfinite(value) or value != int(value):
+        raise WriteRefused(f"Zone 1 target must be a whole degree, got {value}")
+    low, high = limits
+    if not low <= value <= high:
+        raise WriteRefused(
+            f"Zone 1 target {value:g} is outside the reported range {low}-{high}"
+        )
+    return int(value)
+
+
 def plan_kjrh120l_write(command: HeatPumpCommand, ctx: WriteContext) -> WritePlan:
     """Plan a KJRH-120L write as one captured short command (no status read).
 
     Fields (``00 <field> 01 <value> ff``): 0x00 Zone 1 power, 0x02 DHW power,
     0x03 run mode (paired with the clamped 0x04 setpoint), 0x04 Zone 1
-    setpoint (never 0x08, which always forced 23 °C), 0x07 DHW setpoint. The
-    climate/number entities clamp DHW temperatures before sending.
+    setpoint (never 0x08, which always forced 23 °C), 0x07 DHW setpoint.
+    Climate targets are clamped to the climate view's 20–70 °C, DHW targets to
+    35–60 °C, and Zone 1 targets are validated against the reported range.
     """
     if isinstance(command, (SetPowerCommand, SetDhwPowerCommand)):
         on = command.on
@@ -270,7 +326,16 @@ def plan_kjrh120l_write(command: HeatPumpCommand, ctx: WriteContext) -> WritePla
             KJRH120L_DHW_ON if on else KJRH120L_DHW_OFF, f"kjrh120l dhw_power={on}"
         )
     if isinstance(command, (SetTargetTemperatureCommand, SetDhwTargetCommand)):
-        temp = int(command.temperature)
+        if isinstance(command, SetTargetTemperatureCommand):
+            clamped = kjrh120l_climate_view(ctx.status, ctx.view_context).clamp(
+                command.temperature
+            )
+        else:
+            clamped = max(
+                float(KJRH120L_DHW_TEMP_MIN),
+                min(command.temperature, float(KJRH120L_DHW_TEMP_MAX)),
+            )
+        temp = int(clamped)
         return WritePlan.static(
             build_kjrh120l_set_temperature(temp), f"kjrh120l dhw_target={temp}"
         )
@@ -279,7 +344,7 @@ def plan_kjrh120l_write(command: HeatPumpCommand, ctx: WriteContext) -> WritePla
             build_kjrh120l_zone1_power(command.on), f"kjrh120l zone1_power={command.on}"
         )
     if isinstance(command, SetZoneTargetCommand) and command.zone == 1:
-        temp = int(command.temperature)
+        temp = kjrh120l_zone1_target(ctx.status, command.temperature)
         return WritePlan.static(
             build_kjrh120l_zone1_setpoint(temp), f"kjrh120l zone1_target={temp}"
         )
@@ -347,9 +412,15 @@ class Kjrh120lAdapter:
     def is_kjrh120l_dual(
         self, status: ITSStatus | None, zone1_latched: bool
     ) -> bool:
-        if zone1_latched is True:
-            return True
-        return bool(status is not None and kjrh120l_has_zone1(status.raw_body))
+        return kjrh120l_is_dual(status, zone1_latched)
+
+    def climate_view(self, status: ITSStatus | None, ctx: ViewContext) -> ClimateView:
+        return kjrh120l_climate_view(status, ctx)
+
+    def zone2_climate_view(
+        self, status: ITSStatus | None, ctx: ViewContext
+    ) -> ClimateView:
+        return NO_ZONE2_VIEW
 
     def c3_basic(self, status: ITSStatus | None) -> C3BasicStatus | None:
         return None

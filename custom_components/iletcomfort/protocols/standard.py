@@ -37,7 +37,14 @@ from ..commands import (
 )
 from .kjrh120l import zone1_run_mode_setpoint
 from .profile import ModelProfile
-from .views import LEGACY_BOOST_MUTE, EntityCapabilities, ViewContext
+from .views import (
+    LEGACY_BOOST_MUTE,
+    NO_ZONE2_VIEW,
+    ClimateView,
+    EntityCapabilities,
+    ViewContext,
+    legacy_climate_view,
+)
 from .write import (
     C3_CONTROL_DISABLED,
     KJRH120L_ONLY_ZONE1,
@@ -168,7 +175,11 @@ def plan_legacy_its_write(command: HeatPumpCommand, ctx: WriteContext) -> WriteP
     if isinstance(command, SetHvacModeCommand):
         return _legacy_plan(ctx, mode=LEGACY_HVAC_TO_SET_MODE[command.mode])
     if isinstance(command, SetTargetTemperatureCommand):
-        return _legacy_plan(ctx, temperature=int(command.temperature))
+        # Clamp to the bounds the climate entity shows for the current mode.
+        temp = legacy_climate_view(ctx.status, default_climate_temp_bounds).clamp(
+            command.temperature
+        )
+        return _legacy_plan(ctx, temperature=int(temp))
     if isinstance(command, SetBoostCommand):
         return _legacy_plan(ctx, boost=command.enabled)
     if isinstance(command, SetSilentModeCommand) and command.level is not None:
@@ -236,6 +247,14 @@ class StandardAdapter:
         self, status: ITSStatus | None, ctx: ViewContext
     ) -> EntityCapabilities:
         return EntityCapabilities(boost=LEGACY_BOOST_MUTE, mute=LEGACY_BOOST_MUTE)
+
+    def climate_view(self, status: ITSStatus | None, ctx: ViewContext) -> ClimateView:
+        return legacy_climate_view(status, default_climate_temp_bounds)
+
+    def zone2_climate_view(
+        self, status: ITSStatus | None, ctx: ViewContext
+    ) -> ClimateView:
+        return NO_ZONE2_VIEW
 
     def plan_write(self, command: HeatPumpCommand, ctx: WriteContext) -> WritePlan:
         return plan_legacy_its_write(command, ctx)

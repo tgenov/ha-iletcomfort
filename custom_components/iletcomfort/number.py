@@ -20,20 +20,15 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from .commands import SetDhwTargetCommand, SetZoneTargetCommand
 from .const import DOMAIN
 from .coordinator import ILetComfortCoordinator
-from .entity import async_add_kjrh120l_zone1_entities, build_device_info
+from .entity import (
+    async_add_kjrh120l_zone1_entities,
+    build_device_info,
+    target_command,
+)
 from .model_profiles import (
     KJRH120L_DHW_TEMP_MAX,
     KJRH120L_DHW_TEMP_MIN,
 )
-from .protocols import is_kjrh120l_dual_state
-
-
-def _is_kjrh120l_dual(coordinator: ILetComfortCoordinator) -> bool:
-    return is_kjrh120l_dual_state(
-        coordinator.sn8,
-        coordinator.data,
-        coordinator.kjrh120l_zone1_capable is True,
-    )
 
 
 async def async_setup_entry(
@@ -62,7 +57,10 @@ async def async_setup_entry(
 class ILetComfortKjrh120lDhwSetpoint(
     CoordinatorEntity[ILetComfortCoordinator], NumberEntity
 ):
-    """DHW target using the hardware-confirmed KJRH-120L field 0x07 write."""
+    """DHW target using the hardware-confirmed KJRH-120L field 0x07 write.
+
+    The dialect clamps the requested value into its 35-60 °C envelope.
+    """
 
     _attr_has_entity_name = True
     _attr_name = "DHW Setpoint"
@@ -84,11 +82,9 @@ class ILetComfortKjrh120lDhwSetpoint(
         return state.dhw_target_temp if state is not None else None
 
     async def async_set_native_value(self, value: float) -> None:
-        clamped = max(
-            self._attr_native_min_value,
-            min(float(value), self._attr_native_max_value),
+        await self.coordinator.async_send_command(
+            target_command(SetDhwTargetCommand, value)
         )
-        await self.coordinator.async_send_command(SetDhwTargetCommand(clamped))
 
 
 class ILetComfortKjrh120lZone1Setpoint(
@@ -98,7 +94,8 @@ class ILetComfortKjrh120lZone1Setpoint(
 
     Value is status body[12]. Min and max are the range the device reports
     for its current run mode (body[37]/[38] heat, body[39]/[40] cool). Without
-    a valid range the entity is unavailable and refuses writes.
+    a valid range the entity is unavailable and refuses writes. Whole-degree
+    and range validation is the dialect's (``kjrh120l_zone1_target``).
     """
 
     _attr_has_entity_name = True
@@ -144,19 +141,16 @@ class ILetComfortKjrh120lZone1Setpoint(
         return float(limits[1]) if limits else DEFAULT_MAX_VALUE
 
     async def async_set_native_value(self, value: float) -> None:
-        limits = self._range
-        if limits is None:
+        # An unavailable entity refuses writes (HA skips it for service calls).
+        if self._range is None:
             raise HomeAssistantError(
                 "The heat pump has not reported a valid Zone 1 range for its "
                 "current mode"
             )
-        if not math.isfinite(value) or value != int(value):
+        # Commands reject non-finite values at construction; keep the refusal
+        # the dialect gives for a value that is not a whole degree.
+        if not math.isfinite(value):
             raise HomeAssistantError(f"Zone 1 target must be a whole degree, got {value}")
-        low, high = limits
-        if not low <= value <= high:
-            raise HomeAssistantError(
-                f"Zone 1 target {value:g} is outside the reported range {low}-{high}"
-            )
         await self.coordinator.async_send_command(
-            SetZoneTargetCommand(zone=1, temperature=int(value))
+            SetZoneTargetCommand(zone=1, temperature=value)
         )

@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable
+from typing import TypeVar
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity import Entity
@@ -16,6 +18,20 @@ from .coordinator import ILetComfortCoordinator
 from .protocols import EntityCapabilities, EntitySupport
 
 SupportSelector = Callable[[EntityCapabilities], EntitySupport]
+_CommandT = TypeVar("_CommandT")
+
+
+def target_command(factory: Callable[[float], _CommandT], value: float) -> _CommandT:
+    """Build a target-temperature command from an HA service value.
+
+    Entities pass the requested value unclamped; the dialect clamps or refuses
+    it (#192). Commands reject non-finite values at construction, surfaced
+    here as a ``HomeAssistantError`` instead of writing an arbitrary bound.
+    """
+    try:
+        return factory(float(value))
+    except ValueError as err:
+        raise HomeAssistantError(str(err)) from err
 
 
 @callback

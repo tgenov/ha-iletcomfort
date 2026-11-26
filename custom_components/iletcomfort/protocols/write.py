@@ -31,6 +31,7 @@ from typing import Any
 from ..api import ITSStatus
 from ..c3_frame import extract_c3_body, parse_hex_response
 from ..cloud import ApiError
+from .views import ViewContext
 
 # Messages kept identical to the pre-#113 coordinator/client refusals.
 C3_CONTROL_DISABLED = "C3 basic control is not enabled or not supported for this unit"
@@ -55,15 +56,23 @@ class WriteContext:
     ``status`` is the last decoded status snapshot (``coordinator.data``) and is
     only used to *route* a command (e.g. water vs room target) and for
     HA-side gating. Read-modify-write plans re-validate against the fresh
-    reply in ``encode``. ``kjrh120l_zone1_latched`` is carried for dialect
-    decisions about the dual KJRH-120L variant; no write is gated on it today
-    (the Zone 1 entities are, which matches pre-#113 behavior).
+    reply in ``encode``. ``kjrh120l_zone1_latched`` selects the dual KJRH-120L
+    climate view (and so its bounds); no write is gated on it today (the
+    Zone 1 entities are, which matches pre-#113 behavior).
     """
 
     status: ITSStatus | None = None
     last_on_state: tuple[int, int] | None = None
     c3_basic_control: bool = False
     kjrh120l_zone1_latched: bool = False
+
+    @property
+    def view_context(self) -> ViewContext:
+        """The projection context, so a plan clamps to the bounds entities show."""
+        return ViewContext(
+            c3_basic_control=self.c3_basic_control,
+            kjrh120l_zone1_latched=self.kjrh120l_zone1_latched,
+        )
 
 
 @dataclass(frozen=True)

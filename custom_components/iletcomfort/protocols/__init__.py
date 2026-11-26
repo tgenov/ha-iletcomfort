@@ -13,6 +13,7 @@ from .snapshot import build_snapshot, merge_atw_energy_notify
 from .standard import StandardAdapter
 from .views import (
     UNSUPPORTED,
+    ClimateView,
     EntityCapabilities,
     EntitySupport,
     ViewContext,
@@ -63,6 +64,22 @@ def project_entity_capabilities(
     return dataclasses.replace(caps, profile_settled=False)
 
 
+def project_climate_view(
+    sn8: str | None, state: HeatPumpState | None, ctx: ViewContext
+) -> ClimateView:
+    """Project the main climate entity for a device (pure, #192)."""
+    adapter = get_adapter(state.profile if state is not None else sn8)
+    return adapter.climate_view(state.status if state is not None else None, ctx)
+
+
+def project_zone2_climate_view(
+    sn8: str | None, state: HeatPumpState | None, ctx: ViewContext
+) -> ClimateView:
+    """Project the Zone-2 climate entity for a device (pure, #192)."""
+    adapter = get_adapter(state.profile if state is not None else sn8)
+    return adapter.zone2_climate_view(state.status if state is not None else None, ctx)
+
+
 def is_kjrh120l_dual_state(
     sn8: str | None, state: HeatPumpState | None, zone1_latched: bool
 ) -> bool:
@@ -74,6 +91,7 @@ def is_kjrh120l_dual_state(
 
 __all__ = [
     "AquapuraAdapter",
+    "ClimateView",
     "EntityCapabilities",
     "EntitySupport",
     "UNSUPPORTED",
@@ -92,6 +110,8 @@ __all__ = [
     "is_kjrh120l_dual_state",
     "merge_atw_energy_notify",
     "profile_climate_temp_bounds",
+    "project_climate_view",
     "project_entity_capabilities",
+    "project_zone2_climate_view",
     "run_write_plan",
 ]

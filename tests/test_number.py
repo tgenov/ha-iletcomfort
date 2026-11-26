@@ -7,10 +7,8 @@ from custom_components.iletcomfort.model_profiles import (
     KJRH120L_SN8,
     decode_kjrh120l_status,
 )
-from custom_components.iletcomfort.number import (
-    ILetComfortKjrh120lDhwSetpoint,
-    _is_kjrh120l_dual,
-)
+from custom_components.iletcomfort.number import ILetComfortKjrh120lDhwSetpoint
+from custom_components.iletcomfort.protocols import ViewContext, project_entity_capabilities
 from tests.write_helpers import bind_write_path, sent_commands
 from tests.snapshot_helpers import make_state
 
@@ -53,4 +51,7 @@ def test_pure_dhw_kjrh_does_not_create_separate_number():
     body[8] = body[9] = 0
     entity.coordinator.data = make_state(decode_kjrh120l_status(body), entity.coordinator.data.sensors, sn8=KJRH120L_SN8)
 
-    assert not _is_kjrh120l_dual(entity.coordinator)
+    caps = project_entity_capabilities(
+        KJRH120L_SN8, entity.coordinator.data, ViewContext(kjrh120l_zone1_latched=False)
+    )
+    assert not caps.kjrh120l_zone1.exists

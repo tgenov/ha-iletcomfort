@@ -109,6 +109,7 @@ UNKNOWN_LAYOUT_REPLY = "aa,10,c3,00,00,00,00,00,00,03,01,08,15,a0,03,07,1d,1e"
 # status echo (mode Heat, t5s_def 31 °C).
 _LEGACY = "aa3dc3000000000000020101"
 LEGACY_TEMP_35 = _LEGACY + "01462d3f3700233700000000000000003f" + "00" * 32 + "79"
+LEGACY_TEMP_40 = _LEGACY + "014b2d3f3700233700000000000000003f" + "00" * 32 + "74"
 LEGACY_RESTORE_COOL_22 = (
     _LEGACY + "03392d3f3700233700000000000000003f" + "00" * 32 + "84"
 )
@@ -348,9 +349,19 @@ ROWS: dict[str, Row] = {
         KJRH120L_SN8, WriteContext(), SetZoneRunModeCommand(1, "cool"),
         error=(WriteRefused, "not reported its status"),
     ),
-    "kjrh_zone1_target_out_of_byte_range_refused": Row(
+    # Zone 1 targets are validated against the reported range (#192; this
+    # moved from the Zone 1 Target number entity into the dialect).
+    "kjrh_zone1_target_outside_reported_range_refused": Row(
         KJRH120L_SN8, KJRH_CTX, SetZoneTargetCommand(1, 300),
-        error=(ValueError, "Zone 1 setpoint"),
+        error=(WriteRefused, "Zone 1 target 300 is outside the reported range 35-75"),
+    ),
+    "kjrh_zone1_target_not_whole_degree_refused": Row(
+        KJRH120L_SN8, KJRH_CTX, SetZoneTargetCommand(1, 50.5),
+        error=(WriteRefused, "Zone 1 target must be a whole degree, got 50.5"),
+    ),
+    "kjrh_zone1_target_without_range_refused": Row(
+        KJRH120L_SN8, WriteContext(), SetZoneTargetCommand(1, 50),
+        error=(WriteRefused, "has not reported a valid Zone 1 range"),
     ),
     "kjrh_boost_refused": Row(
         KJRH120L_SN8, KJRH_CTX, SetBoostCommand(True), error=(WriteRefused, "KJRH-120L"),
@@ -420,8 +431,14 @@ ROWS: dict[str, Row] = {
         {Q01: ISSUE_11_REPLY},
     ),
     # --- STANDARD refusals ----------------------------------------------------
+    # The climate target is clamped to the climate view's bounds (#192)...
+    "standard_temperature_clamped_to_climate_bounds": Row(
+        None, STANDARD_CTX, SetTargetTemperatureCommand(50), (Q01, LEGACY_TEMP_40),
+        {Q01: ISSUE_11_REPLY},
+    ),
+    # ...while the encode step still validates the range against the fresh read.
     "standard_temperature_out_of_range_refused_after_read": Row(
-        None, STANDARD_CTX, SetTargetTemperatureCommand(50), (Q01,),
+        None, STANDARD_CTX, SetDhwTargetCommand(50), (Q01,),
         {Q01: ISSUE_11_REPLY}, error=(ValueError, "out of range"),
     ),
     "standard_unrecognized_status_mode_refused_after_read": Row(
