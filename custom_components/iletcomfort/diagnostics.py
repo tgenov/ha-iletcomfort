@@ -147,16 +147,7 @@ async def async_get_config_entry_diagnostics(
                 else None
             ),
             "kjrh120l_zone1_capable": coordinator.kjrh120l_zone1_capable,
-            "probes": {
-                "0x10_unit_params": {
-                    "supported": coordinator._atw_unit_params_supported,
-                    "error": coordinator._atw_unit_params_error,
-                },
-                "0x0a_hmi_params": {
-                    "supported": coordinator._atw_hmi_params_supported,
-                    "error": coordinator._atw_hmi_params_error,
-                },
-            },
+            "probes": coordinator.capabilities.probes_as_dict(),
             "raw_frames": {
                 f"0x{subtype:02x}": _format_hex(body)
                 for subtype, body in sorted(raw_frames.items())

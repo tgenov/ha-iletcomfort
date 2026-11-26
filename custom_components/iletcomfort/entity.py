@@ -16,25 +16,26 @@ from .model_profiles import ModelProfile, resolve_profile
 
 
 @callback
-def async_add_kjrh120l_zone1_entities(
+def async_add_when_capable(
     coordinator: ILetComfortCoordinator,
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
+    *,
+    is_capable: Callable[[], bool],
+    can_become_capable: Callable[[], bool],
     build: Callable[[], Iterable[Entity]],
 ) -> None:
-    """Add a platform's KJRH-120L Zone 1 entities once the unit is capable.
+    """Add capability-gated entities immediately or on the first matching update.
 
-    Adds them now when ``coordinator.kjrh120l_zone1_capable`` is already true.
-    Otherwise listens to the coordinator and adds them on the first update
-    that latches the capability, then stops listening. A known non-KJRH sn8
-    gets no listener because its profile cannot change.
+    Avoids attaching a coordinator listener when ``can_become_capable()`` is
+    already False (for example, when ``sn8`` resolves to an incompatible model
+    profile), and unsubscribes automatically once entities are added or the
+    config entry unloads (#171).
     """
-    if coordinator.kjrh120l_zone1_capable:
+    if is_capable():
         async_add_entities(build())
         return
-    if coordinator.sn8 is not None and (
-        resolve_profile(coordinator.sn8) is not ModelProfile.KJRH120L
-    ):
+    if not can_become_capable():
         return
 
     unsubscribe: Callable[[], None] | None = None
@@ -48,13 +49,34 @@ def async_add_kjrh120l_zone1_entities(
 
     @callback
     def _on_update() -> None:
-        if unsubscribe is None or not coordinator.kjrh120l_zone1_capable:
+        if unsubscribe is None or not is_capable():
             return
         _remove_listener()
         async_add_entities(build())
 
     unsubscribe = coordinator.async_add_listener(_on_update)
     entry.async_on_unload(_remove_listener)
+
+
+@callback
+def async_add_kjrh120l_zone1_entities(
+    coordinator: ILetComfortCoordinator,
+    entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+    build: Callable[[], Iterable[Entity]],
+) -> None:
+    """Add a platform's KJRH-120L Zone 1 entities once the unit is capable."""
+    async_add_when_capable(
+        coordinator,
+        entry,
+        async_add_entities,
+        is_capable=lambda: coordinator.kjrh120l_zone1_capable,
+        can_become_capable=lambda: (
+            coordinator.sn8 is None
+            or resolve_profile(coordinator.sn8) is ModelProfile.KJRH120L
+        ),
+        build=build,
+    )
 
 
 def build_device_info(coordinator: ILetComfortCoordinator) -> DeviceInfo:
