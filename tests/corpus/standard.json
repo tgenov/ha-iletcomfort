@@ -1,0 +1,21 @@
+[
+  {
+    "id": "standard_issue11_msc70d2n8a",
+    "source_issue": "#11",
+    "hardware": "ITS MSC-70D2N8-A (standard C3 layout)",
+    "sn8": null,
+    "expected_profile": "standard",
+    "expected_variant": "standard",
+    "frames": {
+      "0x01": "01,01,01,42,4b,2d,3f,37,0f,23,37,25,28,c0,00,00,80,23,2d,3f,37,00,23,37,00,3f,00,00,00,00,00,00,01,c2,00,00,01,00,0a,dc,04,e2,00,33,00,00,00,16,00,00,01",
+      "0x02": "02,01,00,00,00,00,00,00,00,00,00,00,01,02,00,29,49,12,00,01,00,33,3e,41,69,40,42,ef,04,00,eb,03,31,37,0c,31,37,0c,31,67,23,00,00,01,72,00,00,00,00,00,00"
+    },
+    "expected_status": {
+      "mode": 1,
+      "error_code": 0
+    },
+    "expected_sensors": {
+      "odu_current": 4.0
+    }
+  }
+]
