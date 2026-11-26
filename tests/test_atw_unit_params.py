@@ -297,3 +297,28 @@ async def test_coordinator_disables_0x0a_after_api_error_while_keeping_0x10(
     assert coord._atw_hmi_params_supported is False
     assert data1["status"].comp_total_run_hours == 0
     assert data2["status"].total_kwh == 6463
+
+
+def test_extended_0x10_sensor_descriptions_disabled_by_default_and_scaled():
+    """Verified 0x10 sensors expose scaled values without enabling on all models (#169)."""
+    from custom_components.iletcomfort.sensor import SENSOR_DESCRIPTIONS
+
+    status = decode_atw_status(NORDIS_ATW_STATUS_FRAMES["issue132"])
+    sensors = apply_profile_to_sensors(
+        ModelProfile.ATW,
+        decode_its_sensors(ATW_PLACEHOLDER_SENSORS_BODY),
+        status,
+    )
+    status, sensors = apply_atw_unit_params(NORDIS_UNIT_PARAMS_0X10, status, sensors)
+    data = {"status": status, "sensors": sensors}
+
+    by_key = {desc.key: desc for desc in SENSOR_DESCRIPTIONS}
+    for key, expected in (
+        ("water_flow", 0.61),
+        ("dc_voltage", 320),
+        ("dc_current", 0),
+        ("exv_steps", 480),
+    ):
+        desc = by_key[key]
+        assert desc.entity_registry_enabled_default is False
+        assert desc.value_fn(data) == expected

@@ -13,12 +13,14 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
+    EntityCategory,
+    UnitOfElectricCurrent,
+    UnitOfElectricPotential,
     UnitOfEnergy,
     UnitOfFrequency,
     UnitOfTemperature,
     UnitOfTime,
-    UnitOfElectricCurrent,
-    UnitOfElectricPotential,
+    UnitOfVolumeFlowRate,
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -181,6 +183,53 @@ SENSOR_DESCRIPTIONS: tuple[ILetComfortSensorDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         suggested_display_precision=1,
         value_fn=_s("odu_current"),
+    ),
+    # Extended telemetry populated by ATW subtype 0x10 (verified on NØRDIS #120
+    # and Airwell #139). Disabled by default so models without 0x10 do not gain
+    # noisy zero entities (#169).
+    ILetComfortSensorDescription(
+        key="water_flow",
+        name="Water Flow",
+        native_unit_of_measurement=UnitOfVolumeFlowRate.CUBIC_METERS_PER_HOUR,
+        device_class=SensorDeviceClass.VOLUME_FLOW_RATE,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=2,
+        entity_registry_enabled_default=False,
+        value_fn=lambda data: (
+            round(flow / 100.0, 2)
+            if (sensors := data.get("sensors")) is not None
+            and (flow := getattr(sensors, "water_flow", None)) is not None
+            else None
+        ),
+    ),
+    ILetComfortSensorDescription(
+        key="dc_voltage",
+        name="DC Bus Voltage",
+        native_unit_of_measurement=UnitOfElectricPotential.VOLT,
+        device_class=SensorDeviceClass.VOLTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+        value_fn=_s("dc_voltage"),
+    ),
+    ILetComfortSensorDescription(
+        key="dc_current",
+        name="DC Current",
+        native_unit_of_measurement=UnitOfElectricCurrent.AMPERE,
+        device_class=SensorDeviceClass.CURRENT,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+        value_fn=_s("dc_current"),
+    ),
+    ILetComfortSensorDescription(
+        key="exv_steps",
+        name="Expansion Valve Opening",
+        icon="mdi:valve",
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+        value_fn=_st("exv_drg"),
     ),
 )
 
