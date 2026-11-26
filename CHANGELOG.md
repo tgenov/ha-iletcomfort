@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.24.0](https://github.com/tgenov/ha-iletcomfort/compare/v0.23.0...v0.24.0) (2026-11-26)
+
+
+### Features
+
+* **diagnostics:** preserve raw frames per subtype and expose protocol probe state ([#174](https://github.com/tgenov/ha-iletcomfort/issues/174)) ([eeb767f](https://github.com/tgenov/ha-iletcomfort/commit/eeb767f3d39a7cb4c70ef720ca1031fe5aa94c8e))
+
 ## [0.23.0](https://github.com/tgenov/ha-iletcomfort/compare/v0.22.0...v0.23.0) (2026-11-26)
 
 
