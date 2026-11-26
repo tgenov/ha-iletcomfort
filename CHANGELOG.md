@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.27.0](https://github.com/tgenov/ha-iletcomfort/compare/v0.26.0...v0.27.0) (2026-11-26)
+
+
+### Features
+
+* **kjrh120l:** add DHW power switch for dual Zone-1 units ([#196](https://github.com/tgenov/ha-iletcomfort/issues/196)) ([debf4e1](https://github.com/tgenov/ha-iletcomfort/commit/debf4e1f183c4dbc32206a10a499e87ac472f0ad))
+
 ## [0.26.0](https://github.com/tgenov/ha-iletcomfort/compare/v0.25.0...v0.26.0) (2026-11-26)
 
 
