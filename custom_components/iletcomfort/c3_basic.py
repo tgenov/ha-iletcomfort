@@ -30,10 +30,11 @@ C3 SET with the same AA header as the status query (``c3_frame.build_c3_frame``)
 * basic SET — message type ``0x02``, body ``01`` + 7 bytes
   ``[power, mode, zone1, zone2, dhw, room×2, curve flags]``; direct °C, no
   +35 offset. Supports Heat mode in both water-temperature control
-  (``zone1_water_target``, validated on Rotenso) and room-temperature control
-  (``room_target`` at 0.5 °C resolution), plus DHW target/power/fast DHW
-  (gated on ``cap_dhw``) and Zone-1 curve/power. Refuses mode changes and
-  Zone-1 Heat writes while the unit is in Cool mode.
+  (``zone1_water_target``, validated on Rotenso, and ``zone2_water_target`` on
+  ``double_zone`` units) and room-temperature control (``room_target`` at
+  0.5 °C resolution), plus DHW target/power/fast DHW (gated on ``cap_dhw``)
+  and Zone-1/Zone-2 curve and power. Refuses mode changes and Zone Heat writes
+  while the unit is in Cool mode.
 * silence SET — body ``05`` + 9 bytes, ECO SET — body ``07`` + 6 bytes. Bit 0
   of the first byte is on/off (and bit 3 is Super Silent for ``0x05``, cleared
   explicitly when selecting Silent Level 1); the rest is the device's timer
@@ -96,6 +97,7 @@ class C3BasicStatus:
     cap_dhw: bool
     double_zone: bool
     zone1_water_temp: bool
+    zone2_water_temp: bool
     silent_mode: bool
     holiday: bool
     eco_mode: bool
@@ -108,6 +110,10 @@ class C3BasicStatus:
     zone1_heat_min: int
     zone1_cool_max: int
     zone1_cool_min: int
+    zone2_heat_max: int
+    zone2_heat_min: int
+    zone2_cool_max: int
+    zone2_cool_min: int
     room_max: float
     room_min: float
     dhw_max: int
@@ -125,6 +131,13 @@ class C3BasicStatus:
         if self.is_cooling_mode:
             return float(self.zone1_cool_min), float(self.zone1_cool_max)
         return float(self.zone1_heat_min), float(self.zone1_heat_max)
+
+    @property
+    def zone2_water_range(self) -> tuple[float, float]:
+        """Zone-2 water-target limits for the current operating mode."""
+        if self.is_cooling_mode:
+            return float(self.zone2_cool_min), float(self.zone2_cool_max)
+        return float(self.zone2_heat_min), float(self.zone2_heat_max)
 
 
 def decode_c3_basic(body: bytes | bytearray) -> C3BasicStatus | None:
@@ -147,6 +160,7 @@ def decode_c3_basic(body: bytes | bytearray) -> C3BasicStatus | None:
         cap_dhw=bool(b2 & 0x04),
         double_zone=bool(b2 & 0x08),
         zone1_water_temp=bool(b2 & 0x10),
+        zone2_water_temp=bool(b2 & 0x20),
         silent_mode=bool(b3 & 0x02),
         holiday=bool(b3 & 0x04),
         eco_mode=bool(b3 & 0x08),
@@ -159,6 +173,10 @@ def decode_c3_basic(body: bytes | bytearray) -> C3BasicStatus | None:
         zone1_heat_min=body[11],
         zone1_cool_max=body[12],
         zone1_cool_min=body[13],
+        zone2_heat_max=body[14],
+        zone2_heat_min=body[15],
+        zone2_cool_max=body[16],
+        zone2_cool_min=body[17],
         room_max=body[18] / 2,
         room_min=body[19] / 2,
         dhw_max=body[20],
@@ -176,29 +194,42 @@ def apply_basic_changes(
     status: C3BasicStatus,
     *,
     zone1_power: bool | None = None,
+    zone2_power: bool | None = None,
     dhw_power: bool | None = None,
     zone1_curve: bool | None = None,
+    zone2_curve: bool | None = None,
     fast_dhw: bool | None = None,
     zone1_water_target: float | None = None,
+    zone2_water_target: float | None = None,
     room_target: float | None = None,
     dhw_target: float | None = None,
 ) -> C3BasicStatus:
     """Return ``status`` with the requested changes, or raise.
 
     Only changes validated on hardware are accepted. The operating mode byte
-    is always written back unchanged, so a Zone-1 power-on, curve, or setpoint
-    change is refused unless the unit is already in Heat mode: powering the zone
-    on must never start cooling.
+    is always written back unchanged, so a Zone-1 or Zone-2 power-on, curve, or
+    setpoint change is refused unless the unit is already in Heat mode:
+    powering a zone on must never start cooling.
     """
-    zone1_change = (
+    zone2_requested = (
+        zone2_power is not None
+        or zone2_curve is not None
+        or zone2_water_target is not None
+    )
+    if zone2_requested and not status.double_zone:
+        raise UnsupportedC3Write("Zone-2 control is not supported on this unit")
+    zone_heat_change = (
         bool(zone1_power)
+        or bool(zone2_power)
         or zone1_water_target is not None
+        or zone2_water_target is not None
         or room_target is not None
         or zone1_curve is not None
+        or zone2_curve is not None
     )
-    if zone1_change and status.mode != C3_MODE_HEAT:
+    if zone_heat_change and status.mode != C3_MODE_HEAT:
         raise UnsupportedC3Write(
-            "Zone-1 control is only supported in Heat mode; switching the "
+            "Zone control is only supported in Heat mode; switching the "
             "operating mode has not been validated"
         )
     dhw_change = (
@@ -212,7 +243,9 @@ def apply_basic_changes(
         )
 
     new_zone1_power = status.zone1_power if zone1_power is None else zone1_power
+    new_zone2_power = status.zone2_power if zone2_power is None else zone2_power
     new_zone1_curve = status.zone1_curve if zone1_curve is None else zone1_curve
+    new_zone2_curve = status.zone2_curve if zone2_curve is None else zone2_curve
     new_dhw_power = status.dhw_power if dhw_power is None else dhw_power
     new_fast_dhw = status.fast_dhw if fast_dhw is None else fast_dhw
     new_dhw_target = status.dhw_target
@@ -237,6 +270,18 @@ def apply_basic_changes(
                 f"Zone-1 target {zone1_water_target} °C outside {low:g}-{high:g} °C"
             )
         new_zone1_target = int(round(zone1_water_target))
+    new_zone2_target = status.zone2_target
+    if zone2_water_target is not None:
+        if not status.zone2_water_temp:
+            raise UnsupportedC3Write(
+                "Zone-2 water setpoint writes require water-temperature control"
+            )
+        low2, high2 = status.zone2_water_range
+        if not (0 < low2 < high2) or not (low2 <= zone2_water_target <= high2):
+            raise ValueError(
+                f"Zone-2 target {zone2_water_target} °C outside {low2:g}-{high2:g} °C"
+            )
+        new_zone2_target = int(round(zone2_water_target))
     new_room_target = status.room_target
     if room_target is not None:
         if status.zone1_water_temp:
@@ -254,11 +299,14 @@ def apply_basic_changes(
     return replace(
         status,
         zone1_power=new_zone1_power,
+        zone2_power=new_zone2_power,
         zone1_curve=new_zone1_curve,
+        zone2_curve=new_zone2_curve,
         dhw_power=new_dhw_power,
         fast_dhw=new_fast_dhw,
         dhw_target=new_dhw_target,
         zone1_target=new_zone1_target,
+        zone2_target=new_zone2_target,
         room_target=new_room_target,
     )
 

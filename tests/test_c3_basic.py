@@ -23,6 +23,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from custom_components.iletcomfort import climate as climate_platform
 from custom_components.iletcomfort import switch, water_heater
 from custom_components.iletcomfort.api import (
     STATUS_MODE_COOL,
@@ -48,7 +49,10 @@ from custom_components.iletcomfort.c3_basic import (
     build_feature_set,
     decode_c3_basic,
 )
-from custom_components.iletcomfort.climate import ILetComfortClimate
+from custom_components.iletcomfort.climate import (
+    ILetComfortC3Zone2Climate,
+    ILetComfortClimate,
+)
 from custom_components.iletcomfort.const import (
     CONF_APPLIANCE_CODE,
     CONF_C3_BASIC_CONTROL,
@@ -70,6 +74,7 @@ from custom_components.iletcomfort.switch import (
     ILetComfortC3CurveSwitch,
     ILetComfortC3FastDhwSwitch,
     ILetComfortC3FeatureSwitch,
+    ILetComfortC3Zone2CurveSwitch,
 )
 from custom_components.iletcomfort.water_heater import ILetComfortDhw
 
@@ -98,6 +103,11 @@ ROTENSO_ISSUE124_HEATING = bytes.fromhex(
 # Italtherm (#22) state2: byte[1] bit 0 set, documented as space-heat demand.
 ITALTHERM_STATE2 = bytes.fromhex(
     "01 0d 07 68 03 03 1e 28 32 3a 37 19 19 05 41 23 19 05 3c 22 3c 14 2e 00 80"
+)
+# Kaisai Arctic KHC-10RY3-B (#151): dual-zone water-mode (body[2]=0x3f,
+# Z1=35 °C, Z2=25 °C, DHW=44 °C, both zones & curves ON).
+KAISAI_DUAL_ZONE = bytes.fromhex(
+    "01 1f 3f 00 03 03 23 19 2c 30 37 19 19 05 37 19 19 05 3c 22 3c 14 2c 00 80"
 )
 
 
@@ -1044,3 +1054,171 @@ async def test_options_flow_preserves_c3_control_when_hidden(hass: HomeAssistant
         user_input={CONF_OPERATION_MODE: "ha_primary"},
     )
     assert entry.options[CONF_C3_BASIC_CONTROL] is True
+
+
+# ===========================================================================
+# Dual-zone ATW (Zone 2, #151 Kaisai Arctic KHC-10RY3-B)
+# ===========================================================================
+
+def test_decode_and_write_kaisai_dual_zone():
+    basic = decode_c3_basic(KAISAI_DUAL_ZONE)
+    assert basic is not None
+    assert basic.double_zone is True
+    assert basic.zone2_water_temp is True
+    assert basic.zone2_power is True
+    assert basic.zone2_curve is True
+    assert basic.zone2_target == 25
+    assert basic.zone2_water_range == (25.0, 55.0)
+    assert (basic.zone2_cool_min, basic.zone2_cool_max) == (5, 25)
+
+    # Zone-2 power off clears bit 1 (0x02) in SET power byte (frame[11]),
+    # Zone-2 target writes frame[14], Zone-2 curve clears bit 1 (0x02) in frame[17].
+    updated = apply_basic_changes(
+        basic, zone2_power=False, zone2_water_target=30, zone2_curve=False
+    )
+    frame = bytes.fromhex(build_basic_set(updated))
+    assert frame[11] & 0x02 == 0
+    assert frame[11] & 0x01 == 0x01  # Zone 1 untouched
+    assert frame[14] == 30
+    assert frame[17] & 0x02 == 0
+    assert frame[17] & 0x01 == 0x01  # Zone-1 curve untouched
+
+    # Single-zone unit refuses all Zone-2 writes.
+    for kwargs in (
+        {"zone2_power": True},
+        {"zone2_water_target": 30},
+        {"zone2_curve": False},
+    ):
+        with pytest.raises(UnsupportedC3Write, match="Zone-2"):
+            apply_basic_changes(_baseline(), **kwargs)
+
+    # Cool mode refuses Zone-2 power-on / target / curve, but allows Zone-2 power-off.
+    cooling = decode_c3_basic(_cooling(KAISAI_DUAL_ZONE))
+    assert cooling is not None
+    assert cooling.zone2_water_range == (5.0, 25.0)
+    for kwargs in (
+        {"zone2_power": True},
+        {"zone2_water_target": 20},
+        {"zone2_curve": False},
+    ):
+        with pytest.raises(UnsupportedC3Write, match="Heat mode"):
+            apply_basic_changes(cooling, **kwargs)
+    off_cool = bytes.fromhex(
+        build_basic_set(apply_basic_changes(cooling, zone2_power=False))
+    )
+    assert off_cool[11] & 0x02 == 0
+    assert off_cool[12] == C3_MODE_COOL
+
+    # Out-of-range Zone-2 target is rejected.
+    with pytest.raises(ValueError, match="Zone-2 target"):
+        apply_basic_changes(basic, zone2_water_target=60)
+
+    # Zone-2 without water-temp flag refuses zone2_water_target.
+    no_z2_water = bytearray(KAISAI_DUAL_ZONE)
+    no_z2_water[2] &= ~0x20
+    no_z2_water_basic = decode_c3_basic(no_z2_water)
+    assert no_z2_water_basic is not None
+    with pytest.raises(UnsupportedC3Write, match="water-temperature"):
+        apply_basic_changes(no_z2_water_basic, zone2_water_target=30)
+
+
+async def test_zone2_climate_added_only_for_double_zone_units(hass: HomeAssistant):
+    # Single-zone Rotenso: only primary Heat Pump climate entity.
+    single = _coordinator(hass, _body(ROTENSO_BASELINE))
+    added_single: list = []
+    await climate_platform.async_setup_entry(hass, single.entry, added_single.extend)
+    single.async_update_listeners()
+    assert [e.unique_id for e in added_single] == ["APPL1_climate"]
+
+    # Dual-zone Kaisai (#151): adds Zone 2 dynamically once status arrives.
+    dual = _coordinator(hass, frame=None, sn8=None)
+    added_dual: list = []
+    await climate_platform.async_setup_entry(hass, dual.entry, added_dual.extend)
+    assert [e.unique_id for e in added_dual] == ["APPL1_climate"]
+
+    dual.appliance_meta = {"sn8": ATW_SN8}
+    dual.data = {
+        "status": decode_atw_status(KAISAI_DUAL_ZONE),
+        "sensors": ITSSensors(),
+    }
+    dual.async_update_listeners()
+    dual.async_update_listeners()
+    assert [e.unique_id for e in added_dual] == ["APPL1_climate", "APPL1_zone2"]
+
+    await single.async_shutdown()
+    await dual.async_shutdown()
+
+
+async def test_zone2_climate_read_only_and_opt_in_control(hass: HomeAssistant):
+    # Read-only by default.
+    ro = _coordinator(hass, KAISAI_DUAL_ZONE)
+    zone2_ro = ILetComfortC3Zone2Climate(ro)
+    assert zone2_ro.available is True
+    assert zone2_ro.supported_features == 0
+    assert zone2_ro.hvac_mode is HVACMode.HEAT
+    assert zone2_ro.target_temperature == 25.0
+    assert zone2_ro.current_temperature is None
+    assert (zone2_ro.min_temp, zone2_ro.max_temp) == (25.0, 55.0)
+    assert zone2_ro.extra_state_attributes == {
+        "zone2_water_target": 25.0,
+        "weather_curve": True,
+    }
+    with pytest.raises(HomeAssistantError, match="disabled by default"):
+        await zone2_ro.async_set_hvac_mode(HVACMode.OFF)
+
+    # Opt-in enabled: routes Heat/Off and water setpoint to async_set_c3_basic.
+    ctrl = _coordinator(hass, KAISAI_DUAL_ZONE)
+    ctrl._c3_basic_control = True
+    ctrl.async_set_c3_basic = AsyncMock()  # type: ignore[method-assign]
+    zone2 = ILetComfortC3Zone2Climate(ctrl)
+    assert zone2.supported_features != 0
+    await zone2.async_turn_off()
+    ctrl.async_set_c3_basic.assert_awaited_with(zone2_power=False)
+    await zone2.async_turn_on()
+    ctrl.async_set_c3_basic.assert_awaited_with(zone2_power=True)
+    await zone2.async_set_temperature(**{ATTR_TEMPERATURE: 99})
+    ctrl.async_set_c3_basic.assert_awaited_with(zone2_water_target=55.0)
+    with pytest.raises(HomeAssistantError):
+        await zone2.async_set_hvac_mode(HVACMode.COOL)
+
+    # Cool mode reports COOL with Zone-2 cooling limits.
+    ctrl.data["status"] = decode_atw_status(_cooling(KAISAI_DUAL_ZONE))
+    assert zone2.hvac_mode is HVACMode.COOL
+    assert HVACMode.COOL in zone2.hvac_modes
+    assert (zone2.min_temp, zone2.max_temp) == (5.0, 25.0)
+
+    # Without zone2_water_temp (body[2] & 0x20 == 0), target_temperature is None
+    # and TARGET_TEMPERATURE feature is omitted while raw attribute stays for diagnostics.
+    no_z2_water = bytearray(KAISAI_DUAL_ZONE)
+    no_z2_water[2] &= ~0x20
+    ctrl.data["status"] = decode_atw_status(bytes(no_z2_water))
+    assert zone2.target_temperature is None
+    assert zone2.extra_state_attributes["zone2_water_target"] == 25.0
+    assert zone2.supported_features == (
+        zone2.supported_features & ~0x01  # TARGET_TEMPERATURE bit cleared
+    )
+
+
+async def test_zone2_curve_switch_added_for_dual_zone_opt_in(hass: HomeAssistant):
+    coordinator = _coordinator(hass, KAISAI_DUAL_ZONE)
+    coordinator._c3_basic_control = True
+    coordinator.async_set_c3_basic = AsyncMock()  # type: ignore[method-assign]
+    added: list = []
+    await switch.async_setup_entry(hass, coordinator.entry, added.extend)
+    assert sorted(e.unique_id for e in added) == [
+        "APPL1_boost",
+        "APPL1_eco_mode",
+        "APPL1_fast_dhw",
+        "APPL1_silent_mode",
+        "APPL1_zone1_curve",
+        "APPL1_zone2_curve",
+    ]
+    z2_curve = next(e for e in added if isinstance(e, ILetComfortC3Zone2CurveSwitch))
+    assert z2_curve.available is True
+    assert z2_curve.is_on is True
+    await z2_curve.async_turn_off()
+    coordinator.async_set_c3_basic.assert_awaited_with(zone2_curve=False)
+
+    # If a later status lacks double_zone, the switch becomes unavailable.
+    coordinator.data["status"] = decode_atw_status(_body(ROTENSO_BASELINE))
+    assert z2_curve.available is False
