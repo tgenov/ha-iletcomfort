@@ -30,6 +30,7 @@ from .atw import (
     apply_atw_hmi_params,
     apply_atw_silent,
     apply_atw_unit_params,
+    valid_energy_counter,
 )
 from .base import HeatPumpState, ProtocolAdapter
 from .profile import ModelProfile
@@ -185,7 +186,7 @@ def merge_atw_energy_notify(previous: bytes | None, new: bytes) -> bytes:
         return bytes(new)
     merged = bytearray(new)
     for counter in _ENERGY_COUNTER_SLICES:
-        if not 0 < int.from_bytes(new[counter], "big") < 0xFFFFFFFF:
+        if not valid_energy_counter(int.from_bytes(new[counter], "big")):
             merged[counter] = previous[counter]
     if _atw_unit_s8(new[_ENERGY_OUTDOOR_INDEX]) is None:
         merged[_ENERGY_OUTDOOR_INDEX] = previous[_ENERGY_OUTDOOR_INDEX]
