@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.31.0](https://github.com/tgenov/ha-iletcomfort/compare/v0.30.0...v0.31.0) (2026-11-26)
+
+
+### Features
+
+* extend opt-in ATW (171H120F) C3 basic control ([#206](https://github.com/tgenov/ha-iletcomfort/issues/206)) ([3a6221e](https://github.com/tgenov/ha-iletcomfort/commit/3a6221e051cac51d3646960967ed0b1b0292b19a))
+
 ## [0.30.0](https://github.com/tgenov/ha-iletcomfort/compare/v0.29.0...v0.30.0) (2026-11-26)
 
 
