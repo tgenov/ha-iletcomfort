@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.26.0](https://github.com/tgenov/ha-iletcomfort/compare/v0.25.0...v0.26.0) (2026-11-26)
+
+
+### Features
+
+* add integration brand icon and enable full HACS validation ([#185](https://github.com/tgenov/ha-iletcomfort/issues/185)) ([f8f327f](https://github.com/tgenov/ha-iletcomfort/commit/f8f327f3439ebcd62e80164b857dfe9da8400f93))
+
 ## [0.25.0](https://github.com/tgenov/ha-iletcomfort/compare/v0.24.0...v0.25.0) (2026-11-26)
 
 
