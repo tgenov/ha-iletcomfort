@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.33.3](https://github.com/tgenov/ha-iletcomfort/compare/v0.33.2...v0.33.3) (2026-11-26)
+
+
+### Bug Fixes
+
+* **atw:** ignore sentinel 0x10 energy counters to protect HA energy statistics ([#232](https://github.com/tgenov/ha-iletcomfort/issues/232)) ([#233](https://github.com/tgenov/ha-iletcomfort/issues/233)) ([00cb4a3](https://github.com/tgenov/ha-iletcomfort/commit/00cb4a3c7aa02d7122ae9c9a82ec07696256ca18))
+
 ## [0.33.2](https://github.com/tgenov/ha-iletcomfort/compare/v0.33.1...v0.33.2) (2026-11-26)
 
 
