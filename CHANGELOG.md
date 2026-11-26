@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.30.0](https://github.com/tgenov/ha-iletcomfort/compare/v0.29.0...v0.30.0) (2026-11-26)
+
+
+### Features
+
+* **atw:** unify 171H120F C3BasicStatus read decoding across all masks ([#204](https://github.com/tgenov/ha-iletcomfort/issues/204)) ([56ad33f](https://github.com/tgenov/ha-iletcomfort/commit/56ad33f716fefb5d5096de2990d65be07f40a6f4))
+
 ## [0.29.0](https://github.com/tgenov/ha-iletcomfort/compare/v0.28.0...v0.29.0) (2026-11-26)
 
 
