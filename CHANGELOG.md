@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.28.0](https://github.com/tgenov/ha-iletcomfort/compare/v0.27.1...v0.28.0) (2026-11-26)
+
+
+### Features
+
+* opt-in control of 171H120F units via standard Midea C3 SET ([#42](https://github.com/tgenov/ha-iletcomfort/issues/42)) ([#143](https://github.com/tgenov/ha-iletcomfort/issues/143)) ([3e6fc2b](https://github.com/tgenov/ha-iletcomfort/commit/3e6fc2b87d8be423b68f86423aefdcbbf69706f7))
+
 ## [0.27.1](https://github.com/tgenov/ha-iletcomfort/compare/v0.27.0...v0.27.1) (2026-11-26)
 
 
