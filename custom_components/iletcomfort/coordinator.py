@@ -51,13 +51,13 @@ from .model_profiles import (
     ModelProfile,
     apply_atw_hmi_params,
     apply_atw_unit_params,
-    apply_profile_to_sensors,
     apply_profile_to_status,
     atw_sensors_are_placeholder,
     kjrh120l_has_zone1,
     resolve_profile,
 )
 from .mqtt import ILetComfortPushClient
+from .protocols import HeatPumpState, get_adapter
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -355,10 +355,11 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 temp = int(status.t5s_def) if status.t5s_def is not None else status.set_temperature
                 self._last_on_state = (set_mode, temp)
 
-        # Apply any model-specific sensors override (e.g. ATW/AQUAPURA route a
-        # tank/water temp into th_temp). STANDARD is a no-op.
-        profile = resolve_profile(sn8)
-        sensors = apply_profile_to_sensors(profile, sensors, status)
+        # Apply any model-specific sensors override via the resolved protocol
+        # adapter (e.g. ATW/AQUAPURA route tank temp into th_temp).
+        adapter = get_adapter(sn8)
+        profile = adapter.profile
+        sensors = adapter.decode_sensors(sensors, status)
 
         raw_frames: dict[int, bytes] = {}
         if status.raw_body:
@@ -429,7 +430,19 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._update_offline_repair()
         self._observe_kjrh120l_zone1(status)
 
-        return {"status": status, "sensors": sensors, "raw_frames": raw_frames}
+        state = HeatPumpState(
+            profile=profile,
+            variant=adapter.describe_variant(status),
+            status=status,
+            sensors=sensors,
+            raw_frames=raw_frames,
+        )
+        return {
+            "status": status,
+            "sensors": sensors,
+            "raw_frames": raw_frames,
+            "state": state,
+        }
 
     def _update_offline_repair(self) -> None:
         """Surface or clear the 'device appears offline' Repair card.
@@ -536,14 +549,15 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         await self.async_start_push()
 
-    async def async_set_device(self, **kwargs: Any) -> None:
-        """Send a SET command with auto re-auth, then refresh data.
+    async def async_execute_command(self, action: Callable[[], Any]) -> Any:
+        """Run a blocking write command with uniform safety, re-auth, and refresh.
 
-        The appliance ``sn8`` is forwarded so the client can branch the write
-        encoding per model (e.g. the KJRH-120L's short commands vs the legacy
-        C3 SET frame); see ``model_profiles`` and ``ILetComfortClient.set_device``.
-        Client and network errors are raised as HomeAssistantError and skip
-        the refresh.
+        Centralizes the write contract for every protocol dialect (#172):
+        1. Rejects writes in read-only phone-app coexistence mode.
+        2. Retries once on ``AuthError`` after re-authenticating.
+        3. Translates client/validation/network errors into ``HomeAssistantError``
+           without triggering a spurious refresh.
+        4. Requests a coordinator refresh on success.
         """
         if self._operation_mode == OPERATION_MODE_PHONE_APP:
             raise HomeAssistantError(
@@ -551,6 +565,30 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "switch to HA primary mode to send commands"
             )
 
+        try:
+            try:
+                result = await self.hass.async_add_executor_job(action)
+            except AuthError:
+                _LOGGER.info("Auth error during set, re-authenticating")
+                await self._async_login()
+                result = await self.hass.async_add_executor_job(action)
+        except (
+            ApiError,
+            AuthError,
+            ValueError,
+            requests.RequestException,
+        ) as err:
+            raise HomeAssistantError(f"Heat pump command failed: {err}") from err
+        await self.async_request_refresh()
+        return result
+
+    async def async_set_device(self, **kwargs: Any) -> None:
+        """Send a SET command with auto re-auth, then refresh data.
+
+        The appliance ``sn8`` is forwarded so the client can branch the write
+        encoding per model (e.g. the KJRH-120L's short commands vs the legacy
+        C3 SET frame); see ``model_profiles`` and ``ILetComfortClient.set_device``.
+        """
         sn8 = self.sn8
 
         def _send() -> Any:
@@ -561,21 +599,7 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 **kwargs,
             )
 
-        try:
-            try:
-                await self.hass.async_add_executor_job(_send)
-            except AuthError:
-                _LOGGER.info("Auth error during set, re-authenticating")
-                await self._async_login()
-                await self.hass.async_add_executor_job(_send)
-        except (
-            ApiError,
-            AuthError,
-            ValueError,
-            requests.RequestException,
-        ) as err:
-            raise HomeAssistantError(f"Heat pump command failed: {err}") from err
-        await self.async_request_refresh()
+        await self.async_execute_command(_send)
 
     # -- MQTT real-time push (issue #55, phone-app coexistence mode) --
 
