@@ -18,6 +18,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .api import ITSStatus
+from .commands import SetDhwTargetCommand, SetZoneTargetCommand
 from .const import DOMAIN
 from .coordinator import ILetComfortCoordinator
 from .entity import async_add_kjrh120l_zone1_entities, build_device_info
@@ -96,7 +97,7 @@ class ILetComfortKjrh120lDhwSetpoint(
             self._attr_native_min_value,
             min(float(value), self._attr_native_max_value),
         )
-        await self.coordinator.async_set_device(temperature=int(clamped))
+        await self.coordinator.async_send_command(SetDhwTargetCommand(clamped))
 
 
 class ILetComfortKjrh120lZone1Setpoint(
@@ -169,4 +170,6 @@ class ILetComfortKjrh120lZone1Setpoint(
             raise HomeAssistantError(
                 f"Zone 1 target {value:g} is outside the reported range {low}-{high}"
             )
-        await self.coordinator.async_set_device(zone1_temperature=int(value))
+        await self.coordinator.async_send_command(
+            SetZoneTargetCommand(zone=1, temperature=int(value))
+        )

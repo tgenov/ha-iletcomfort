@@ -37,6 +37,7 @@ from custom_components.iletcomfort.model_profiles import (
     decode_kjrh120l_status,
     resolve_profile,
 )
+from custom_components.iletcomfort.coordinator import ILetComfortCoordinator
 from custom_components.iletcomfort.number import ILetComfortKjrh120lZone1Setpoint
 from custom_components.iletcomfort.select import ILetComfortKjrh120lModeSelect
 from custom_components.iletcomfort.switch import (
@@ -63,6 +64,10 @@ def _coordinator(body: bytes) -> MagicMock:
         "sensors": ITSSensors(),
     }
     coordinator.async_set_device = AsyncMock()
+    coordinator.c3_basic_controllable = None
+    coordinator.async_send_command = ILetComfortCoordinator.async_send_command.__get__(
+        coordinator
+    )
     return coordinator
 
 

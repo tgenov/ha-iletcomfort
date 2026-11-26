@@ -8,11 +8,21 @@ from typing import Any
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .api import MODE_HEAT, MODE_OFF, ITSStatus
+from .api import ITSStatus
 from .c3_basic import FEATURE_ECO, FEATURE_SILENT, C3BasicStatus
+from .commands import (
+    SetBoostCommand,
+    SetDhwPowerCommand,
+    SetEcoModeCommand,
+    SetFastDhwCommand,
+    SetSilentModeCommand,
+    SetZoneCurveCommand,
+    SetZonePowerCommand,
+)
 from .const import DOMAIN
 from .coordinator import ILetComfortCoordinator
 from .entity import (
@@ -108,10 +118,10 @@ class ILetComfortBoostSwitch(CoordinatorEntity[ILetComfortCoordinator], SwitchEn
         return sensors.ctrl_flag == 2
 
     async def async_turn_on(self, **kwargs: Any) -> None:
-        await self.coordinator.async_set_device(boost=True)
+        await self.coordinator.async_send_command(SetBoostCommand(enabled=True))
 
     async def async_turn_off(self, **kwargs: Any) -> None:
-        await self.coordinator.async_set_device(boost=False)
+        await self.coordinator.async_send_command(SetBoostCommand(enabled=False))
 
 
 class ILetComfortKjrh120lZone1PowerSwitch(
@@ -138,10 +148,14 @@ class ILetComfortKjrh120lZone1PowerSwitch(
         return status.kjrh120l_zone1_power if status is not None else None
 
     async def async_turn_on(self, **kwargs: Any) -> None:
-        await self.coordinator.async_set_device(zone1_power=True)
+        await self.coordinator.async_send_command(
+            SetZonePowerCommand(zone=1, on=True)
+        )
 
     async def async_turn_off(self, **kwargs: Any) -> None:
-        await self.coordinator.async_set_device(zone1_power=False)
+        await self.coordinator.async_send_command(
+            SetZonePowerCommand(zone=1, on=False)
+        )
 
 
 class ILetComfortKjrh120lDhwPowerSwitch(
@@ -169,10 +183,10 @@ class ILetComfortKjrh120lDhwPowerSwitch(
         return status.kjrh120l_dhw_power if status is not None else None
 
     async def async_turn_on(self, **kwargs: Any) -> None:
-        await self.coordinator.async_set_device(mode=MODE_HEAT)
+        await self.coordinator.async_send_command(SetDhwPowerCommand(on=True))
 
     async def async_turn_off(self, **kwargs: Any) -> None:
-        await self.coordinator.async_set_device(mode=MODE_OFF)
+        await self.coordinator.async_send_command(SetDhwPowerCommand(on=False))
 
 
 class _ILetComfortC3Switch(CoordinatorEntity[ILetComfortCoordinator], SwitchEntity):
@@ -210,10 +224,14 @@ class ILetComfortC3CurveSwitch(_ILetComfortC3Switch):
         return basic.zone1_curve if basic is not None else None
 
     async def async_turn_on(self, **kwargs: Any) -> None:
-        await self.coordinator.async_set_c3_basic(zone1_curve=True)
+        await self.coordinator.async_send_command(
+            SetZoneCurveCommand(zone=1, enabled=True)
+        )
 
     async def async_turn_off(self, **kwargs: Any) -> None:
-        await self.coordinator.async_set_c3_basic(zone1_curve=False)
+        await self.coordinator.async_send_command(
+            SetZoneCurveCommand(zone=1, enabled=False)
+        )
 
 
 class ILetComfortC3Zone2CurveSwitch(_ILetComfortC3Switch):
@@ -236,10 +254,14 @@ class ILetComfortC3Zone2CurveSwitch(_ILetComfortC3Switch):
         return basic.zone2_curve if basic is not None else None
 
     async def async_turn_on(self, **kwargs: Any) -> None:
-        await self.coordinator.async_set_c3_basic(zone2_curve=True)
+        await self.coordinator.async_send_command(
+            SetZoneCurveCommand(zone=2, enabled=True)
+        )
 
     async def async_turn_off(self, **kwargs: Any) -> None:
-        await self.coordinator.async_set_c3_basic(zone2_curve=False)
+        await self.coordinator.async_send_command(
+            SetZoneCurveCommand(zone=2, enabled=False)
+        )
 
 
 class ILetComfortC3FastDhwSwitch(_ILetComfortC3Switch):
@@ -257,10 +279,10 @@ class ILetComfortC3FastDhwSwitch(_ILetComfortC3Switch):
         return basic.fast_dhw if basic is not None else None
 
     async def async_turn_on(self, **kwargs: Any) -> None:
-        await self.coordinator.async_set_c3_basic(fast_dhw=True)
+        await self.coordinator.async_send_command(SetFastDhwCommand(enabled=True))
 
     async def async_turn_off(self, **kwargs: Any) -> None:
-        await self.coordinator.async_set_c3_basic(fast_dhw=False)
+        await self.coordinator.async_send_command(SetFastDhwCommand(enabled=False))
 
 
 class ILetComfortC3FeatureSwitch(_ILetComfortC3Switch):
@@ -296,7 +318,17 @@ class ILetComfortC3FeatureSwitch(_ILetComfortC3Switch):
         return self._state_fn(basic)
 
     async def async_turn_on(self, **kwargs: Any) -> None:
-        await self.coordinator.async_set_c3_feature(self._feature, True)
+        if self._feature == FEATURE_SILENT:
+            await self.coordinator.async_send_command(SetSilentModeCommand(enabled=True))
+        elif self._feature == FEATURE_ECO:
+            await self.coordinator.async_send_command(SetEcoModeCommand(enabled=True))
+        else:
+            raise HomeAssistantError(f"Unsupported C3 feature {self._feature!r}")
 
     async def async_turn_off(self, **kwargs: Any) -> None:
-        await self.coordinator.async_set_c3_feature(self._feature, False)
+        if self._feature == FEATURE_SILENT:
+            await self.coordinator.async_send_command(SetSilentModeCommand(enabled=False))
+        elif self._feature == FEATURE_ECO:
+            await self.coordinator.async_send_command(SetEcoModeCommand(enabled=False))
+        else:
+            raise HomeAssistantError(f"Unsupported C3 feature {self._feature!r}")

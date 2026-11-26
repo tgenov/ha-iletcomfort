@@ -23,6 +23,14 @@ from .api import (
     MODE_WATERPUMP,
 )
 from .c3_basic import C3BasicStatus
+from .commands import (
+    HvacModeIntent,
+    SetHvacModeCommand,
+    SetPowerCommand,
+    SetTargetTemperatureCommand,
+    SetZonePowerCommand,
+    SetZoneTargetCommand,
+)
 from .const import DOMAIN
 from .coordinator import ILetComfortCoordinator
 from .entity import async_add_when_capable, build_device_info
@@ -43,12 +51,20 @@ _QUERY_MODE_TO_HVAC: dict[int, HVACMode] = {
     4: HVACMode.FAN_ONLY,  # water pump / circulation
 }
 
-# HA HVAC mode → SET command mode
+# HA HVAC mode → SET command mode (used for mode-specific temperature bounds)
 _HVAC_TO_SET_MODE: dict[HVACMode, int] = {
     HVACMode.OFF: MODE_OFF,
     HVACMode.HEAT: MODE_HEAT,
     HVACMode.COOL: MODE_COOL,
     HVACMode.FAN_ONLY: MODE_WATERPUMP,
+}
+
+# HA HVAC mode → semantic HVAC mode intent
+_HVAC_TO_INTENT: dict[HVACMode, HvacModeIntent] = {
+    HVACMode.OFF: "off",
+    HVACMode.HEAT: "heat",
+    HVACMode.COOL: "cool",
+    HVACMode.FAN_ONLY: "fan_only",
 }
 
 
@@ -305,62 +321,32 @@ class ILetComfortClimate(CoordinatorEntity[ILetComfortCoordinator], ClimateEntit
         )[1]
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
-        if self._c3 is not None:
-            if hvac_mode not in (HVACMode.OFF, HVACMode.HEAT):
-                raise HomeAssistantError(
-                    f"{hvac_mode} is not supported; only Heat and Off can be set"
-                )
-            # The client refuses Heat unless the unit is already in Heat mode.
-            await self.coordinator.async_set_c3_basic(
-                zone1_power=hvac_mode is HVACMode.HEAT,
-            )
-            return
         self._ensure_climate_control_supported()
-        set_mode = _HVAC_TO_SET_MODE.get(hvac_mode)
-        if set_mode is not None:
-            await self.coordinator.async_set_device(mode=set_mode)
+        intent = _HVAC_TO_INTENT.get(hvac_mode)
+        if intent is None:
+            raise HomeAssistantError(f"Unsupported HVAC mode {hvac_mode}")
+        await self.coordinator.async_send_command(SetHvacModeCommand(intent))
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
-        basic = self._c3
-        if basic is not None:
-            temp = kwargs.get(ATTR_TEMPERATURE)
-            if temp is not None:
-                clamped = max(self.min_temp, min(float(temp), self.max_temp))
-                if basic.zone1_water_temp:
-                    await self.coordinator.async_set_c3_basic(
-                        zone1_water_target=clamped,
-                    )
-                else:
-                    await self.coordinator.async_set_c3_basic(
-                        room_target=clamped,
-                    )
-            return
         self._ensure_climate_control_supported()
-        if self.hvac_mode is HVACMode.FAN_ONLY:
+        if self._c3 is None and self.hvac_mode is HVACMode.FAN_ONLY:
             raise HomeAssistantError(
                 "Temperature control is unavailable in Fan Only mode"
             )
         temp = kwargs.get(ATTR_TEMPERATURE)
         if temp is not None:
-            # Clamp to the entity's min/max before sending. For the KJRH-120L
-            # this keeps the short DHW-setpoint write inside the valid range;
-            # for other profiles the value is already mode-constrained by HA.
             clamped = max(self.min_temp, min(float(temp), self.max_temp))
-            await self.coordinator.async_set_device(temperature=int(clamped))
+            await self.coordinator.async_send_command(
+                SetTargetTemperatureCommand(clamped)
+            )
 
     async def async_turn_on(self) -> None:
-        if self._c3 is not None:
-            await self.async_set_hvac_mode(HVACMode.HEAT)
-            return
         self._ensure_climate_control_supported()
-        await self.coordinator.async_set_device(power_on=True)
+        await self.coordinator.async_send_command(SetPowerCommand(on=True))
 
     async def async_turn_off(self) -> None:
-        if self._c3 is not None:
-            await self.async_set_hvac_mode(HVACMode.OFF)
-            return
         self._ensure_climate_control_supported()
-        await self.coordinator.async_set_device(mode=MODE_OFF)
+        await self.coordinator.async_send_command(SetPowerCommand(on=False))
 
 
 class ILetComfortC3Zone2Climate(
@@ -484,8 +470,8 @@ class ILetComfortC3Zone2Climate(
             raise HomeAssistantError(
                 f"{hvac_mode} is not supported; only Heat and Off can be set"
             )
-        await self.coordinator.async_set_c3_basic(
-            zone2_power=hvac_mode is HVACMode.HEAT,
+        await self.coordinator.async_send_command(
+            SetZonePowerCommand(zone=2, on=hvac_mode is HVACMode.HEAT)
         )
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
@@ -494,7 +480,9 @@ class ILetComfortC3Zone2Climate(
         if temp is None:
             return
         clamped = max(self.min_temp, min(float(temp), self.max_temp))
-        await self.coordinator.async_set_c3_basic(zone2_water_target=clamped)
+        await self.coordinator.async_send_command(
+            SetZoneTargetCommand(zone=2, temperature=clamped)
+        )
 
     async def async_turn_on(self) -> None:
         await self.async_set_hvac_mode(HVACMode.HEAT)
