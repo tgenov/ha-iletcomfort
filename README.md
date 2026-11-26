@@ -107,9 +107,10 @@ official app. Then:
 | Entity | What it does |
 |---|---|
 | **Heat Pump** (climate) | Zone-1 Heat/Off and water or room (0.5 °C) setpoint (limits come from the unit) |
+| **Zone 2** (climate) | Zone-2 Heat/Off and water setpoint (added automatically on dual-zone units) |
 | **Hot Water** (water heater) | DHW on/off and target temperature (when supported by the unit) |
 | **Fast DHW** (switch) | Fast DHW boost on/off (when supported by the unit) |
-| **Weather Curve** (switch) | Zone-1 weather-compensation curve on/off |
+| **Weather Curve** / **Zone 2 Weather Curve** (switches) | Zone-1 (and Zone-2 on dual-zone units) weather-compensation curve on/off |
 | **Silent Mode** (select / switch) | Off, Level 1, or Level 2 (Super Silent) via `select.*_silent_mode`, or on/off via `switch.*_silent_mode`; the unit's own schedules are kept |
 | **ECO Mode** (switch) | On/off (reads live `0x07` ECO state when supported); the unit's own schedules are kept |
 

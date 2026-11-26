@@ -58,7 +58,7 @@
           "c3_basic_control": "Enable standard Midea C3 control (sn8 171H120F)"
         },
         "data_description": {
-          "c3_basic_control": "Experimental. Validated on a Rotenso Aquami: Zone-1 heating on/off and water or room (0.5 °C) setpoint (Heat mode only), hot water on/off, setpoint and Fast DHW, weather curve, Silent (Off / Level 1 / Level 2) and ECO mode. Enable it only if the displayed setpoint ('zone1_water_target' in water mode, or 'room_target' in room mode) matches the official app. Cooling and operating-mode changes are not supported."
+          "c3_basic_control": "Experimental. Validated on a Rotenso Aquami: Zone-1 (and Zone-2 on dual-zone units) heating on/off and water or room (0.5 °C) setpoint (Heat mode only), hot water on/off, setpoint and Fast DHW, weather curve, Silent (Off / Level 1 / Level 2) and ECO mode. Enable it only if the displayed setpoint ('zone1_water_target' in water mode, or 'room_target' in room mode) matches the official app. Cooling and operating-mode changes are not supported."
         }
       }
     }

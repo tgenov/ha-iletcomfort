@@ -25,7 +25,8 @@ from .api import (
 from .c3_basic import C3BasicStatus
 from .const import DOMAIN
 from .coordinator import ILetComfortCoordinator
-from .entity import build_device_info
+from .entity import async_add_when_capable, build_device_info
+from .model_profiles import ModelProfile
 from .protocols import (
     HeatPumpState,
     get_adapter,
@@ -51,14 +52,35 @@ _HVAC_TO_SET_MODE: dict[HVACMode, int] = {
 }
 
 
+def _coordinator_c3_basic(coordinator: ILetComfortCoordinator) -> C3BasicStatus | None:
+    state = resolve_state(coordinator.sn8, coordinator.data)
+    return state.atw_c3_basic if state is not None else None
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up the climate entity."""
+    """Set up climate entities (primary heat pump + optional ATW Zone 2)."""
     coordinator: ILetComfortCoordinator = hass.data[DOMAIN][entry.entry_id]
     async_add_entities([ILetComfortClimate(coordinator)])
+
+    def _has_zone2() -> bool:
+        basic = _coordinator_c3_basic(coordinator)
+        return basic is not None and basic.double_zone
+
+    async_add_when_capable(
+        coordinator,
+        entry,
+        async_add_entities,
+        is_capable=_has_zone2,
+        can_become_capable=lambda: (
+            coordinator.sn8 is None
+            or get_adapter(coordinator.sn8).profile is ModelProfile.ATW
+        ),
+        build=lambda: [ILetComfortC3Zone2Climate(coordinator)],
+    )
 
 
 class ILetComfortClimate(CoordinatorEntity[ILetComfortCoordinator], ClimateEntity):
@@ -339,3 +361,143 @@ class ILetComfortClimate(CoordinatorEntity[ILetComfortCoordinator], ClimateEntit
             return
         self._ensure_climate_control_supported()
         await self.coordinator.async_set_device(mode=MODE_OFF)
+
+
+class ILetComfortC3Zone2Climate(
+    CoordinatorEntity[ILetComfortCoordinator], ClimateEntity
+):
+    """Zone-2 climate entity for dual-zone ATW (sn8 171H120F) units (#151).
+
+    Exposed dynamically once a C3 basic status with ``double_zone`` is seen.
+    Read-only by default; writable when C3 basic control is enabled in options.
+    """
+
+    _attr_has_entity_name = True
+    _attr_name = "Zone 2"
+    _attr_temperature_unit = UnitOfTemperature.CELSIUS
+    _attr_target_temperature_step = 1.0
+
+    def __init__(self, coordinator: ILetComfortCoordinator) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{coordinator.appliance_code}_zone2"
+        self._attr_device_info = build_device_info(coordinator)
+
+    @property
+    def _basic(self) -> C3BasicStatus | None:
+        return _coordinator_c3_basic(self.coordinator)
+
+    @property
+    def _c3(self) -> C3BasicStatus | None:
+        basic = self.coordinator.c3_basic_controllable
+        return basic if isinstance(basic, C3BasicStatus) else None
+
+    @property
+    def available(self) -> bool:
+        basic = self._basic
+        return super().available and basic is not None and basic.double_zone
+
+    @property
+    def supported_features(self) -> ClimateEntityFeature:
+        basic = self._c3
+        if basic is None or not basic.double_zone:
+            return ClimateEntityFeature(0)
+        features = ClimateEntityFeature.TURN_ON | ClimateEntityFeature.TURN_OFF
+        if basic.zone2_water_temp:
+            features |= ClimateEntityFeature.TARGET_TEMPERATURE
+        return features
+
+    @property
+    def hvac_modes(self) -> list[HVACMode]:
+        basic = self._c3
+        if basic is not None:
+            if basic.is_cooling_mode:
+                return [HVACMode.OFF, HVACMode.HEAT, HVACMode.COOL]
+            return [HVACMode.OFF, HVACMode.HEAT]
+        read_basic = self._basic
+        if read_basic is None:
+            return [HVACMode.OFF]
+        modes: list[HVACMode] = [HVACMode.OFF]
+        if (
+            read_basic.cap_heat
+            or not read_basic.cap_cool
+            or (read_basic.zone2_power and not read_basic.is_cooling_mode)
+        ):
+            modes.append(HVACMode.HEAT)
+        if read_basic.cap_cool or read_basic.is_cooling_mode:
+            modes.append(HVACMode.COOL)
+        return modes
+
+    @property
+    def hvac_mode(self) -> HVACMode:
+        basic = self._basic
+        if basic is None or not basic.zone2_power:
+            return HVACMode.OFF
+        return HVACMode.COOL if basic.is_cooling_mode else HVACMode.HEAT
+
+    @property
+    def current_temperature(self) -> float | None:
+        return None
+
+    @property
+    def target_temperature(self) -> float | None:
+        basic = self._basic
+        if basic is None or not basic.zone2_water_temp:
+            return None
+        return float(basic.zone2_target)
+
+    def _zone2_range(self) -> tuple[float, float]:
+        basic = self._basic
+        if basic is not None:
+            low, high = basic.zone2_water_range
+            if 0 < low < high:
+                return low, high
+        return 10.0, 40.0
+
+    @property
+    def min_temp(self) -> float:
+        return self._zone2_range()[0]
+
+    @property
+    def max_temp(self) -> float:
+        return self._zone2_range()[1]
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        basic = self._basic
+        if basic is None:
+            return {}
+        return {
+            "zone2_water_target": float(basic.zone2_target),
+            "weather_curve": basic.zone2_curve,
+        }
+
+    def _ensure_control_enabled(self) -> None:
+        if self._c3 is None:
+            raise HomeAssistantError(
+                "ATW (171H120F) control is disabled by default; enable "
+                "experimental ATW control in the integration options"
+            )
+
+    async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
+        self._ensure_control_enabled()
+        if hvac_mode not in (HVACMode.OFF, HVACMode.HEAT):
+            raise HomeAssistantError(
+                f"{hvac_mode} is not supported; only Heat and Off can be set"
+            )
+        await self.coordinator.async_set_c3_basic(
+            zone2_power=hvac_mode is HVACMode.HEAT,
+        )
+
+    async def async_set_temperature(self, **kwargs: Any) -> None:
+        self._ensure_control_enabled()
+        temp = kwargs.get(ATTR_TEMPERATURE)
+        if temp is None:
+            return
+        clamped = max(self.min_temp, min(float(temp), self.max_temp))
+        await self.coordinator.async_set_c3_basic(zone2_water_target=clamped)
+
+    async def async_turn_on(self) -> None:
+        await self.async_set_hvac_mode(HVACMode.HEAT)
+
+    async def async_turn_off(self) -> None:
+        await self.async_set_hvac_mode(HVACMode.OFF)

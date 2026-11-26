@@ -79,6 +79,8 @@ def _build_c3_switches(coordinator: ILetComfortCoordinator) -> list[SwitchEntity
         ),
     ]
     basic = coordinator.c3_basic_controllable
+    if isinstance(basic, C3BasicStatus) and basic.double_zone:
+        switches.append(ILetComfortC3Zone2CurveSwitch(coordinator))
     if isinstance(basic, C3BasicStatus) and basic.cap_dhw:
         switches.append(ILetComfortC3FastDhwSwitch(coordinator))
     return switches
@@ -212,6 +214,32 @@ class ILetComfortC3CurveSwitch(_ILetComfortC3Switch):
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         await self.coordinator.async_set_c3_basic(zone1_curve=False)
+
+
+class ILetComfortC3Zone2CurveSwitch(_ILetComfortC3Switch):
+    """Zone-2 weather-compensation curve on/off (dual-zone ATW units)."""
+
+    _attr_name = "Zone 2 Weather Curve"
+    _attr_icon = "mdi:chart-bell-curve-cumulative"
+
+    def __init__(self, coordinator: ILetComfortCoordinator) -> None:
+        super().__init__(coordinator, "zone2_curve")
+
+    @property
+    def available(self) -> bool:
+        basic = self._basic
+        return super().available and basic is not None and basic.double_zone
+
+    @property
+    def is_on(self) -> bool | None:
+        basic = self._basic
+        return basic.zone2_curve if basic is not None else None
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        await self.coordinator.async_set_c3_basic(zone2_curve=True)
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        await self.coordinator.async_set_c3_basic(zone2_curve=False)
 
 
 class ILetComfortC3FastDhwSwitch(_ILetComfortC3Switch):
