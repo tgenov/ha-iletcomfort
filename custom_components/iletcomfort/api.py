@@ -412,9 +412,9 @@ class ITSSensors:
     online_num: int = 0
     odu_mac_type: int = 0
     limit_frq_code: int = 0
-    tf_temp: int = 0
-    tp_temp: int = 0
-    th_temp: int = 0
+    tf_temp: float | None = 0
+    tp_temp: float | None = 0
+    th_temp: float | None = 0
     water_pres: int = 0
     water_flow: int = 0
     capacity_hp: int = 0
@@ -425,8 +425,8 @@ class ITSSensors:
     twin_temp: float | None = None
     twout_temp: float | None = None
     t1_temp: float | None = None
-    odu_current: float = 0.0
-    odu_voltage: int = 0
+    odu_current: float | None = 0.0
+    odu_voltage: int | None = 0
     dc_current: int = 0
     idu_version: str = ""
     odu_version: str = ""
@@ -895,20 +895,20 @@ class ILetComfortClient:
         # Imported lazily to avoid a circular import (model_profiles imports api).
         from .model_profiles import ModelProfile, resolve_profile
 
-        zone1 = {
-            "zone1_temperature": zone1_temperature,
-            "zone1_run_mode": zone1_run_mode,
-            "zone1_power": zone1_power,
-        }
         if resolve_profile(sn8) is ModelProfile.KJRH120L:
             return self._set_device_kjrh120l(
                 appliance_code,
                 mode=mode,
                 temperature=temperature,
                 power_on=power_on,
-                **zone1,
+                zone1_temperature=zone1_temperature,
+                zone1_run_mode=zone1_run_mode,
+                zone1_power=zone1_power,
             )
-        if any(value is not None for value in zone1.values()):
+        if any(
+            value is not None
+            for value in (zone1_temperature, zone1_run_mode, zone1_power)
+        ):
             raise ApiError(
                 "Zone 1 setpoint, run mode and Zone 1 power writes are only "
                 "supported on the KJRH-120L (sn8 17100003)"
@@ -1035,6 +1035,7 @@ class ILetComfortClient:
             build_kjrh120l_zone1_setpoint,
         )
 
+        effective: dict[str, Any]
         if any(v is not None for v in (zone1_temperature, zone1_run_mode, zone1_power)):
             if temperature is not None or mode is not None or power_on:
                 raise ValueError(
@@ -1060,6 +1061,7 @@ class ILetComfortClient:
                     "effective_zone1_temp": zone1_temperature,
                 }
             else:
+                assert zone1_temperature is not None
                 command = build_kjrh120l_zone1_setpoint(zone1_temperature)
                 effective = {"effective_zone1_temp": zone1_temperature}
             response_hex = self.send_hex_command(appliance_code, command)

@@ -16,6 +16,18 @@ jobs:
         with:
           args: check custom_components/ tests/
 
+  mypy:
+    name: mypy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          python-version: "3.12"
+      - name: Run mypy
+        run: uv run --with mypy --with types-requests mypy custom_components/iletcomfort/
+
   hassfest:
     name: hassfest
     runs-on: ubuntu-latest

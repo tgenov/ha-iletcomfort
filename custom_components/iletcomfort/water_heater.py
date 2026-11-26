@@ -60,7 +60,11 @@ async def async_setup_entry(
         and resolve_profile(coordinator.sn8) is not ModelProfile.ATW
     ):
         return
-    unsubscribe = coordinator.async_add_listener(_maybe_add)
+    @callback
+    def _on_update() -> None:
+        _maybe_add()
+
+    unsubscribe = coordinator.async_add_listener(_on_update)
 
     @callback
     def _unload() -> None:

@@ -251,7 +251,7 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if resolve_profile(self.sn8) is not previous_profile:
             # Cached values and power-restore state used the old byte layout.
             # They cannot be used as fallback for the newly discovered model.
-            self.data = None
+            self.data = None  # type: ignore[assignment]
             self._last_on_state = None
             self._atw_unit_params_supported = None
             self._atw_unit_params_error = None
