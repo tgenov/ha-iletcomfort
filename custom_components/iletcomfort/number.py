@@ -24,20 +24,17 @@ from .entity import async_add_kjrh120l_zone1_entities, build_device_info
 from .model_profiles import (
     KJRH120L_DHW_TEMP_MAX,
     KJRH120L_DHW_TEMP_MIN,
-    ModelProfile,
-    kjrh120l_has_zone1,
     kjrh120l_zone1_range,
-    resolve_profile,
 )
+from .protocols import is_kjrh120l_dual_state
 
 
 def _is_kjrh120l_dual(coordinator: ILetComfortCoordinator) -> bool:
-    if resolve_profile(coordinator.sn8) is not ModelProfile.KJRH120L:
-        return False
-    if coordinator.kjrh120l_zone1_capable is True:
-        return True
-    status = (coordinator.data or {}).get("status")
-    return bool(status and kjrh120l_has_zone1(status.raw_body))
+    return is_kjrh120l_dual_state(
+        coordinator.sn8,
+        coordinator.data,
+        coordinator.kjrh120l_zone1_capable is True,
+    )
 
 
 async def async_setup_entry(

@@ -455,6 +455,7 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             status=status,
             sensors=sensors,
             raw_frames=dict(raw_frames),
+            has_authoritative_raw_frames=True,
         )
         return {
             "status": status,
@@ -713,6 +714,7 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             status=status,
             sensors=sensors,
             raw_frames=dict(raw_frames),
+            has_authoritative_raw_frames=True,
         )
         self.async_set_updated_data(
             {

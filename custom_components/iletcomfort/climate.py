@@ -21,19 +21,16 @@ from .api import (
     MODE_HEAT,
     MODE_OFF,
     MODE_WATERPUMP,
-    TEMP_RANGES,
 )
 from .const import DOMAIN
 from .coordinator import ILetComfortCoordinator
 from .entity import build_device_info
-from .model_profiles import (
-    KJRH120L_TEMP_MAX,
-    KJRH120L_TEMP_MIN,
-    ModelProfile,
-    atw_c3_basic,
-    atw_sensors_are_placeholder,
-    kjrh120l_has_zone1,
-    resolve_profile,
+from .protocols import (
+    HeatPumpState,
+    get_adapter,
+    is_kjrh120l_dual_state,
+    profile_climate_temp_bounds,
+    resolve_state,
 )
 
 # Query response mode (from device) → HA HVAC mode
@@ -101,19 +98,15 @@ class ILetComfortClimate(CoordinatorEntity[ILetComfortCoordinator], ClimateEntit
         return _QUERY_MODE_TO_HVAC.get(self._status.mode, HVACMode.OFF)
 
     @property
-    def _profile(self) -> ModelProfile:
-        """Resolve the decode profile from the coordinator's sn8 model code."""
-        return resolve_profile(self.coordinator.sn8)
+    def _state(self) -> HeatPumpState | None:
+        return resolve_state(self.coordinator.sn8, self.coordinator.data)
 
     @property
     def _is_kjrh120l_dual(self) -> bool:
-        if self._profile is not ModelProfile.KJRH120L:
-            return False
-        if self.coordinator.kjrh120l_zone1_capable is True:
-            return True
-        return (
-            self._status is not None
-            and kjrh120l_has_zone1(self._status.raw_body)
+        return is_kjrh120l_dual_state(
+            self.coordinator.sn8,
+            self.coordinator.data,
+            self.coordinator.kjrh120l_zone1_capable is True,
         )
 
     @property
@@ -136,32 +129,8 @@ class ILetComfortClimate(CoordinatorEntity[ILetComfortCoordinator], ClimateEntit
 
     @property
     def current_temperature(self) -> float | None:
-        if self._sensors is None:
-            return None
-        # ATW exposes its meaningful current value as the DHW tank temperature,
-        # except when subtype 0x10 provides live Zone-1 water outlet telemetry
-        # (#120) or when the 0x02 frame is a non-telemetry schedule template.
-        if self._profile is ModelProfile.ATW:
-            if (
-                self._sensors.raw_body[:1] == b"\x10"
-                and self._sensors.twout_temp is not None
-            ):
-                return self._sensors.twout_temp
-            # The confirmed Galmet sensor template contains no Zone-1 telemetry;
-            # do not relabel the separately exposed DHW tank as current water.
-            if atw_sensors_are_placeholder(self._sensors.raw_body):
-                return None
-            return self._sensors.th_temp
-        # AQUAPURA variants normally expose the tank reading on th_temp. Some
-        # units use zero as a placeholder there while publishing valid hydronic
-        # inlet/outlet readings; prefer the live outlet for those units.
-        if self._profile is ModelProfile.AQUAPURA:
-            if self._sensors.th_temp not in (None, 0.0):
-                return self._sensors.th_temp
-            if self._sensors.twout_temp is not None:
-                return self._sensors.twout_temp
-            return self._sensors.twin_temp
-        return self._sensors.twin_temp
+        state = self._state
+        return state.climate_current_temperature if state is not None else None
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -173,7 +142,8 @@ class ILetComfortClimate(CoordinatorEntity[ILetComfortCoordinator], ClimateEntit
                 attrs["water_outlet"] = self._sensors.twout_temp
             if self._sensors.t4_temp is not None:
                 attrs["outdoor_ambient"] = self._sensors.t4_temp
-        basic = atw_c3_basic(self.coordinator.sn8, self._status)
+        state = self._state
+        basic = state.atw_c3_basic if state is not None else None
         if basic is not None:
             # Both candidate Zone-1 setpoints of the C3 basic layout. Which
             # one the official app shows is not settled for every unit (#124),
@@ -205,23 +175,23 @@ class ILetComfortClimate(CoordinatorEntity[ILetComfortCoordinator], ClimateEntit
 
     @property
     def min_temp(self) -> float:
-        # KJRH-120L is a DHW heat-pump water heater; its setpoint range sits
-        # above the air-side HEAT range (issue #35).
-        if self._profile is ModelProfile.KJRH120L:
-            return float(KJRH120L_TEMP_MIN)
         set_mode = _HVAC_TO_SET_MODE.get(self.hvac_mode)
-        if set_mode is not None and set_mode in TEMP_RANGES:
-            return float(TEMP_RANGES[set_mode][0])
-        return 10.0
+        state = self._state
+        if state is not None:
+            return state.climate_temp_bounds(set_mode)[0]
+        return profile_climate_temp_bounds(
+            get_adapter(self.coordinator.sn8).profile, set_mode
+        )[0]
 
     @property
     def max_temp(self) -> float:
-        if self._profile is ModelProfile.KJRH120L:
-            return float(KJRH120L_TEMP_MAX)
         set_mode = _HVAC_TO_SET_MODE.get(self.hvac_mode)
-        if set_mode is not None and set_mode in TEMP_RANGES:
-            return float(TEMP_RANGES[set_mode][1])
-        return 40.0
+        state = self._state
+        if state is not None:
+            return state.climate_temp_bounds(set_mode)[1]
+        return profile_climate_temp_bounds(
+            get_adapter(self.coordinator.sn8).profile, set_mode
+        )[1]
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
         self._ensure_climate_control_supported()
