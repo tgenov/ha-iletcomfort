@@ -185,8 +185,9 @@ class ITSStatus:
     pressure_h: int = 0
     pressure_l: int = 0
     comp_frq: int | None = 0
-    total_kwh: int = 0
-    comp_total_run_hours: int = 0
+    total_kwh: int | None = 0
+    total_thermal_kwh: int | None = None
+    comp_total_run_hours: int | None = 0
     fan_total_run_hours: int = 0
     # KJRH-120L dual variant's separate DHW target (status body[15], issue #5).
     kjrh120l_dhw_setpoint: float | None = None

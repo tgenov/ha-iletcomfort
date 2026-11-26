@@ -168,6 +168,11 @@ def decode_atw_status(body: bytearray | bytes) -> ITSStatus:
     """
     status = ITSStatus()
     status.raw_body = bytes(body)
+    # ATW subtype 0x01 never carries cumulative energy or compressor run hours
+    # (those come from 0x10 / 0x0A). Keeping them None avoids reporting a bogus
+    # 0 kWh / 0 h that would reset HA TOTAL_INCREASING statistics (#118).
+    status.total_kwh = None
+    status.comp_total_run_hours = None
     body_len = len(body)
 
     # Defensive: a frame too short to carry the confirmed fields decodes to an
@@ -432,6 +437,7 @@ def atw_sensors_are_placeholder(raw_body: bytes) -> bool:
 ATW_UNIT_PARAMS_SUBTYPE = 0x10
 ATW_UNIT_PARAMS_MIN_LEN = 65
 ATW_UNIT_PARAMS_ENERGY_MIN_LEN = 71
+ATW_UNIT_PARAMS_THERMAL_ENERGY_MIN_LEN = 75
 _ATW_UNIT_SENSOR_DISCONNECTED = 0x7F
 
 
@@ -467,6 +473,10 @@ def apply_atw_unit_params(
     if len(body) >= ATW_UNIT_PARAMS_ENERGY_MIN_LEN:
         status_updates["total_kwh"] = (
             (body[67] << 24) | (body[68] << 16) | (body[69] << 8) | body[70]
+        )
+    if len(body) >= ATW_UNIT_PARAMS_THERMAL_ENERGY_MIN_LEN:
+        status_updates["total_thermal_kwh"] = (
+            (body[71] << 24) | (body[72] << 16) | (body[73] << 8) | body[74]
         )
 
     sensor_updates: dict[str, Any] = {
@@ -619,8 +629,11 @@ def decode_kjrh120l_status(body: bytearray | bytes) -> ITSStatus:
 
     # No fault is confirmed for every captured state. comp_running stays False:
     # power-on is not a compressor-running signal (no compressor byte confirmed).
+    # KJRH-120L status frames carry no cumulative energy or run-hours fields.
     status.error_code = 0
     status.comp_running = False
+    status.total_kwh = None
+    status.comp_total_run_hours = None
 
     # Power state from body[10]: 0 → Off, non-zero → On. When On we report mode 1
     # ("Heat") so the climate entity resolves a non-off hvac_mode (HVACMode.HEAT)

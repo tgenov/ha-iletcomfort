@@ -51,6 +51,7 @@ Signed 8-bit °C values use `0x7F` as disconnected sentinel (`_ATW_UNIT_SENSOR_D
 | Index | Field | Scale / Encoding | Status | Source / Notes |
 |---|---|---|---|---|
 | `1` | `comp_frq` | Hz (`comp_running = frq > 0`) | **Hardware-Verified** | NØRDIS #120, Airwell #139 (`31 Hz`) |
+| `3` | `fan_speed_rpm` | `raw * 10`, RPM | **Hardware-Verified (probe)** | Galmet #118 (`0x35 → 530 RPM` vs. Sinum `530 RPM`); fixed in `scripts/c3_probe.py` |
 | `7` | `t3_temp` (Condenser / outdoor coil) | int8 °C | **Hardware-Verified** | NØRDIS #120, Airwell #139 |
 | `8` | `t4_temp` (Outdoor ambient) | int8 °C | **Hardware-Verified** | NØRDIS #120, Airwell #139 (`7 °C`) |
 | `9` | `tp_temp` (Plate HX / discharge) | int8 °C | **Hardware-Verified** | NØRDIS #120, Airwell #139 |
@@ -66,9 +67,10 @@ Signed 8-bit °C values use `0x7F` as disconnected sentinel (`_ATW_UNIT_SENSOR_D
 | `51` | `dc_voltage` | `raw * 10`, V | **Hardware-Verified** | NØRDIS #120 (`32 → 320 V`); exposed disabled-by-default (#169) |
 | `52` | `tf_temp` (Module / refrigerant) | int8 °C | **Hardware-Verified** | NØRDIS #120, Airwell #139 |
 | `55..56` | `water_flow` | uint16 BE ÷ 100, m³/h | **Hardware-Verified** | NØRDIS #120 (`61 → 0.61 m³/h`); exposed disabled-by-default (#169) |
-| `67..70` | `total_kwh` | uint32 BE, kWh | **Hardware-Verified** | NØRDIS #120 (`6463`), Airwell #139 (`6549`) |
+| `67..70` | `total_kwh` | uint32 BE, kWh | **Hardware-Verified** | NØRDIS #120 (`6463`), Airwell #139 (`6549`), Galmet #118 (`1517` vs. Sinum `1517`) |
+| `71..74` | `total_thermal_kwh` | uint32 BE, kWh | **Hardware-Verified** | Galmet #118 (`7759` vs. RS-485 Sinum `7760`); exposed disabled-by-default |
 | `45..46` | `pressure_low` | uint16 BE | **Candidate (`midea-local`)** | Left unmapped (`2100` not on #120 display) |
-| `71..86` | `total_thermal`, `instant_power`, etc. | uint32/uint16 BE | **Candidate (`midea-local`)** | Not yet hardware-validated or exposed |
+| `75..86` | `instant_power`, etc. | uint32/uint16 BE | **Candidate (`midea-local`)** | Not yet hardware-validated or exposed |
 
 ---
 
