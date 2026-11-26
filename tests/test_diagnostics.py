@@ -219,3 +219,70 @@ async def test_diagnostics_temperature_scan_empty_without_sensors(hass: HomeAssi
 
     assert result["sensors_temperature_scan"] == {}
     json.dumps(result)
+
+
+async def test_diagnostics_preserves_raw_frames_and_probe_state_for_atw(
+    hass: HomeAssistant,
+):
+    """Diagnostics preserves 0x02 alongside 0x10/0x0A and reports variant + probe state."""
+    from unittest.mock import AsyncMock
+
+    from custom_components.iletcomfort.api import ApiError, decode_its_sensors
+    from custom_components.iletcomfort.model_profiles import ATW_SN8, decode_atw_status
+    from tests.test_atw_unit_params import (
+        NORDIS_HMI_PARAMS_0X0A,
+        NORDIS_UNIT_PARAMS_0X10,
+    )
+    from tests.test_model_profiles import (
+        ATW_PLACEHOLDER_SENSORS_BODY,
+        NORDIS_ATW_STATUS_FRAMES,
+    )
+
+    entry = _entry()
+    entry.add_to_hass(hass)
+    with patch("custom_components.iletcomfort.coordinator.ILetComfortClient") as cls:
+        coord = ILetComfortCoordinator(hass, entry)
+    coord.appliance_meta = {"applianceCode": APPLIANCE_CODE, "sn8": ATW_SN8}
+    client = cls.return_value
+    client.query_status.return_value = decode_atw_status(
+        NORDIS_ATW_STATUS_FRAMES["issue132"]
+    )
+    client.query_sensors.return_value = decode_its_sensors(
+        ATW_PLACEHOLDER_SENSORS_BODY
+    )
+    client.query_atw_unit_params.return_value = NORDIS_UNIT_PARAMS_0X10
+    client.query_atw_hmi_params.return_value = NORDIS_HMI_PARAMS_0X0A
+
+    with patch("custom_components.iletcomfort.coordinator.asyncio.sleep", new=AsyncMock()):
+        coord.data = await coord._poll()
+    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coord
+
+    result = await async_get_config_entry_diagnostics(hass, entry)
+    proto = result["protocol"]
+
+    assert proto["resolved_profile"] == "atw"
+    assert proto["matched_variant"] == "atw_27_byte"
+    assert proto["atw_0x02_placeholder"] is True
+    assert proto["probes"]["0x10_unit_params"] == {"supported": True, "error": None}
+    assert proto["probes"]["0x0a_hmi_params"] == {"supported": True, "error": None}
+    # Original 0x02 frame is preserved even though sensors.raw_body became 0x10.
+    assert set(proto["raw_frames"]) == {"0x01", "0x02", "0x0a", "0x10"}
+    assert proto["raw_frames"]["0x02"].startswith("02,00,03,1e")
+    assert proto["raw_frames"]["0x10"].startswith("10,00,03")
+    assert proto["raw_frames"]["0x0a"].startswith("0a,38,00,22,1c,8f")
+    json.dumps(result)
+
+    # Verify probe error is surfaced when 0x10 is rejected with code=1214.
+    coord._atw_unit_params_supported = None
+    coord._atw_hmi_params_supported = None
+    client.query_atw_unit_params.side_effect = ApiError("Send command failed: code=1214")
+    with patch("custom_components.iletcomfort.coordinator.asyncio.sleep", new=AsyncMock()):
+        coord.data = await coord._poll()
+
+    result_rejected = await async_get_config_entry_diagnostics(hass, entry)
+    rejected_probes = result_rejected["protocol"]["probes"]
+    assert rejected_probes["0x10_unit_params"]["supported"] is False
+    assert "1214" in rejected_probes["0x10_unit_params"]["error"]
+    assert rejected_probes["0x0a_hmi_params"] == {"supported": None, "error": None}
+    assert set(result_rejected["protocol"]["raw_frames"]) == {"0x01", "0x02"}
+    json.dumps(result_rejected)

@@ -136,7 +136,9 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # ATW subtype 0x10 / 0x0A live-telemetry probe state (#120 / #139):
         # None=untested, True=supported, False=rejected/unsupported for session.
         self._atw_unit_params_supported: bool | None = None
+        self._atw_unit_params_error: str | None = None
         self._atw_hmi_params_supported: bool | None = None
+        self._atw_hmi_params_error: str | None = None
 
     @property
     def last_on_state(self) -> tuple[int, int] | None:
@@ -252,7 +254,9 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.data = None
             self._last_on_state = None
             self._atw_unit_params_supported = None
+            self._atw_unit_params_error = None
             self._atw_hmi_params_supported = None
+            self._atw_hmi_params_error = None
         cached = self.data or {}
         sn8 = self.sn8
 
@@ -346,6 +350,12 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         profile = resolve_profile(sn8)
         sensors = apply_profile_to_sensors(profile, sensors, status)
 
+        raw_frames: dict[int, bytes] = {}
+        if status.raw_body:
+            raw_frames[0x01] = bytes(status.raw_body)
+        if sensors.raw_body:
+            raw_frames[0x02] = bytes(sensors.raw_body)
+
         # On ATW (171H120F) units whose 0x02 frame is a non-telemetry schedule
         # template, probe subtype 0x10 once for live telemetry (#120). Units
         # that reject 0x10 (e.g. code=1214 on Rotenso) latch unsupported and
@@ -363,6 +373,7 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 raise
             except ApiError as err:
                 self._atw_unit_params_supported = False
+                self._atw_unit_params_error = str(err)
                 _LOGGER.info(
                     "ATW subtype 0x10 unit parameters not supported (%s); "
                     "disabling 0x10 telemetry polling for this session",
@@ -376,6 +387,8 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     and len(unit_body) >= ATW_UNIT_PARAMS_MIN_LEN
                 ):
                     self._atw_unit_params_supported = True
+                    self._atw_unit_params_error = None
+                    raw_frames[0x10] = bytes(unit_body)
                     status, sensors = apply_atw_unit_params(
                         unit_body, status, sensors
                     )
@@ -389,6 +402,7 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                             raise
                         except ApiError as err:
                             self._atw_hmi_params_supported = False
+                            self._atw_hmi_params_error = str(err)
                             _LOGGER.info(
                                 "ATW subtype 0x0A HMI parameters not supported "
                                 "(%s); disabling 0x0A polling for this session",
@@ -402,12 +416,14 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                                 and len(hmi_body) >= ATW_HMI_PARAMS_MIN_LEN
                             ):
                                 self._atw_hmi_params_supported = True
+                                self._atw_hmi_params_error = None
+                                raw_frames[0x0A] = bytes(hmi_body)
                                 status = apply_atw_hmi_params(hmi_body, status)
 
         self._update_offline_repair()
         self._observe_kjrh120l_zone1(status)
 
-        return {"status": status, "sensors": sensors}
+        return {"status": status, "sensors": sensors, "raw_frames": raw_frames}
 
     def _update_offline_repair(self) -> None:
         """Surface or clear the 'device appears offline' Repair card.
@@ -637,8 +653,15 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
         status = apply_profile_to_status(resolve_profile(self.sn8), status)
         self._observe_kjrh120l_zone1(status)
+        raw_frames = dict(self.data.get("raw_frames") or {})
+        if status.raw_body:
+            raw_frames[0x01] = bytes(status.raw_body)
         self.async_set_updated_data(
-            {"status": status, "sensors": self.data.get("sensors")}
+            {
+                "status": status,
+                "sensors": self.data.get("sensors"),
+                "raw_frames": raw_frames,
+            }
         )
 
     def _cancel_push_status_watchdog(self) -> None:
