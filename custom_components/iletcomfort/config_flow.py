@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, cast
 
 import requests
 import voluptuous as vol
@@ -142,9 +142,11 @@ class ILetComfortConfigFlow(ConfigFlow, domain=DOMAIN):
                     self._appliances = appliances
                     return await self.async_step_device()
 
+        # HA 2026.10+ types data_schema as probatio.Schema, while this
+        # integration supports HA 2024.1+ where voluptuous.Schema is required.
         return self.async_show_form(
             step_id="user",
-            data_schema=STEP_USER_DATA_SCHEMA,
+            data_schema=cast(Any, STEP_USER_DATA_SCHEMA),
             errors=errors,
         )
 
@@ -184,7 +186,7 @@ class ILetComfortConfigFlow(ConfigFlow, domain=DOMAIN):
         )
         return self.async_show_form(
             step_id="device",
-            data_schema=schema,
+            data_schema=cast(Any, schema),
             errors=errors,
         )
 
@@ -242,7 +244,9 @@ class ILetComfortOptionsFlow(OptionsFlow):
                     ),
                 )
             ] = bool
-        return self.async_show_form(step_id="init", data_schema=vol.Schema(fields))
+        return self.async_show_form(
+            step_id="init", data_schema=cast(Any, vol.Schema(fields))
+        )
 
     def _offers_c3_basic_control(self) -> bool:
         """Offer C3 basic control only for loaded sn8 171H120F (ATW) units."""
