@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.23.0](https://github.com/tgenov/ha-iletcomfort/compare/v0.22.0...v0.23.0) (2026-11-26)
+
+
+### Features
+
+* **atw:** poll subtype 0x0A for compressor run hours ([#164](https://github.com/tgenov/ha-iletcomfort/issues/164)) ([7a4b257](https://github.com/tgenov/ha-iletcomfort/commit/7a4b257f519a1a4295b2bf56e26f747ef62b755f))
+
 ## [0.22.0](https://github.com/tgenov/ha-iletcomfort/compare/v0.21.0...v0.22.0) (2026-11-25)
 
 
