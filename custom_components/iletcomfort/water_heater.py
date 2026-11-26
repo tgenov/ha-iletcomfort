@@ -17,11 +17,13 @@ from .c3_basic import C3BasicStatus
 from .const import DOMAIN
 from .coordinator import ILetComfortCoordinator
 from .entity import async_add_when_capable, build_device_info
-from .model_profiles import ModelProfile, atw_c3_basic, resolve_profile
+from .model_profiles import ModelProfile
+from .protocols import get_adapter, resolve_state
 
 
 def _coordinator_c3_basic(coordinator: ILetComfortCoordinator) -> C3BasicStatus | None:
-    return atw_c3_basic(coordinator.sn8, (coordinator.data or {}).get("status"))
+    state = resolve_state(coordinator.sn8, coordinator.data)
+    return state.atw_c3_basic if state is not None else None
 
 
 async def async_setup_entry(
@@ -43,7 +45,7 @@ async def async_setup_entry(
         is_capable=_has_dhw,
         can_become_capable=lambda: (
             coordinator.sn8 is None
-            or resolve_profile(coordinator.sn8) is ModelProfile.ATW
+            or get_adapter(coordinator.sn8).profile is ModelProfile.ATW
         ),
         build=lambda: [ILetComfortDhw(coordinator)],
     )

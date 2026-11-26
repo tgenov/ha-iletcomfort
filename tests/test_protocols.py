@@ -11,7 +11,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.iletcomfort.api import ApiError, AuthError
+from custom_components.iletcomfort.api import ApiError, AuthError, ITSSensors, MODE_COOL, MODE_HEAT
 from custom_components.iletcomfort.const import (
     CONF_APPLIANCE_CODE,
     CONF_OPERATION_MODE,
@@ -26,6 +26,7 @@ from custom_components.iletcomfort.model_profiles import (
     ATW_SN8,
     KJRH120L_SN8,
     ModelProfile,
+    decode_atw_status,
 )
 from custom_components.iletcomfort.protocols import (
     AquapuraAdapter,
@@ -34,8 +35,12 @@ from custom_components.iletcomfort.protocols import (
     Kjrh120lAdapter,
     StandardAdapter,
     get_adapter,
+    is_kjrh120l_dual_state,
+    resolve_state,
 )
-from tests.test_model_profiles import NORDIS_ATW_STATUS_FRAMES
+from tests.kjrh120l_snapshots import KJRH120L_SNAPSHOT_B
+from tests.test_atw_unit_params import NORDIS_UNIT_PARAMS_0X10
+from tests.test_model_profiles import ATW_PLACEHOLDER_SENSORS_BODY, NORDIS_ATW_STATUS_FRAMES
 
 
 def test_get_adapter_resolves_all_profiles_and_sn8() -> None:
@@ -177,3 +182,86 @@ def test_apply_push_status_preserves_raw_frames_and_updates_state(
     assert state.profile is ModelProfile.ATW
     assert state.variant == "atw_27_byte"
     assert state.raw_frames is not coord.data["raw_frames"]
+    assert state.has_authoritative_raw_frames is True
+
+
+def test_resolve_state_returns_existing_or_synthesizes() -> None:
+    assert resolve_state(None, None) is None
+    assert resolve_state(ATW_SN8, {}) is None
+
+    status = decode_atw_status(NORDIS_ATW_STATUS_FRAMES["issue132"])
+    prebuilt = HeatPumpState(
+        profile=ModelProfile.ATW,
+        variant="atw_27_byte",
+        status=status,
+    )
+    assert resolve_state(ATW_SN8, {"state": prebuilt}) is prebuilt
+
+    synthesized = resolve_state(
+        ATW_SN8,
+        {
+            "status": status,
+            "sensors": ITSSensors(
+                twin_temp=20.0,
+                th_temp=46.0,
+                raw_body=ATW_PLACEHOLDER_SENSORS_BODY,
+            ),
+            "raw_frames": {0x02: ATW_PLACEHOLDER_SENSORS_BODY},
+        },
+    )
+    assert synthesized is not None
+    assert synthesized.profile is ModelProfile.ATW
+    assert synthesized.variant == "atw_27_byte"
+    assert synthesized.has_authoritative_raw_frames is True
+    assert synthesized.has_atw_0x10 is False
+    assert synthesized.atw_c3_basic is not None
+    assert synthesized.climate_current_temperature is None
+
+
+def test_heat_pump_state_has_atw_0x10_authoritative_vs_fallback() -> None:
+    sensors_with_0x10 = ITSSensors(twout_temp=24.0, raw_body=NORDIS_UNIT_PARAMS_0X10)
+
+    # Without raw_frames dict, sensors.raw_body prefix decides.
+    fallback = resolve_state(ATW_SN8, {"sensors": sensors_with_0x10})
+    assert fallback is not None
+    assert fallback.has_authoritative_raw_frames is False
+    assert fallback.has_atw_0x10 is True
+
+    # With an explicit raw_frames dict lacking 0x10, it is authoritative (False).
+    authoritative_missing = resolve_state(
+        ATW_SN8,
+        {
+            "sensors": sensors_with_0x10,
+            "raw_frames": {0x02: ATW_PLACEHOLDER_SENSORS_BODY},
+        },
+    )
+    assert authoritative_missing is not None
+    assert authoritative_missing.has_authoritative_raw_frames is True
+    assert authoritative_missing.has_atw_0x10 is False
+
+
+def test_heat_pump_state_climate_helpers_and_kjrh120l_dual() -> None:
+    aqua = HeatPumpState(
+        profile=ModelProfile.AQUAPURA,
+        variant="aquapura",
+        sensors=ITSSensors(th_temp=0.0, twout_temp=31.0, twin_temp=28.0),
+    )
+    assert aqua.climate_current_temperature == 31.0
+    assert aqua.climate_temp_bounds(MODE_HEAT) == (10.0, 40.0)
+    assert aqua.climate_temp_bounds(MODE_COOL) == (12.0, 40.0)
+    assert aqua.atw_c3_basic is None
+
+    # KJRH-120L temp bounds & dual-variant check including None data.
+    kjrh_state = HeatPumpState(profile=ModelProfile.KJRH120L, variant="kjrh120l_pure_dhw")
+    assert kjrh_state.climate_temp_bounds(MODE_HEAT) == (20.0, 70.0)
+    assert is_kjrh120l_dual_state(KJRH120L_SN8, None, True) is True
+    assert is_kjrh120l_dual_state(KJRH120L_SN8, None, False) is False
+    assert is_kjrh120l_dual_state(ATW_SN8, None, True) is False
+    assert (
+        is_kjrh120l_dual_state(
+            KJRH120L_SN8,
+            {"status": MagicMock(raw_body=KJRH120L_SNAPSHOT_B)},
+            False,
+        )
+        is False
+    )

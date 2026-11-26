@@ -30,6 +30,7 @@ from .const import DOMAIN
 from .coordinator import ILetComfortCoordinator
 from .entity import build_device_info
 from .error_codes import ERROR_CODES
+from .protocols import resolve_state
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -57,12 +58,8 @@ def _st(attr: str) -> Callable[[dict[str, Any]], Any]:
 
 def _has_atw_0x10(data: dict[str, Any]) -> bool:
     """Return True when live ATW subtype 0x10 telemetry populated this snapshot."""
-    raw_frames = data.get("raw_frames")
-    if isinstance(raw_frames, dict):
-        return 0x10 in raw_frames
-    sensors = data.get("sensors")
-    raw_body = getattr(sensors, "raw_body", b"") if sensors is not None else b""
-    return bytes(raw_body)[:1] == b"\x10"
+    state = resolve_state(None, data)
+    return state.has_atw_0x10 if state is not None else False
 
 
 def _atw_0x10_s(attr: str) -> Callable[[dict[str, Any]], Any]:
