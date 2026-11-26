@@ -844,6 +844,34 @@ def apply_profile_to_sensors(
     return sensors
 
 
+def describe_profile_variant(
+    sn8: str | None,
+    status: ITSStatus | None,
+) -> str:
+    """Return a concise label for the resolved profile and structural variant.
+
+    Used by diagnostics (#166) so maintainers can see immediately which layout
+    branch matched a device's live frames without re-deriving it by hand.
+    """
+    profile = resolve_profile(sn8)
+    body = bytes(status.raw_body) if status is not None and status.raw_body else b""
+    if profile is ModelProfile.ATW:
+        if not body:
+            return "atw_unclassified"
+        if _is_27_byte_atw_status(body):
+            return "atw_27_byte"
+        if _is_rotenso_atw_status(body):
+            return "atw_rotenso_25_byte"
+        return f"atw_{len(body)}_byte"
+    if profile is ModelProfile.KJRH120L:
+        if not body:
+            return "kjrh120l_unclassified"
+        return "kjrh120l_dual" if kjrh120l_has_zone1(body) else "kjrh120l_pure_dhw"
+    if profile is ModelProfile.AQUAPURA:
+        return "aquapura"
+    return "standard"
+
+
 __all__ = [
     "AQUAPURA_SN8",
     "ATW_HMI_PARAMS_MIN_LEN",
@@ -876,6 +904,7 @@ __all__ = [
     "build_query_command",
     "decode_atw_status",
     "decode_kjrh120l_status",
+    "describe_profile_variant",
     "kjrh120l_has_zone1",
     "kjrh120l_mode_change_setpoint",
     "kjrh120l_zone1_range",

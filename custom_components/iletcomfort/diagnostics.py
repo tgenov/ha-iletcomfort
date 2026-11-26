@@ -20,6 +20,12 @@ from homeassistant.core import HomeAssistant
 from .api import SENSOR_DISCONNECTED, TEMP_OFFSET, mask_identifier
 from .const import CONF_APPLIANCE_CODE, DOMAIN
 from .coordinator import ILetComfortCoordinator
+from .model_profiles import (
+    ModelProfile,
+    atw_sensors_are_placeholder,
+    describe_profile_variant,
+    resolve_profile,
+)
 
 # Account credentials are the only secrets in the entry. Region is kept as-is.
 # appliance_code is a device-unique identifier, so it is suffix-masked (see
@@ -103,6 +109,18 @@ async def async_get_config_entry_diagnostics(
     if appliance is not None and "applianceCode" in appliance:
         appliance["applianceCode"] = mask_identifier(appliance["applianceCode"])
 
+    status_obj = data.get("status")
+    sensors_obj = data.get("sensors")
+    raw_frames: dict[int, bytes] = dict(data.get("raw_frames") or {})
+    if not raw_frames:
+        if status_obj is not None and status_obj.raw_body:
+            raw_frames[0x01] = bytes(status_obj.raw_body)
+        if sensors_obj is not None and sensors_obj.raw_body:
+            raw_frames[0x02] = bytes(sensors_obj.raw_body)
+
+    profile = resolve_profile(coordinator.sn8)
+    raw_0x02 = raw_frames.get(0x02, b"")
+
     return {
         "entry": {
             "version": entry.version,
@@ -120,12 +138,34 @@ async def async_get_config_entry_diagnostics(
             "sensors_degraded": coordinator._sensors_degraded,
             "repair_issued": coordinator._repair_issued,
         },
+        "protocol": {
+            "resolved_profile": profile.value,
+            "matched_variant": describe_profile_variant(coordinator.sn8, status_obj),
+            "atw_0x02_placeholder": (
+                atw_sensors_are_placeholder(raw_0x02)
+                if profile is ModelProfile.ATW and raw_0x02
+                else None
+            ),
+            "kjrh120l_zone1_capable": coordinator.kjrh120l_zone1_capable,
+            "probes": {
+                "0x10_unit_params": {
+                    "supported": coordinator._atw_unit_params_supported,
+                    "error": coordinator._atw_unit_params_error,
+                },
+                "0x0a_hmi_params": {
+                    "supported": coordinator._atw_hmi_params_supported,
+                    "error": coordinator._atw_hmi_params_error,
+                },
+            },
+            "raw_frames": {
+                f"0x{subtype:02x}": _format_hex(body)
+                for subtype, body in sorted(raw_frames.items())
+            },
+        },
         "appliance": appliance,
-        "status": _serialize_frame(data.get("status")),
-        "sensors": _serialize_frame(data.get("sensors")),
+        "status": _serialize_frame(status_obj),
+        "sensors": _serialize_frame(sensors_obj),
         "sensors_temperature_scan": _sensors_temperature_scan(
-            sensors_obj.raw_body
-            if (sensors_obj := data.get("sensors")) is not None
-            else b""
+            sensors_obj.raw_body if sensors_obj is not None else b""
         ),
     }
