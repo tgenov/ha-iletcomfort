@@ -1,15 +1,17 @@
 {
   "domain": "iletcomfort",
   "name": "iLetComfort Heat Pump",
-  "version": "0.23.0",
+  "codeowners": [
+    "@tgenov"
+  ],
+  "config_flow": true,
+  "documentation": "https://github.com/tgenov/ha-iletcomfort",
   "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/tgenov/ha-iletcomfort/issues",
   "requirements": [
     "requests>=2.28",
     "cryptography>=41.0",
     "paho-mqtt>=1.6"
   ],
-  "config_flow": true,
-  "codeowners": [
-    "@todor"
-  ]
+  "version": "0.23.0"
 }

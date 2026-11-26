@@ -21,7 +21,6 @@ from .api import (
     MODE_HEAT,
     MODE_OFF,
     MODE_WATERPUMP,
-    QUERY_TO_SET_MODE,
     TEMP_RANGES,
 )
 from .const import DOMAIN
