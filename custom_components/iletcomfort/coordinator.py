@@ -45,8 +45,10 @@ from .const import (
     MQTT_STATUS_STALE_AFTER,
 )
 from .model_profiles import (
+    ATW_HMI_PARAMS_MIN_LEN,
     ATW_UNIT_PARAMS_MIN_LEN,
     ModelProfile,
+    apply_atw_hmi_params,
     apply_atw_unit_params,
     apply_profile_to_sensors,
     apply_profile_to_status,
@@ -131,9 +133,10 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._repair_issued = False
         self._last_push_status_at: float | None = None
         self._push_status_watchdog: Callable[[], None] | None = None
-        # ATW subtype 0x10 live-telemetry probe state (#120): None=untested,
-        # True=supported, False=rejected/unsupported for this session.
+        # ATW subtype 0x10 / 0x0A live-telemetry probe state (#120 / #139):
+        # None=untested, True=supported, False=rejected/unsupported for session.
         self._atw_unit_params_supported: bool | None = None
+        self._atw_hmi_params_supported: bool | None = None
 
     @property
     def last_on_state(self) -> tuple[int, int] | None:
@@ -249,6 +252,7 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.data = None
             self._last_on_state = None
             self._atw_unit_params_supported = None
+            self._atw_hmi_params_supported = None
         cached = self.data or {}
         sn8 = self.sn8
 
@@ -375,6 +379,30 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     status, sensors = apply_atw_unit_params(
                         unit_body, status, sensors
                     )
+                    if self._atw_hmi_params_supported is not False:
+                        try:
+                            hmi_body = await self.hass.async_add_executor_job(
+                                self.client.query_atw_hmi_params,
+                                self.appliance_code,
+                            )
+                        except AuthError:
+                            raise
+                        except ApiError as err:
+                            self._atw_hmi_params_supported = False
+                            _LOGGER.info(
+                                "ATW subtype 0x0A HMI parameters not supported "
+                                "(%s); disabling 0x0A polling for this session",
+                                err,
+                            )
+                        except Exception as err:  # noqa: BLE001 — transient error
+                            _LOGGER.debug("ATW subtype 0x0A query failed: %s", err)
+                        else:
+                            if (
+                                isinstance(hmi_body, (bytes, bytearray))
+                                and len(hmi_body) >= ATW_HMI_PARAMS_MIN_LEN
+                            ):
+                                self._atw_hmi_params_supported = True
+                                status = apply_atw_hmi_params(hmi_body, status)
 
         self._update_offline_repair()
         self._observe_kjrh120l_zone1(status)

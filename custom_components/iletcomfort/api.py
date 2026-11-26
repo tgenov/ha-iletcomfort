@@ -847,6 +847,22 @@ class ILetComfortClient:
             )
         return bytes(body)
 
+    def query_atw_hmi_params(self, appliance_code: str) -> bytes:
+        """Query ATW subtype 0x0A HMI parameters for compressor run hours (#120)."""
+        from .model_profiles import ATW_HMI_PARAMS_MIN_LEN, ATW_HMI_PARAMS_SUBTYPE
+
+        command = build_c3_query(ATW_HMI_PARAMS_SUBTYPE)
+        response_hex = self.send_hex_command(appliance_code, command)
+        _LOGGER.debug("query_atw_hmi_params raw response: %s", response_hex)
+        raw = parse_hex_response(response_hex)
+        body_type, body = extract_c3_body(raw)
+        if body_type != ATW_HMI_PARAMS_SUBTYPE or len(body) < ATW_HMI_PARAMS_MIN_LEN:
+            raise ApiError(
+                f"ATW hmi_params (0x0A) returned unexpected or truncated frame "
+                f"(type=0x{body_type:02x}, {len(body)} body bytes)"
+            )
+        return bytes(body)
+
     def set_device(
         self,
         appliance_code: str,
