@@ -7,19 +7,27 @@ TEMP_OFFSET = 35
 SENSOR_DISCONNECTED = 204
 
 
-def build_c3_query(subtype: int) -> str:
-    """Build a C3 query command frame."""
+def build_c3_frame(message_type: int, body: bytes) -> str:
+    """Build an AA-framed C3 message: header, ``body`` and checksum.
+
+    Shared by the status query (message type 0x03) and the standard Midea C3
+    SET (message type 0x02) used for sn8 171H120F (see ``c3_basic``).
+    """
     header = [
         0xAA, 0x00, DEVICE_TYPE_C3,
         0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x03,
+        0x00, message_type,
     ]
-    body = [subtype]
-    header[1] = len(header) + len(body)
-    frame = header + body
+    frame = header + list(body)
+    frame[1] = len(frame)
     checksum = (~sum(frame[1:]) + 1) & 0xFF
     frame.append(checksum)
     return bytes(frame).hex()
+
+
+def build_c3_query(subtype: int) -> str:
+    """Build a C3 query command frame."""
+    return build_c3_frame(0x03, bytes([subtype]))
 
 
 def build_c3_set(

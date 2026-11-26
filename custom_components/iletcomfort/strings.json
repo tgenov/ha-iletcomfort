@@ -54,7 +54,11 @@
         "title": "iLetComfort options",
         "description": "Choose which client owns the cloud account session. HA primary keeps the existing polling and control behavior. Phone app coexistence is read-only: after an initial login to mint its MQTT certificate, HA stops account polling and blocks control commands, so the official app can remain signed in. If MQTT disconnects, entities become unavailable instead of HA taking the phone's session.",
         "data": {
-          "operation_mode": "Operation mode"
+          "operation_mode": "Operation mode",
+          "c3_basic_control": "Enable standard Midea C3 control (sn8 171H120F)"
+        },
+        "data_description": {
+          "c3_basic_control": "Experimental. Validated on a Rotenso Aquami: Zone-1 heating on/off and water setpoint (Heat mode only), hot water on/off and setpoint, weather curve, silent and ECO mode. Enable it only if the Heat Pump entity's 'zone1_water_target' attribute matches the heating setpoint shown in the official app. Cooling and operating-mode changes are not supported."
         }
       }
     }
