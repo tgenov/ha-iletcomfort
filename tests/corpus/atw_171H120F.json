@@ -142,5 +142,30 @@
       "t4_temp": null,
       "twin_temp": null
     }
+  },
+  {
+    "id": "atw_airwell_split_silent_eco_issue139",
+    "source_issue": "#139",
+    "hardware": "Airwell Wellea Split (27-byte [2]=0x73 + 0x05 Silent L1 + 0x07 ECO ON)",
+    "sn8": "171H120F",
+    "expected_profile": "atw",
+    "expected_variant": "atw_27_byte",
+    "frames": {
+      "0x01": "01,09,73,90,03,03,28,1e,32,30,41,23,19,05,37,19,19,05,3c,22,3c,14,19,00,e0,05,00",
+      "0x05": "05,03,06,1e,09,1e,16,00,07,00",
+      "0x07": "07,03,10,00,16,1e,07",
+      "0x0a": "0a,38,00,51,09,80,09,d3,0f,b2,00,29"
+    },
+    "expected_status": {
+      "set_temperature": 50,
+      "box_bottom_temp": 25.0,
+      "comp_total_run_hours": 2432,
+      "atw_silent_mode": true,
+      "atw_silent_level": 1,
+      "atw_silent_super_selected": false,
+      "atw_eco_mode": true,
+      "atw_eco_timer": true,
+      "error_code": 0
+    }
   }
 ]

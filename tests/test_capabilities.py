@@ -36,12 +36,16 @@ def test_device_capabilities_reset_and_diagnostics() -> None:
     assert caps.probes_as_dict() == {
         "0x10_unit_params": {"supported": True, "error": None},
         "0x0a_hmi_params": {"supported": False, "error": "code=1214"},
+        "0x05_silent": {"supported": None, "error": None},
+        "0x07_eco": {"supported": None, "error": None},
     }
 
     caps.reset_probes()
     assert caps.probes_as_dict() == {
         "0x10_unit_params": {"supported": None, "error": None},
         "0x0a_hmi_params": {"supported": None, "error": None},
+        "0x05_silent": {"supported": None, "error": None},
+        "0x07_eco": {"supported": None, "error": None},
     }
 
 

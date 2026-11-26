@@ -17,6 +17,7 @@ from .model_profiles import (
     KJRH120L_RUN_MODE_HEAT,
     kjrh120l_mode_change_setpoint,
 )
+from .protocols import resolve_state
 
 MUTE_OPTIONS = ["Off", "Level 1", "Level 2"]
 _MUTE_TO_API = {"Off": 0, "Level 1": 1, "Level 2": 2}
@@ -63,6 +64,15 @@ class ILetComfortMuteSelect(CoordinatorEntity[ILetComfortCoordinator], SelectEnt
     def current_option(self) -> str:
         if self.coordinator.data is None:
             return "Off"
+        status = self.coordinator.data.get("status")
+        if status is not None and status.atw_silent_level is not None:
+            return {0: "Off", 1: "Level 1", 2: "Level 2"}.get(
+                status.atw_silent_level, "Off"
+            )
+        state = resolve_state(self.coordinator.sn8, self.coordinator.data)
+        basic = state.atw_c3_basic if state is not None else None
+        if basic is not None:
+            return "Level 1" if basic.silent_mode else "Off"
         sensors = self.coordinator.data.get("sensors")
         if sensors is None or sensors.ctrl_flag != 1:
             return "Off"

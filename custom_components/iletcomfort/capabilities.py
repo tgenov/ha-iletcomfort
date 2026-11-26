@@ -45,15 +45,21 @@ class DeviceCapabilities:
 
     atw_unit_params: ProbeState = field(default_factory=ProbeState)
     atw_hmi_params: ProbeState = field(default_factory=ProbeState)
+    atw_silent: ProbeState = field(default_factory=ProbeState)
+    atw_eco: ProbeState = field(default_factory=ProbeState)
 
     def reset_probes(self) -> None:
         """Reset all session-scoped probes (e.g. when the resolved profile changes)."""
         self.atw_unit_params.reset()
         self.atw_hmi_params.reset()
+        self.atw_silent.reset()
+        self.atw_eco.reset()
 
     def probes_as_dict(self) -> dict[str, dict[str, Any]]:
         """Return JSON-serializable probe diagnostics."""
         return {
             "0x10_unit_params": self.atw_unit_params.as_dict(),
             "0x0a_hmi_params": self.atw_hmi_params.as_dict(),
+            "0x05_silent": self.atw_silent.as_dict(),
+            "0x07_eco": self.atw_eco.as_dict(),
         }

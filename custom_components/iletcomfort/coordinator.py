@@ -30,7 +30,7 @@ from .api import (
     mask_identifier,
 )
 from .c3_basic import C3BasicStatus
-from .capabilities import DeviceCapabilities
+from .capabilities import DeviceCapabilities, ProbeState
 from .const import (
     CONF_APPLIANCE_CODE,
     CONF_C3_BASIC_CONTROL,
@@ -49,10 +49,18 @@ from .const import (
     MQTT_STATUS_STALE_AFTER,
 )
 from .model_profiles import (
+    ATW_ECO_MIN_LEN,
+    ATW_ECO_SUBTYPE,
     ATW_HMI_PARAMS_MIN_LEN,
+    ATW_HMI_PARAMS_SUBTYPE,
+    ATW_SILENT_MIN_LEN,
+    ATW_SILENT_SUBTYPE,
     ATW_UNIT_PARAMS_MIN_LEN,
+    ATW_UNIT_PARAMS_SUBTYPE,
     ModelProfile,
+    apply_atw_eco,
     apply_atw_hmi_params,
+    apply_atw_silent,
     apply_atw_unit_params,
     atw_sensors_are_placeholder,
     kjrh120l_has_zone1,
@@ -409,76 +417,52 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # that reject 0x10 on the initial probe (e.g. code=1214 on Rotenso)
         # latch unsupported; transient errors after 0x10 is already confirmed
         # retry on the next poll without permanently disabling telemetry.
-        if (
-            profile is ModelProfile.ATW
-            and atw_sensors_are_placeholder(raw_frames.get(0x02, b""))
-            and self.capabilities.atw_unit_params.should_probe
+        if profile is ModelProfile.ATW and atw_sensors_are_placeholder(
+            raw_frames.get(0x02, b"")
         ):
-            try:
-                unit_body = await self.hass.async_add_executor_job(
-                    self.client.query_atw_unit_params, self.appliance_code,
+            unit_body = await self._async_probe_atw_subtype(
+                label="unit parameters",
+                subtype=ATW_UNIT_PARAMS_SUBTYPE,
+                min_len=ATW_UNIT_PARAMS_MIN_LEN,
+                probe=self.capabilities.atw_unit_params,
+                fetcher=self.client.query_atw_unit_params,
+                raw_frames=raw_frames,
+            )
+            if unit_body is not None:
+                status, sensors = apply_atw_unit_params(unit_body, status, sensors)
+                hmi_body = await self._async_probe_atw_subtype(
+                    label="HMI parameters",
+                    subtype=ATW_HMI_PARAMS_SUBTYPE,
+                    min_len=ATW_HMI_PARAMS_MIN_LEN,
+                    probe=self.capabilities.atw_hmi_params,
+                    fetcher=self.client.query_atw_hmi_params,
+                    raw_frames=raw_frames,
                 )
-            except AuthError:
-                raise
-            except ApiError as err:
-                if self.capabilities.atw_unit_params.supported is None:
-                    self.capabilities.atw_unit_params.mark_unsupported(str(err))
-                    _LOGGER.info(
-                        "ATW subtype 0x10 unit parameters not supported (%s); "
-                        "disabling 0x10 telemetry polling for this session",
-                        err,
-                    )
-                else:
-                    _LOGGER.debug(
-                        "Transient ATW subtype 0x10 ApiError (retrying next poll): %s",
-                        err,
-                    )
-            except Exception as err:  # noqa: BLE001 — transient error, retry later
-                _LOGGER.debug("ATW subtype 0x10 query failed: %s", err)
-            else:
-                if (
-                    isinstance(unit_body, (bytes, bytearray))
-                    and len(unit_body) >= ATW_UNIT_PARAMS_MIN_LEN
-                ):
-                    self.capabilities.atw_unit_params.mark_supported()
-                    raw_frames[0x10] = bytes(unit_body)
-                    status, sensors = apply_atw_unit_params(
-                        unit_body, status, sensors
-                    )
-                    if self.capabilities.atw_hmi_params.should_probe:
-                        try:
-                            hmi_body = await self.hass.async_add_executor_job(
-                                self.client.query_atw_hmi_params,
-                                self.appliance_code,
-                            )
-                        except AuthError:
-                            raise
-                        except ApiError as err:
-                            if self.capabilities.atw_hmi_params.supported is None:
-                                self.capabilities.atw_hmi_params.mark_unsupported(
-                                    str(err)
-                                )
-                                _LOGGER.info(
-                                    "ATW subtype 0x0A HMI parameters not supported "
-                                    "(%s); disabling 0x0A polling for this session",
-                                    err,
-                                )
-                            else:
-                                _LOGGER.debug(
-                                    "Transient ATW subtype 0x0A ApiError "
-                                    "(retrying next poll): %s",
-                                    err,
-                                )
-                        except Exception as err:  # noqa: BLE001 — transient error
-                            _LOGGER.debug("ATW subtype 0x0A query failed: %s", err)
-                        else:
-                            if (
-                                isinstance(hmi_body, (bytes, bytearray))
-                                and len(hmi_body) >= ATW_HMI_PARAMS_MIN_LEN
-                            ):
-                                self.capabilities.atw_hmi_params.mark_supported()
-                                raw_frames[0x0A] = bytes(hmi_body)
-                                status = apply_atw_hmi_params(hmi_body, status)
+                if hmi_body is not None:
+                    status = apply_atw_hmi_params(hmi_body, status)
+
+        # Probe 0x05 (Silent/Super-Silent) and 0x07 (ECO) on C3 basic ATW units (#139/#188).
+        if profile is ModelProfile.ATW and status.c3_basic is not None:
+            silent_body = await self._async_probe_atw_subtype(
+                label="silent",
+                subtype=ATW_SILENT_SUBTYPE,
+                min_len=ATW_SILENT_MIN_LEN,
+                probe=self.capabilities.atw_silent,
+                fetcher=self.client.query_atw_silent,
+                raw_frames=raw_frames,
+            )
+            if silent_body is not None:
+                status = apply_atw_silent(silent_body, status)
+            eco_body = await self._async_probe_atw_subtype(
+                label="eco",
+                subtype=ATW_ECO_SUBTYPE,
+                min_len=ATW_ECO_MIN_LEN,
+                probe=self.capabilities.atw_eco,
+                fetcher=self.client.query_atw_eco,
+                raw_frames=raw_frames,
+            )
+            if eco_body is not None:
+                status = apply_atw_eco(eco_body, status)
 
         self._update_offline_repair()
         self._observe_kjrh120l_zone1(status)
@@ -497,6 +481,55 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "raw_frames": raw_frames,
             "state": state,
         }
+
+    async def _async_probe_atw_subtype(
+        self,
+        *,
+        label: str,
+        subtype: int,
+        min_len: int,
+        probe: ProbeState,
+        fetcher: Callable[[str], bytes],
+        raw_frames: dict[int, bytes],
+    ) -> bytes | None:
+        """Probe one optional ATW C3 subtype, disabling for the session on ApiError."""
+        if not probe.should_probe:
+            return None
+        try:
+            body = await self.hass.async_add_executor_job(
+                fetcher, self.appliance_code,
+            )
+        except AuthError:
+            raise
+        except ApiError as err:
+            if probe.supported is None:
+                probe.mark_unsupported(str(err))
+                _LOGGER.info(
+                    "ATW subtype 0x%02X %s not supported (%s); "
+                    "disabling 0x%02X polling for this session",
+                    subtype,
+                    label,
+                    err,
+                    subtype,
+                )
+            else:
+                _LOGGER.debug(
+                    "Transient ATW subtype 0x%02X %s ApiError (retrying next poll): %s",
+                    subtype,
+                    label,
+                    err,
+                )
+        except Exception as err:  # noqa: BLE001 — transient error, retry later
+            _LOGGER.debug(
+                "ATW subtype 0x%02X %s query failed: %s", subtype, label, err
+            )
+        else:
+            if isinstance(body, (bytes, bytearray)) and len(body) >= min_len:
+                probe.mark_supported()
+                raw = bytes(body)
+                raw_frames[subtype] = raw
+                return raw
+        return None
 
     def _update_offline_repair(self) -> None:
         """Surface or clear the 'device appears offline' Repair card.

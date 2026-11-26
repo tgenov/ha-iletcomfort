@@ -16,8 +16,8 @@ Legend:
 | `0x01` | Basic status (`C3BasicBody`) | **Hardware-Verified (Dollin)** | Splits by `sn8` and frame structure: STANDARD ITS (`+35` offset), AQUAPURA (`box_bottom_temp` / inlet-outlet), KJRH-120L (95-byte custom layout), and `171H120F` (`C3BasicStatus` variants: Italtherm 25B, Rotenso 25B `[2]=0x15`, Galmet/NØRDIS 27B `[3:6]=a0,03,03`, Airwell 27B `[2]=0x73 [3]=0x90`). |
 | `0x02` | Sensors / ECO / schedule | **Hardware-Verified (Dollin)** | STANDARD carries live temps (`+35` offset) & ODU V/A. On `171H120F` ATW units (#38, #120, #123, #124, #128, #150), returns 38B/75B schedule placeholders (`atw_sensors_are_placeholder`) — **Dollin-Divergent**. KJRH-120L `0x02` is static/suppressed. |
 | `0x04` | Energy notify1 | **Candidate (`midea-local`)** | Returned a truncated 9-byte stub on NØRDIS (#120); not polled by coordinator. |
-| `0x05` | Silent / ECO reply | **Hardware-Verified (Rotenso Silent) / Candidate (`midea-local` #300)** | Rotenso `0x05` Silent query/SET verified in opt-in C3Basic control. Both ECO and Silent/Super-Silent share subtype `0x05` on Airwell (`<= 6` bytes = ECO; longer = Silent/Super-Silent), awaiting `#139` controlled probe (#188). |
-| `0x07` | ECO query | **Hardware-Verified (Rotenso)** | Verified on Rotenso Aquami (`07 00 08 00 13 00` → 6-byte SET `07 <on> 08 00 13 00 00`) for opt-in C3Basic ECO control (`build_feature_set`). |
+| `0x05` | Silent / Super-Silent (+ `<= 6B` ECO fallback) | **Hardware-Verified (Rotenso & Airwell #139)** | Rotenso `0x05` Silent query/SET verified in opt-in C3Basic control; Airwell `#139` C8 verified 10B Silent (`bit 0` ON/OFF, `bit 1` Timer 1, `bit 3` Super Silent retained even when OFF; Timer 1/2 schedules in `[2..9]`). Some firmwares share `0x05` with ECO (`<= 6` bytes, `midea-local` #300); supported as fallback. |
+| `0x07` | ECO mode + schedule | **Hardware-Verified (Rotenso & Airwell #139)** | Verified on Rotenso Aquami (`07 00 08 00 13 00` → 6-byte SET `07 <on> 08 00 13 00 00`) for opt-in C3Basic ECO control (`build_feature_set`), and Airwell `#139` C8 verified 7B ECO (`bit 0` ON/OFF, `bit 1` Timer enabled; schedules in `[2..6]`). Probed & decoded on `C3Basic` ATW units alongside `0x05`. |
 | `0x09` | Disinfect query | **Dollin-Divergent / Rejected** | Returned `code=1214` on NØRDIS (#120). |
 | `0x0A` | HMI parameters | **Hardware-Verified (`body[4..5]`)** | `body[4..5]` (`comp_total_run_hours`, uint16 BE) verified on NØRDIS #120 (`0x1c8f` = `7311 Hrs`). `body[3]` (`34 min` current run time) is Candidate. Polled only after `0x10` succeeds (`v0.23.0`). |
 | `0x10` | Unit parameters | **Hardware-Verified (Selective)** | Live telemetry verified on NØRDIS (#120) and Airwell Wellea Split (#139); rejected (`code=1214`) on Rotenso (#143) & M-Thermal (#142 `@blahavl`). Gated on ATW `0x02` placeholder + single-probe `ApiError` session disable (`capabilities.py`). |
@@ -72,14 +72,14 @@ Signed 8-bit °C values use `0x7F` as disconnected sentinel (`_ATW_UNIT_SENSOR_D
 
 ---
 
-## 4. Subtype `0x0A` HMI Parameters & `0x05` Length-Split Candidates
+## 4. Subtype `0x0A` HMI Parameters & Subtypes `0x05` / `0x07` (Silent / ECO)
 
 - **`0x0A` (`apply_atw_hmi_params`, `model_profiles.py`):**
-  - `body[4..5]` (`comp_total_run_hours`, uint16 BE): **Hardware-Verified (Dollin)** on NØRDIS #120 (`0x1c8f` = `7311 Hrs`).
+  - `body[4..5]` (`comp_total_run_hours`, uint16 BE): **Hardware-Verified (Dollin)** on NØRDIS #120 (`0x1c8f` = `7311 Hrs`) and Airwell #139 (`0x0980` = `2432 Hrs`).
   - `body[3]` (current compressor run time, min): **Candidate (`#120` capture `0x22` = 34 min vs. service menu)**; not decoded in `scripts/c3_probe.py` or exposed in HA yet.
-- **`0x05` (`midea-local` issue #300, pending #188):**
-  - Length `<= 6`: ECO reply (`body[1] & 0x01` = `eco_on`, `& 0x02` = `eco_timer_on`) — **Candidate**.
-  - Length `> 6`: Silence reply (`body[1] & 0x01` = `silent_on`, `& 0x08` = `super_silent_level`) — **Candidate**.
+- **`0x05` / `0x07` (`apply_atw_silent`, `apply_atw_eco`, `model_profiles.py`, #139 / #188):**
+  - **Silence (`0x05`, 10B, Hardware-Verified Airwell #139):** `body[1] & 0x01` = Silent ON/OFF, `& 0x02` = Timer 1, `& 0x08` = Super Silent level (retained even when OFF); `body[2..9]` = Timer 1/2 `HH:MM` schedules.
+  - **ECO (`0x07`, 7B, Hardware-Verified Airwell #139; or `0x05 <= 6B` fallback per `midea-local` #300):** `body[1] & 0x01` = `eco_on`, `& 0x02` = `eco_timer_on`; `body[2..6]` = schedule bytes.
 
 ---
 
