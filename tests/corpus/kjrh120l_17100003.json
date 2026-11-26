@@ -14,6 +14,7 @@
       "mode": 0,
       "set_temperature": 60,
       "t5s_def": 60.0,
+      "kjrh120l_dhw_power": false,
       "kjrh120l_outdoor_temp": 35.0,
       "error_code": 0,
       "comp_running": false
@@ -41,6 +42,7 @@
       "set_temperature": 50,
       "t5s_def": 50.0,
       "kjrh120l_zone1_power": true,
+      "kjrh120l_dhw_power": true,
       "kjrh120l_run_mode": 3,
       "kjrh120l_zone1_setpoint": 50.0,
       "kjrh120l_dhw_setpoint": 40.0,
@@ -73,6 +75,7 @@
       "set_temperature": 35,
       "t5s_def": 35.0,
       "kjrh120l_zone1_power": false,
+      "kjrh120l_dhw_power": true,
       "kjrh120l_run_mode": 3,
       "kjrh120l_zone1_setpoint": 37.0,
       "kjrh120l_outdoor_temp": 8.0,

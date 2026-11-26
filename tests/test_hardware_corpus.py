@@ -52,6 +52,7 @@ from custom_components.iletcomfort.select import (
 from custom_components.iletcomfort.sensor import SENSOR_DESCRIPTIONS
 from custom_components.iletcomfort.switch import (
     ILetComfortBoostSwitch,
+    ILetComfortKjrh120lDhwPowerSwitch,
     ILetComfortKjrh120lZone1PowerSwitch,
 )
 from custom_components.iletcomfort.water_heater import ILetComfortDhw
@@ -266,4 +267,8 @@ def test_platform_unique_id_stability_contract() -> None:
     assert (
         ILetComfortKjrh120lZone1PowerSwitch(coord).unique_id
         == "APPL123_kjrh120l_zone1_power"
+    )
+    assert (
+        ILetComfortKjrh120lDhwPowerSwitch(coord).unique_id
+        == "APPL123_kjrh120l_dhw_power"
     )
