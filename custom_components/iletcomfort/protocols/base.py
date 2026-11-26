@@ -1,39 +1,31 @@
-"""ProtocolAdapter interface and normalized HeatPumpState domain model (#172, #192)."""
+"""ProtocolAdapter interface and normalized HeatPumpState domain model (#110, #172, #192)."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Protocol
 
-from ..api import ITSSensors, ITSStatus, TEMP_RANGES
+from ..api import ITSSensors, ITSStatus
 from ..c3_basic import C3BasicStatus
-from ..model_profiles import (
-    KJRH120L_TEMP_MAX,
-    KJRH120L_TEMP_MIN,
-    ModelProfile,
-    atw_sensors_are_placeholder,
-    kjrh120l_has_zone1,
-)
+from .profile import ModelProfile
 
 
 def profile_climate_temp_bounds(
     profile: ModelProfile, set_mode: int | None
 ) -> tuple[float, float]:
     """Return ``(min_temp, max_temp)`` for ``profile`` and SET ``set_mode``."""
-    if profile is ModelProfile.KJRH120L:
-        return float(KJRH120L_TEMP_MIN), float(KJRH120L_TEMP_MAX)
-    if set_mode is not None and set_mode in TEMP_RANGES:
-        return float(TEMP_RANGES[set_mode][0]), float(TEMP_RANGES[set_mode][1])
-    return 10.0, 40.0
+    from . import get_adapter
+
+    return get_adapter(profile).climate_temp_bounds(None, set_mode)
 
 
 @dataclass(frozen=True)
 class HeatPumpState:
     """Normalized, profile-agnostic snapshot of a heat pump poll cycle.
 
-    Entities and diagnostics can read normalized properties without branching
-    on ``ModelProfile`` or raw byte layouts, while ``status`` and ``sensors``
-    remain accessible for full backwards compatibility.
+    Entities and diagnostics read normalized properties without branching on
+    ``ModelProfile`` or raw byte layouts; all model-specific behavior is
+    delegated to the selected ``ProtocolAdapter`` (#110).
     """
 
     profile: ModelProfile
@@ -79,57 +71,33 @@ class HeatPumpState:
 
     @property
     def atw_c3_basic(self) -> C3BasicStatus | None:
-        """Return the C3 basic status for ATW units, else None."""
-        if self.status is None or self.profile is not ModelProfile.ATW:
-            return None
-        return self.status.c3_basic
+        """Return the C3 basic status when supported by this dialect, else None."""
+        from . import get_adapter
+
+        return get_adapter(self.profile).c3_basic(self.status)
 
     def is_kjrh120l_dual(self, zone1_latched: bool) -> bool:
-        """Return whether this KJRH-120L unit is the dual Zone-1 + DHW variant."""
-        if self.profile is not ModelProfile.KJRH120L:
-            return False
-        if zone1_latched is True:
-            return True
-        return bool(self.status is not None and kjrh120l_has_zone1(self.status.raw_body))
+        """Return whether this unit is the dual Zone-1 + DHW KJRH-120L variant."""
+        from . import get_adapter
+
+        return get_adapter(self.profile).is_kjrh120l_dual(self.status, zone1_latched)
 
     @property
     def climate_current_temperature(self) -> float | None:
-        """Return profile-aware climate current temperature (#192)."""
-        if self.sensors is None:
-            return None
-        if self.profile is ModelProfile.ATW:
-            if (
-                self.sensors.raw_body[:1] == b"\x10"
-                and self.sensors.twout_temp is not None
-            ):
-                return self.sensors.twout_temp
-            if atw_sensors_are_placeholder(self.sensors.raw_body):
-                return None
-            return self.sensors.th_temp
-        if self.profile is ModelProfile.AQUAPURA:
-            if self.sensors.th_temp not in (None, 0.0):
-                return self.sensors.th_temp
-            if self.sensors.twout_temp is not None:
-                return self.sensors.twout_temp
-            return self.sensors.twin_temp
-        return self.sensors.twin_temp
+        """Return dialect-aware climate current temperature (#110, #192)."""
+        from . import get_adapter
+
+        return get_adapter(self.profile).climate_current_temperature(self.sensors)
 
     def climate_temp_bounds(self, set_mode: int | None) -> tuple[float, float]:
-        """Return ``(min_temp, max_temp)`` for the climate entity."""
-        basic = self.atw_c3_basic
-        if isinstance(basic, C3BasicStatus):
-            low, high = (
-                basic.zone1_water_range
-                if basic.zone1_water_temp
-                else (basic.room_min, basic.room_max)
-            )
-            if 0 < low < high:
-                return float(low), float(high)
-        return profile_climate_temp_bounds(self.profile, set_mode)
+        """Return ``(min_temp, max_temp)`` for the climate entity (#110)."""
+        from . import get_adapter
+
+        return get_adapter(self.profile).climate_temp_bounds(self.status, set_mode)
 
 
 class ProtocolAdapter(Protocol):
-    """Per-family protocol adapter contract."""
+    """Per-family protocol dialect contract (#110)."""
 
     profile: ModelProfile
 
@@ -146,3 +114,19 @@ class ProtocolAdapter(Protocol):
 
     def describe_variant(self, status: ITSStatus | None) -> str:
         """Return the structural variant label for diagnostics."""
+
+    def climate_current_temperature(self, sensors: ITSSensors | None) -> float | None:
+        """Return the dialect-appropriate climate current temperature."""
+
+    def climate_temp_bounds(
+        self, status: ITSStatus | None, set_mode: int | None
+    ) -> tuple[float, float]:
+        """Return ``(min_temp, max_temp)`` for the climate entity."""
+
+    def is_kjrh120l_dual(
+        self, status: ITSStatus | None, zone1_latched: bool
+    ) -> bool:
+        """Return whether this device is a dual Zone-1 + DHW KJRH-120L unit."""
+
+    def c3_basic(self, status: ITSStatus | None) -> C3BasicStatus | None:
+        """Return the C3 basic status when supported by this dialect, else None."""

@@ -265,3 +265,38 @@ def test_heat_pump_state_climate_helpers_and_kjrh120l_dual() -> None:
         )
         is False
     )
+
+
+def test_all_dialect_adapters_implement_common_seam() -> None:
+    """Every dialect owns its temperature routing, bounds, and variant rules (#110)."""
+    std = get_adapter(None)
+    assert std.climate_current_temperature(ITSSensors(twin_temp=22.0, th_temp=45.0)) == 22.0
+    assert std.climate_temp_bounds(None, MODE_HEAT) == (10.0, 40.0)
+    assert std.is_kjrh120l_dual(None, True) is False
+    assert std.c3_basic(None) is None
+
+    aqua = get_adapter(AQUAPURA_SN8)
+    assert aqua.climate_current_temperature(ITSSensors(th_temp=42.0, twout_temp=30.0)) == 42.0
+    assert aqua.climate_current_temperature(ITSSensors(th_temp=0.0, twout_temp=30.0)) == 30.0
+    assert aqua.climate_temp_bounds(None, MODE_COOL) == (12.0, 40.0)
+    assert aqua.is_kjrh120l_dual(None, True) is False
+    assert aqua.c3_basic(None) is None
+
+    atw = get_adapter(ATW_SN8)
+    atw_status = decode_atw_status(NORDIS_ATW_STATUS_FRAMES["issue132"])
+    assert atw.climate_current_temperature(
+        ITSSensors(twout_temp=34.0, raw_body=NORDIS_UNIT_PARAMS_0X10)
+    ) == 34.0
+    assert atw.climate_current_temperature(
+        ITSSensors(th_temp=46.0, raw_body=ATW_PLACEHOLDER_SENSORS_BODY)
+    ) is None
+    assert atw.climate_temp_bounds(atw_status, MODE_HEAT) == (25.0, 55.0)
+    assert atw.is_kjrh120l_dual(atw_status, True) is False
+    assert atw.c3_basic(atw_status) is atw_status.c3_basic
+
+    kjrh = get_adapter(KJRH120L_SN8)
+    assert kjrh.climate_current_temperature(ITSSensors(twin_temp=19.0)) == 19.0
+    assert kjrh.climate_temp_bounds(None, MODE_HEAT) == (20.0, 70.0)
+    assert kjrh.is_kjrh120l_dual(None, True) is True
+    assert kjrh.is_kjrh120l_dual(None, False) is False
+    assert kjrh.c3_basic(atw_status) is None
