@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.25.0](https://github.com/tgenov/ha-iletcomfort/compare/v0.24.0...v0.25.0) (2026-11-26)
+
+
+### Features
+
+* **atw:** expose verified 0x10 sensors (water flow, DC bus, EXV) ([#178](https://github.com/tgenov/ha-iletcomfort/issues/178)) ([f0588d1](https://github.com/tgenov/ha-iletcomfort/commit/f0588d11fccf8388e9a47736f163db547480a6dd))
+
+
+### Bug Fixes
+
+* address EPIC [#173](https://github.com/tgenov/ha-iletcomfort/issues/173) code review findings and require clean-context self-review ([#184](https://github.com/tgenov/ha-iletcomfort/issues/184)) ([108e17b](https://github.com/tgenov/ha-iletcomfort/commit/108e17b58cdc853111666f3515e4070f88ae7ac8))
+
 ## [0.24.0](https://github.com/tgenov/ha-iletcomfort/compare/v0.23.0...v0.24.0) (2026-11-26)
 
 
