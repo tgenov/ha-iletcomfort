@@ -183,7 +183,16 @@ Status `raw_body` (0-indexed; STANDARD misreads this 25-byte frame):
   Galmet/NØRDIS signature). Both Silent Level 1 and Super Silent (Level 2) set `body[3] & 0x02`
   (`0x90 → 0x92`), confirming `0x01` only carries binary Silent ON/OFF (`super_silent_level` lives
   in `0x05`). Enabling ECO left `body[3]=0x90` unchanged (do not assume `body[3] & 0x08` carries ECO
-  on all `171H120F` units).
+  on all `171H120F` units). Per `midea-lan/midea-local` (`c3/message.py`, issue #300), ECO and
+  Silent/Super-Silent replies both share subtype `0x05` and must be disambiguated by payload length
+  (`<= 6` bytes = ECO reply; longer = Silent/Super-Silent).
+- **Cross-checking `midea-local` before reverse-engineering `0xC3`:** Do **not** add `midea-local`
+  as a runtime dependency (it couples to local LAN/MSmartHome and risks HA Core dependency clashes),
+  but **do** cross-check [`midea-lan/midea-local`](https://github.com/midea-lan/midea-local)
+  (`midealocal/devices/c3/message.py`) before reverse-engineering any `171H120F` subtype (`0x01`,
+  `0x04`, `0x05`, `0x0A`, `0x10`) or `0xC3` SET command (`MessageSet`, `MessageSetECO`,
+  `MessageSetSilent`). Treat `midea-local` as the candidate byte map and still verify against at
+  least one real Dollin hardware capture before shipping.
 
 ### KJRH-120L dual variant (`sn8 17100003`, #5 / #69) — hardware-validated reads & Zone-1 writes
 - The same `sn8` covers pure-DHW and Zone-1 + DHW controllers. Gate the dual layout only when status
