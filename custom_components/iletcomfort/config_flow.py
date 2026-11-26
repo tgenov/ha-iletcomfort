@@ -25,9 +25,11 @@ from homeassistant.helpers.selector import (
 from .api import ApiError, AuthError, ILetComfortClient
 from .const import (
     CONF_APPLIANCE_CODE,
+    CONF_C3_BASIC_CONTROL,
     CONF_ENABLE_MQTT_PUSH,
     CONF_OPERATION_MODE,
     CONF_REGION,
+    DEFAULT_C3_BASIC_CONTROL,
     DEFAULT_ENABLE_MQTT_PUSH,
     DEFAULT_OPERATION_MODE,
     DEFAULT_REGION,
@@ -38,6 +40,7 @@ from .const import (
     REGION_URLS,
     REGION_US,
 )
+from .model_profiles import ModelProfile, resolve_profile
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -197,8 +200,15 @@ class ILetComfortOptionsFlow(OptionsFlow):
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None,
     ) -> ConfigFlowResult:
+        offer_c3_control = self._offers_c3_basic_control()
         if user_input is not None:
-            return self.async_create_entry(data=user_input)
+            data = dict(user_input)
+            options = self.config_entry.options
+            if not offer_c3_control and CONF_C3_BASIC_CONTROL in options:
+                # Keep an earlier choice when the field is not shown (e.g.
+                # the model code is not known yet).
+                data[CONF_C3_BASIC_CONTROL] = options[CONF_C3_BASIC_CONTROL]
+            return self.async_create_entry(data=data)
 
         current = self.config_entry.options.get(CONF_OPERATION_MODE)
         if current is None:
@@ -209,20 +219,33 @@ class ILetComfortOptionsFlow(OptionsFlow):
                 )
                 else DEFAULT_OPERATION_MODE
             )
-        schema = vol.Schema(
-            {
+        fields: dict[Any, Any] = {
+            vol.Required(
+                CONF_OPERATION_MODE, default=current,
+            ): SelectSelector(
+                SelectSelectorConfig(
+                    options=[
+                        OPERATION_MODE_HA_PRIMARY,
+                        OPERATION_MODE_PHONE_APP,
+                    ],
+                    mode=SelectSelectorMode.DROPDOWN,
+                    translation_key="operation_mode",
+                )
+            ),
+        }
+        if offer_c3_control:
+            fields[
                 vol.Required(
-                    CONF_OPERATION_MODE, default=current,
-                ): SelectSelector(
-                    SelectSelectorConfig(
-                        options=[
-                            OPERATION_MODE_HA_PRIMARY,
-                            OPERATION_MODE_PHONE_APP,
-                        ],
-                        mode=SelectSelectorMode.DROPDOWN,
-                        translation_key="operation_mode",
-                    )
-                ),
-            }
-        )
-        return self.async_show_form(step_id="init", data_schema=schema)
+                    CONF_C3_BASIC_CONTROL,
+                    default=self.config_entry.options.get(
+                        CONF_C3_BASIC_CONTROL, DEFAULT_C3_BASIC_CONTROL
+                    ),
+                )
+            ] = bool
+        return self.async_show_form(step_id="init", data_schema=vol.Schema(fields))
+
+    def _offers_c3_basic_control(self) -> bool:
+        """Offer C3 basic control only for loaded sn8 171H120F (ATW) units."""
+        coordinator = self.hass.data.get(DOMAIN, {}).get(self.config_entry.entry_id)
+        sn8 = getattr(coordinator, "sn8", None)
+        return resolve_profile(sn8) is ModelProfile.ATW

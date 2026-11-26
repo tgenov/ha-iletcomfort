@@ -29,13 +29,16 @@ from .api import (
     QUERY_TO_SET_MODE,
     mask_identifier,
 )
+from .c3_basic import C3BasicStatus
 from .capabilities import DeviceCapabilities
 from .const import (
     CONF_APPLIANCE_CODE,
+    CONF_C3_BASIC_CONTROL,
     CONF_ENABLE_MQTT_PUSH,
     CONF_KJRH120L_ZONE1_CAPABLE,
     CONF_OPERATION_MODE,
     CONF_REGION,
+    DEFAULT_C3_BASIC_CONTROL,
     DEFAULT_ENABLE_MQTT_PUSH,
     DEFAULT_OPERATION_MODE,
     DEFAULT_REGION,
@@ -56,7 +59,7 @@ from .model_profiles import (
     resolve_profile,
 )
 from .mqtt import ILetComfortPushClient
-from .protocols import HeatPumpState, get_adapter
+from .protocols import HeatPumpState, get_adapter, resolve_state
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -120,6 +123,13 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             / f"iletcomfort_token_{entry.entry_id}"
         )
         self._last_on_state: tuple[int, int] | None = None
+        # Serialises writes for this appliance: a C3 basic SET is built from a
+        # fresh status read, so overlapping read/modify/write transactions
+        # would otherwise undo each other's changes.
+        self._write_lock = asyncio.Lock()
+        self._c3_basic_control: bool = bool(
+            entry.options.get(CONF_C3_BASIC_CONTROL, DEFAULT_C3_BASIC_CONTROL)
+        )
         # Track per-query cache-fallback state. ``_status_degraded`` /
         # ``_sensors_degraded`` drive the offline Repair card (issue #5). The
         # ``*_fail_streak`` counters drive log-level escalation: a query only
@@ -169,6 +179,30 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return None
         sn8 = self.appliance_meta.get("sn8")
         return str(sn8) if sn8 else None
+
+    @property
+    def c3_basic_control_enabled(self) -> bool:
+        """Return whether the owner opted into C3 basic control for this unit."""
+        return self._c3_basic_control
+
+    @property
+    def c3_basic(self) -> C3BasicStatus | None:
+        """Decoded C3 basic status for an ATW unit (sn8 171H120F), else None."""
+        state = resolve_state(self.sn8, self.data)
+        if state is None:
+            return None
+        basic = state.atw_c3_basic
+        return basic if isinstance(basic, C3BasicStatus) else None
+
+    @property
+    def c3_basic_controllable(self) -> C3BasicStatus | None:
+        """The C3 basic status when the owner enabled C3 basic control.
+
+        Control is opt-in (options flow): it is hardware-validated on one
+        model variant only, so other 171H120F variants keep their existing
+        behaviour until an owner confirms it on their unit.
+        """
+        return self.c3_basic if self._c3_basic_control else None
 
     @property
     def kjrh120l_zone1_capable(self) -> bool:
@@ -574,10 +608,12 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         Centralizes the write contract for every protocol dialect (#172):
         1. Rejects writes in read-only phone-app coexistence mode.
-        2. Retries once on ``AuthError`` after re-authenticating.
-        3. Translates client/validation/network errors into ``HomeAssistantError``
+        2. Serialises transactions per appliance via ``self._write_lock``
+           (spanning fresh read → SET → any auth retry).
+        3. Retries once on ``AuthError`` after re-authenticating.
+        4. Translates client/validation/network errors into ``HomeAssistantError``
            without triggering a spurious refresh.
-        4. Requests a coordinator refresh on success.
+        5. Requests a coordinator refresh on success.
         """
         if self._operation_mode == OPERATION_MODE_PHONE_APP:
             raise HomeAssistantError(
@@ -586,12 +622,13 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
 
         try:
-            try:
-                result = await self.hass.async_add_executor_job(action)
-            except AuthError:
-                _LOGGER.info("Auth error during set, re-authenticating")
-                await self._async_login()
-                result = await self.hass.async_add_executor_job(action)
+            async with self._write_lock:
+                try:
+                    result = await self.hass.async_add_executor_job(action)
+                except AuthError:
+                    _LOGGER.info("Auth error during set, re-authenticating")
+                    await self._async_login()
+                    result = await self.hass.async_add_executor_job(action)
         except (
             ApiError,
             AuthError,
@@ -620,6 +657,30 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
 
         await self.async_execute_command(_send)
+
+    def _require_c3_basic_control(self) -> None:
+        if self.c3_basic_controllable is None:
+            raise HomeAssistantError(
+                "C3 basic control is not enabled or not supported for this unit"
+            )
+
+    async def async_set_c3_basic(self, **changes: Any) -> None:
+        """Change C3 basic fields (Zone-1/DHW power, setpoints, curve)."""
+        self._require_c3_basic_control()
+        sn8 = self.sn8
+        await self.async_execute_command(
+            lambda: self.client.set_c3_basic(self.appliance_code, sn8=sn8, **changes)
+        )
+
+    async def async_set_c3_feature(self, feature: str, on: bool) -> None:
+        """Switch the C3 silent or ECO mode."""
+        self._require_c3_basic_control()
+        sn8 = self.sn8
+        await self.async_execute_command(
+            lambda: self.client.set_c3_feature(
+                self.appliance_code, sn8=sn8, feature=feature, on=on,
+            )
+        )
 
     # -- MQTT real-time push (issue #55, phone-app coexistence mode) --
 
