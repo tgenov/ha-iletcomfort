@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.27.1](https://github.com/tgenov/ha-iletcomfort/compare/v0.27.0...v0.27.1) (2026-11-26)
+
+
+### Bug Fixes
+
+* **coordinator,atw:** fix MQTT watchdog callback thread-safety and Cool-tag schedule placeholders ([#199](https://github.com/tgenov/ha-iletcomfort/issues/199)) ([c370641](https://github.com/tgenov/ha-iletcomfort/commit/c370641160fa5bdeaf0e110137c2703cb18fd820))
+
 ## [0.27.0](https://github.com/tgenov/ha-iletcomfort/compare/v0.26.0...v0.27.0) (2026-11-26)
 
 
