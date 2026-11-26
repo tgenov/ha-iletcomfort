@@ -1,14 +1,14 @@
-"""Protocol adapter registry for iLetComfort heat-pump families (#172, #192)."""
+"""Protocol dialect adapter registry for iLetComfort heat-pump families (#110, #172, #192)."""
 
 from __future__ import annotations
 
 from typing import Any
 
-from ..model_profiles import ModelProfile, resolve_profile
 from .aquapura import AquapuraAdapter
 from .atw import AtwAdapter
 from .base import HeatPumpState, ProtocolAdapter, profile_climate_temp_bounds
 from .kjrh120l import Kjrh120lAdapter
+from .profile import ModelProfile, resolve_profile
 from .standard import StandardAdapter
 
 _ADAPTERS: dict[ModelProfile, ProtocolAdapter] = {
@@ -67,10 +67,7 @@ def is_kjrh120l_dual_state(
     state = resolve_state(sn8, data)
     if state is not None:
         return state.is_kjrh120l_dual(zone1_latched)
-    return (
-        get_adapter(sn8).profile is ModelProfile.KJRH120L
-        and zone1_latched is True
-    )
+    return get_adapter(sn8).is_kjrh120l_dual(None, zone1_latched)
 
 
 __all__ = [
