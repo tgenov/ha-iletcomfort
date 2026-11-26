@@ -19,6 +19,7 @@ class StandardAdapter:
     """Default dialect adapter for unknown/standard C3 heat pumps."""
 
     profile = ModelProfile.STANDARD
+    periodic_status_push = True
 
     def build_query(self, subtype: int) -> str:
         return build_c3_query(subtype)

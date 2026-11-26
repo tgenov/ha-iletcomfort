@@ -980,9 +980,10 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def _apply_push_energy(self, energy_body: bytes) -> None:
         """Handle an unsolicited MQTT 0x04 (C3EnergyBody) push frame (#129).
 
-        Always refreshes the push liveness watchdog so ATW units that emit 0x04
-        energy pushes between 0x01 status frames do not expire as stale. On ATW
-        units with an existing snapshot, also overlays outdoor temp and energy.
+        Always records push activity and re-arms the status heartbeat where the
+        dialect has one (ATW units do not; their availability follows the MQTT
+        link). On ATW units with an existing snapshot, also overlays outdoor
+        temp and energy.
         """
         self._last_push_status_at = time.monotonic()
         self._schedule_push_status_watchdog()
@@ -1066,8 +1067,17 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Run the MQTT status freshness check on the Home Assistant event loop."""
         self._check_push_status_freshness()
 
+    def _push_status_heartbeat_expected(self) -> bool:
+        """Return whether silence on a live MQTT link means status is stale.
+
+        Unknown sn8 resolves to STANDARD and keeps the heartbeat (safe default).
+        """
+        return get_adapter(self.sn8).periodic_status_push
+
     def _schedule_push_status_watchdog(self) -> None:
         self._cancel_push_status_watchdog()
+        if not self._push_status_heartbeat_expected():
+            return
         self._push_status_watchdog = async_call_later(
             self.hass,
             MQTT_STATUS_STALE_AFTER,
@@ -1083,6 +1093,8 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Mark push unavailable when the connected device stops publishing status."""
         self._push_status_watchdog = None
         if not self._push_enabled or self._operation_mode != OPERATION_MODE_PHONE_APP:
+            return
+        if not self._push_status_heartbeat_expected():
             return
         if self._last_push_status_at is None or (
             time.monotonic() - self._last_push_status_at

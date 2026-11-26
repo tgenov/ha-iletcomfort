@@ -82,7 +82,11 @@ user to do hard work — re-read the whole thread and check the new signal again
   C3 has no dedicated `hbt` topic, but valid `dev` status frames have been observed from an idle/off
   AQUAPURA roughly every 15 minutes. The integration treats those frames as an end-to-end device-status
   heartbeat and allows up to 45 minutes for missed cycles before marking push stale; MQTT PINGREQ/PINGRESP
-  remains transport-level liveness.
+  remains transport-level liveness. **That cadence is not universal:** a `171H120F` Hyundai HPSI-Split
+  (#129) sent no `0x01` pushes at all and only sporadic `0x04` (`C3EnergyBody`) change notifications,
+  so the 45-minute watchdog expired on a healthy link in every test. The heartbeat is therefore gated
+  per dialect (`ProtocolAdapter.periodic_status_push`, `False` for ATW). ATW availability follows MQTT
+  connect/disconnect only. Unknown `sn8` → STANDARD keeps the heartbeat.
   This is documented in `README.md` / `docs/TROUBLESHOOTING.md`. `14xxx` codes are the auth range.
 
 ---

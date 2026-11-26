@@ -51,7 +51,9 @@ only if the cloud rejects that token, which may briefly sign the phone app out o
 per certificate lifetime. If MQTT disconnects, HA marks the entities unavailable
 instead of taking over the account session. Valid C3 status pushes also refresh
 an end-to-end device liveness watchdog; the observed idle cadence is about 15
-minutes, with a 45-minute tolerance for missed cycles. Use **HA is the primary
+minutes, with a 45-minute tolerance for missed cycles. Air-to-water units
+(`sn8 171H120F`) publish status only on change, so for them availability follows
+the MQTT connection alone. Use **HA is the primary
 client** (the default) when Home Assistant must control the heat pump.
 
 ## Showing water temperatures on a dashboard

@@ -448,7 +448,7 @@ async def test_push_client_dispatches_0x04_energy_callback(hass, fake_paho):
     await client.async_stop()
 
 
-async def test_coordinator_apply_push_energy_refreshes_watchdog_and_overlays_atw(
+async def test_coordinator_apply_push_energy_records_push_and_overlays_atw(
     hass,
 ):
     from custom_components.iletcomfort.api import ITSSensors
@@ -503,7 +503,8 @@ async def test_coordinator_apply_push_energy_refreshes_watchdog_and_overlays_atw
     coord._apply_push_energy(energy_body)
 
     assert coord._last_push_status_at is not None
-    assert coord._push_status_watchdog is not None
+    # ATW has no periodic status cadence, so no heartbeat watchdog is armed (#129).
+    assert coord._push_status_watchdog is None
     assert coord.data["status"].total_kwh == 14126
     assert coord.data["status"].total_thermal_kwh == 32181
     assert coord.data["sensors"].t4_temp == 0.0

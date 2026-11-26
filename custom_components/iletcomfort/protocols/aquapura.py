@@ -24,6 +24,7 @@ class AquapuraAdapter:
     """
 
     profile = ModelProfile.AQUAPURA
+    periodic_status_push = True
 
     def build_query(self, subtype: int) -> str:
         return build_c3_query(subtype)
