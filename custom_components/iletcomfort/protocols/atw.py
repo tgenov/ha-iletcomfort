@@ -268,6 +268,23 @@ def atw_sensors_are_placeholder(raw_body: bytes) -> bool:
     )
 
 
+_ENERGY_COUNTER_SENTINEL = 0xFFFFFFFF
+
+
+def valid_energy_counter(value: int) -> bool:
+    """Return whether a 32-bit cumulative energy counter is a real reading.
+
+    Shared by ATW 0x10 and MQTT 0x04 (#129, #232): ``0`` (uninitialised) and
+    ``0xFFFFFFFF`` (absent) are sentinels. Publishing either to a
+    TOTAL_INCREASING sensor would record a meter reset or a ~4.29e9 kWh spike,
+    so callers skip the field: it keeps whatever the base status carries
+    (``None``/unknown after a fresh poll or 0x01 push decode, the last valid
+    value when overlaying an existing snapshot). Unknown is safe: HA
+    statistics ignore it and the next valid reading is not a reset.
+    """
+    return 0 < value < _ENERGY_COUNTER_SENTINEL
+
+
 def _atw_unit_s8(raw_byte: int) -> float | None:
     """Decode a signed 8-bit °C byte from ATW subtype 0x10/0x04 (0x7F = absent)."""
     if raw_byte == _ATW_UNIT_SENSOR_DISCONNECTED:
@@ -292,14 +309,15 @@ def apply_atw_unit_params(
         "exv_drg": (body[20] << 8) | body[21],
         "pressure_h": (body[43] << 8) | body[44],
     }
+    # Sentinel counters (0 / 0xFFFFFFFF) keep the previous value (#232).
     if len(body) >= ATW_UNIT_PARAMS_ENERGY_MIN_LEN:
-        status_updates["total_kwh"] = (
-            (body[67] << 24) | (body[68] << 16) | (body[69] << 8) | body[70]
-        )
+        total_kwh = int.from_bytes(body[67:71], "big")
+        if valid_energy_counter(total_kwh):
+            status_updates["total_kwh"] = total_kwh
     if len(body) >= ATW_UNIT_PARAMS_THERMAL_ENERGY_MIN_LEN:
-        status_updates["total_thermal_kwh"] = (
-            (body[71] << 24) | (body[72] << 16) | (body[73] << 8) | body[74]
-        )
+        total_thermal = int.from_bytes(body[71:75], "big")
+        if valid_energy_counter(total_thermal):
+            status_updates["total_thermal_kwh"] = total_thermal
 
     sensor_updates: dict[str, Any] = {
         "t3_temp": _atw_unit_s8(body[7]),
@@ -399,10 +417,10 @@ def apply_atw_energy_notify(
 
     status_updates: dict[str, Any] = {}
     total_kwh = (body[2] << 24) | (body[3] << 16) | (body[4] << 8) | body[5]
-    if 0 < total_kwh < 0xFFFFFFFF:
+    if valid_energy_counter(total_kwh):
         status_updates["total_kwh"] = total_kwh
     total_thermal = (body[6] << 24) | (body[7] << 16) | (body[8] << 8) | body[9]
-    if 0 < total_thermal < 0xFFFFFFFF:
+    if valid_energy_counter(total_thermal):
         status_updates["total_thermal_kwh"] = total_thermal
     if status_updates:
         status = dataclasses.replace(status, **status_updates)

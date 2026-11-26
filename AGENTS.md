@@ -183,7 +183,10 @@ Status `raw_body` (0-indexed; STANDARD misreads this 25-byte frame):
   schedule template). `coordinator.py` probes `0x10` only when `0x02` is a placeholder and disables
   it for the session after the first `ApiError` or invalid frame. Compressor total run hours are not
   in `0x10`; they sit in subtype `0x0A` (`body[4..5]`, verified on NØRDIS #120) and are polled only
-  when `0x10` succeeds, with their own single-probe `ApiError` session disable.
+  when `0x10` succeeds, with their own single-probe `ApiError` session disable. The `0x10` energy
+  counters (`total_kwh`, `total_thermal_kwh`) use the same sentinel filter as `0x04`
+  (`atw.valid_energy_counter`: `0`/`0xFFFFFFFF` are never applied; the field keeps the base status
+  value, i.e. unknown after a fresh poll/push decode, never `0`; #232).
 - **Airwell Wellea Split (`sn8 171H120F`, #139) controlled Silent/ECO test:** 27-byte status with
   `body[2]=0x73`, `body[3]=0x90`, tail `e0,05,00` (does not match the `body[3:6] == a0,03,03`
   Galmet/NØRDIS signature). Both Silent Level 1 and Super Silent (Level 2) set `body[3] & 0x02`
