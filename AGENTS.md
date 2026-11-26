@@ -394,7 +394,7 @@ does not enforce per-appliance topic ACLs.
 
 ## 7. Dev & release workflow
 
-- **`main` is protected:** required status checks `pytest (Python 3.12)` + `Validate Conventional Commits
+- **`main` is protected:** required status checks `pytest` + `Validate Conventional Commits
   title`, and `enforce_admins=true`. **No direct pushes** — they're rejected. Land changes via a PR
   (CI auto-runs, ~30s) and merge.
 - **release-please** drives versioning from Conventional Commits on `main` (`feat:` → minor, `fix:`/

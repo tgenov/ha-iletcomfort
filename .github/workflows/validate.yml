@@ -12,9 +12,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: astral-sh/ruff-action@v3
+      - uses: astral-sh/setup-uv@v6
         with:
-          args: check
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+          python-version-file: .python-version
+      - name: Sync locked dev dependencies and run ruff
+        run: |
+          uv sync --frozen
+          uv run --no-sync ruff check .
 
   mypy:
     name: mypy
@@ -24,13 +30,12 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-          cache-dependency-glob: requirements_test.txt
-          python-version: "3.12"
-      - name: Install dependencies and run mypy
+          cache-dependency-glob: uv.lock
+          python-version-file: .python-version
+      - name: Sync locked dev dependencies and run mypy
         run: |
-          uv venv
-          uv pip install -r requirements_test.txt mypy types-requests
-          uv run mypy custom_components/iletcomfort/
+          uv sync --frozen
+          uv run --no-sync mypy custom_components/iletcomfort/
 
   hassfest:
     name: hassfest
