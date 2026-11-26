@@ -182,8 +182,8 @@ class ITSStatus:
     vacation_end_month: int = 0
     vacation_end_day: int = 0
     exv_drg: int = 0
-    pressure_h: int = 0
-    pressure_l: int = 0
+    pressure_h: int | None = 0
+    pressure_l: int | None = 0
     comp_frq: int | None = 0
     total_kwh: int | None = 0
     total_thermal_kwh: int | None = None

@@ -59,6 +59,7 @@ from .model_profiles import (
     ATW_UNIT_PARAMS_SUBTYPE,
     ModelProfile,
     apply_atw_eco,
+    apply_atw_energy_notify,
     apply_atw_hmi_params,
     apply_atw_silent,
     apply_atw_unit_params,
@@ -759,6 +760,7 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             region=self._region,
             appliance_code=self.appliance_code,
             on_status=self._push_status_threadsafe,
+            on_energy=self._push_energy_threadsafe,
             on_connected_change=self._push_connected_threadsafe,
             get_certificate=self._async_get_push_certificate,
         )
@@ -803,8 +805,50 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Marshal a status push from paho's thread onto the event loop."""
         self.hass.loop.call_soon_threadsafe(self._apply_push_status, status)
 
+    def _push_energy_threadsafe(self, energy_body: bytes) -> None:
+        """Marshal a subtype-0x04 energy push from paho's thread onto the event loop."""
+        self.hass.loop.call_soon_threadsafe(self._apply_push_energy, energy_body)
+
     def _push_connected_threadsafe(self, connected: bool) -> None:
         self.hass.loop.call_soon_threadsafe(self._apply_push_connected, connected)
+
+    def _apply_push_energy(self, energy_body: bytes) -> None:
+        """Handle an unsolicited MQTT 0x04 (C3EnergyBody) push frame (#129).
+
+        Always refreshes the push liveness watchdog so ATW units that emit 0x04
+        energy pushes between 0x01 status frames do not expire as stale. On ATW
+        units with an existing snapshot, also overlays outdoor temp and energy.
+        """
+        self._last_push_status_at = time.monotonic()
+        self._schedule_push_status_watchdog()
+        if self.data is None:
+            return
+        adapter = get_adapter(self.sn8)
+        if adapter.profile is not ModelProfile.ATW:
+            return
+        status = self.data.get("status")
+        if not isinstance(status, ITSStatus):
+            return
+        sensors = self.data.get("sensors")
+        status, sensors = apply_atw_energy_notify(energy_body, status, sensors)
+        raw_frames = dict(self.data.get("raw_frames") or {})
+        raw_frames[0x04] = bytes(energy_body)
+        state = HeatPumpState(
+            profile=adapter.profile,
+            variant=adapter.describe_variant(status),
+            status=status,
+            sensors=sensors,
+            raw_frames=dict(raw_frames),
+            has_authoritative_raw_frames=True,
+        )
+        self.async_set_updated_data(
+            {
+                "status": status,
+                "sensors": sensors,
+                "raw_frames": raw_frames,
+                "state": state,
+            }
+        )
 
     def _apply_push_status(self, status: ITSStatus) -> None:
         """Publish a pushed status to entities, reusing the last polled sensors.
@@ -827,6 +871,8 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         raw_frames = dict(self.data.get("raw_frames") or {})
         if status.raw_body:
             raw_frames[0x01] = bytes(status.raw_body)
+        if adapter.profile is ModelProfile.ATW and 0x04 in raw_frames:
+            status, _ = apply_atw_energy_notify(raw_frames[0x04], status, None)
         sensors = self.data.get("sensors")
         state = HeatPumpState(
             profile=adapter.profile,
