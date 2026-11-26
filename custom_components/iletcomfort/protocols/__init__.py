@@ -9,6 +9,7 @@ from .atw import AtwAdapter
 from .base import HeatPumpState, ProtocolAdapter, profile_climate_temp_bounds
 from .kjrh120l import Kjrh120lAdapter
 from .profile import ModelProfile, resolve_profile
+from .snapshot import build_snapshot, merge_atw_energy_notify
 from .standard import StandardAdapter
 
 _ADAPTERS: dict[ModelProfile, ProtocolAdapter] = {
@@ -77,8 +78,10 @@ __all__ = [
     "Kjrh120lAdapter",
     "ProtocolAdapter",
     "StandardAdapter",
+    "build_snapshot",
     "get_adapter",
     "is_kjrh120l_dual_state",
+    "merge_atw_energy_notify",
     "profile_climate_temp_bounds",
     "resolve_state",
 ]

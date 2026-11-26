@@ -117,6 +117,9 @@ async def async_get_config_entry_diagnostics(
 
     adapter = get_adapter(coordinator.sn8)
     profile = adapter.profile
+    energy_merged = getattr(coordinator, "_atw_energy_notify", None)
+    if not isinstance(energy_merged, bytes):
+        energy_merged = None
     raw_0x02 = raw_frames.get(0x02, b"")
     # Preserve legacy synthetic tests whose sensors.raw_body does not start with
     # 0x02 (e.g. b"\xbb\x02...") while ensuring ATW 0x10 frames are never
@@ -164,6 +167,11 @@ async def async_get_config_entry_diagnostics(
                 f"0x{subtype:02x}": _format_hex(body)
                 for subtype, body in sorted(raw_frames.items())
             },
+            # Sentinel-filtered 0x04 energy state actually applied (latest
+            # valid value per field); raw_frames["0x04"] is the literal frame.
+            "atw_energy_notify_merged": (
+                _format_hex(energy_merged) if energy_merged is not None else None
+            ),
         },
         "appliance": appliance,
         "status": _serialize_frame(status_obj),

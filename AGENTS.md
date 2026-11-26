@@ -87,6 +87,12 @@ user to do hard work — re-read the whole thread and check the new signal again
   so the 45-minute watchdog expired on a healthy link in every test. The heartbeat is therefore gated
   per dialect (`ProtocolAdapter.periodic_status_push`, `False` for ATW). ATW availability follows MQTT
   connect/disconnect only. Unknown `sn8` → STANDARD keeps the heartbeat.
+  On ATW units, phone-app mode only sees the optional subtypes from the setup poll; pushes carry 0x01
+  and/or 0x04 only, if anything (#225). Cumulative counters (0x10 energy, 0x0A run hours) are kept on
+  push, but live 0x10 telemetry (compressor frequency/running, pressures) is only available from the
+  setup poll and goes unknown after the first push. ECO state reflects the setup poll until restart,
+  because no push frame carries it (0x01 `body[3]` does not change with ECO, #139). Silent on/off
+  follows the pushed 0x01 bit; the level comes from the setup 0x05 only while both agree.
   This is documented in `README.md` / `docs/TROUBLESHOOTING.md`. `14xxx` codes are the auth range.
 
 ---
@@ -372,6 +378,7 @@ does not enforce per-appliance topic ACLs.
 | `scripts/fetch_plugin.py` | **Dev tool, not shipped** — fetches the vendor per-model plugin bundle (`0xC3` = Weex JS) via the `version:"0.0.0"` downgrade on `/v1/product/upgrade/plugin/get/latest`. Source of truth for the control **schema** (not bytes) — see §4. |
 | `scripts/c3_probe.py` | **Dev tool, not shipped, read-only** — sends C3 queries for `171H120F` units and decodes them (midea-local C3 layouts); reads only `ILET_EMAIL`/`ILET_PASSWORD`/`ILET_REGION` from `.env`. Cannot send SET frames. |
 | `model_profiles.py` | `ModelProfile` enum, `_SN8_PROFILES` table, `resolve_profile`, `decode_atw_status`, `apply_profile_to_status`, `apply_profile_to_sensors`. **Add new model support here.** |
+| `protocols/snapshot.py` | `build_snapshot(adapter, status, sensors, raw_frames, *, retained_subtypes=False, energy_notify=None)` — the **one** pure step that applies the profile sensors decode and every ATW overlay (0x10 → 0x0A → 0x05/0x07 when C3 basic → 0x04 last). `_poll`, `_apply_push_status` and `_apply_push_energy` and the corpus contract all use it (#225); never re-implement the overlay chain elsewhere. Pushes pass `retained_subtypes=True` (0x10 counters only, 0x05 reconciled with the 0x01 Silent bit) and the coordinator's sentinel-filtered 0x04 state as `energy_notify`; `raw_frames[0x04]` stays literal. Probing stays in the coordinator. |
 | `c3_basic.py` | Standard Midea C3 basic status decode (`decode_c3_basic`, `C3BasicStatus`) and validated SET builders (`apply_basic_changes`, `build_basic_set`, `build_feature_set`) for `171H120F`; client methods `set_c3_basic` / `set_c3_feature`. |
 | `c3_frame.py` | Low-level C3 framing (`build_c3_frame`, `build_c3_query`, `build_c3_set`, `parse_hex_response`, `extract_c3_body`, `_temp_offset`). |
 | `water_heater.py` | DHW entity for ATW units whose status matches the C3 basic layout. |
