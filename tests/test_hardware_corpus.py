@@ -33,11 +33,6 @@ from custom_components.iletcomfort.api import decode_its_sensors, decode_its_sta
 from custom_components.iletcomfort.binary_sensor import BINARY_SENSOR_DESCRIPTIONS
 from custom_components.iletcomfort.climate import ILetComfortClimate
 from custom_components.iletcomfort.model_profiles import (
-    apply_atw_eco,
-    apply_atw_hmi_params,
-    apply_atw_silent,
-    apply_atw_unit_params,
-    apply_profile_to_sensors,
     apply_profile_to_status,
     atw_sensors_are_placeholder,
     describe_profile_variant,
@@ -47,6 +42,7 @@ from custom_components.iletcomfort.number import (
     ILetComfortKjrh120lDhwSetpoint,
     ILetComfortKjrh120lZone1Setpoint,
 )
+from custom_components.iletcomfort.protocols import build_snapshot, get_adapter
 from custom_components.iletcomfort.select import (
     ILetComfortKjrh120lModeSelect,
     ILetComfortMuteSelect,
@@ -98,24 +94,19 @@ def test_hardware_corpus_decode_contract(case: dict[str, Any]) -> None:
                 atw_sensors_are_placeholder(raw_0x02)
                 is case["expected_atw_0x02_placeholder"]
             )
-        sensors = apply_profile_to_sensors(
-            profile, decode_its_sensors(raw_0x02), status
-        )
+        sensors = decode_its_sensors(raw_0x02)
 
     if "0x10" in frames:
         assert sensors is not None
-        status, sensors = apply_atw_unit_params(
-            _hex_csv(frames["0x10"]), status, sensors
-        )
 
-    if "0x0a" in frames:
-        status = apply_atw_hmi_params(_hex_csv(frames["0x0a"]), status)
-
-    if "0x05" in frames:
-        status = apply_atw_silent(_hex_csv(frames["0x05"]), status)
-
-    if "0x07" in frames:
-        status = apply_atw_eco(_hex_csv(frames["0x07"]), status)
+    # Run the production snapshot builder (poll + MQTT push share it, #225)
+    # rather than a hand-written copy of the overlay chain.
+    raw_frames = {int(key, 16): _hex_csv(value) for key, value in frames.items()}
+    state = build_snapshot(get_adapter(sn8), status, sensors, raw_frames)
+    assert state.profile is profile
+    assert state.variant == case["expected_variant"]
+    status = state.status
+    sensors = state.sensors
 
     for field, expected in case.get("expected_status", {}).items():
         assert getattr(status, field) == expected, (

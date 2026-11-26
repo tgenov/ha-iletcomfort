@@ -541,3 +541,211 @@ async def test_coordinator_apply_push_energy_records_push_and_overlays_atw(
 
     coord._cancel_push_status_watchdog()
     await coord.async_shutdown()
+
+
+# --- Issue #225: MQTT status push must keep ATW subtype overlays -------------
+
+_HYUNDAI_ATW_STATUS = bytes.fromhex(
+    "01 0d 15 90 03 03 28 1e 32 30 41 23 19 05 37 19 19 05 3c 22 3c 14 32 00 80"
+)
+
+
+def _corpus_frame(case_id: str, key: str) -> bytes:
+    from pathlib import Path
+
+    path = Path(__file__).parent / "corpus" / "atw_171H120F.json"
+    case = next(
+        c for c in json.loads(path.read_text(encoding="utf-8")) if c["id"] == case_id
+    )
+    return bytes(int(part, 16) for part in case["frames"][key].split(","))
+
+
+def _atw_phone_app_coordinator(hass):
+    from unittest.mock import patch
+
+    from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    from custom_components.iletcomfort.const import (
+        CONF_APPLIANCE_CODE,
+        CONF_OPERATION_MODE,
+        CONF_REGION,
+        DOMAIN,
+        OPERATION_MODE_PHONE_APP,
+        REGION_EU,
+    )
+    from custom_components.iletcomfort.coordinator import ILetComfortCoordinator
+    from custom_components.iletcomfort.model_profiles import ATW_SN8
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_EMAIL: "u@example.com",
+            CONF_PASSWORD: "p",
+            CONF_APPLIANCE_CODE: "APPL1",
+            CONF_REGION: REGION_EU,
+        },
+        options={CONF_OPERATION_MODE: OPERATION_MODE_PHONE_APP},
+        version=2,
+    )
+    entry.add_to_hass(hass)
+    with patch("custom_components.iletcomfort.coordinator.ILetComfortClient"):
+        coord = ILetComfortCoordinator(hass, entry)
+    coord.appliance_meta = {"sn8": ATW_SN8}
+    return coord
+
+
+def _polled_atw_snapshot() -> dict:
+    """Return coordinator data as an ATW poll with 0x10/0x0A/0x05/0x07 leaves it.
+
+    Built by hand (not via the production builder) so the regression tests
+    pin the overlay values independently of the code under test.
+    """
+    from custom_components.iletcomfort.api import decode_its_sensors
+    from custom_components.iletcomfort.model_profiles import (
+        apply_atw_eco,
+        apply_atw_hmi_params,
+        apply_atw_silent,
+        apply_atw_unit_params,
+        decode_atw_status,
+    )
+    from custom_components.iletcomfort.protocols import get_adapter
+
+    frames = {
+        0x01: _HYUNDAI_ATW_STATUS,
+        0x02: _corpus_frame("atw_galmet_prima_8gt_0x10_issue118", "0x02"),
+        0x10: _corpus_frame("atw_galmet_prima_8gt_0x10_issue118", "0x10"),
+        0x0A: _corpus_frame("atw_galmet_prima_8gt_0x10_issue118", "0x0a"),
+        0x05: _corpus_frame("atw_airwell_split_silent_eco_issue139", "0x05"),
+        0x07: _corpus_frame("atw_airwell_split_silent_eco_issue139", "0x07"),
+    }
+    status = decode_atw_status(frames[0x01])
+    assert status.c3_basic is not None
+    adapter = get_adapter("171H120F")
+    sensors = adapter.decode_sensors(decode_its_sensors(frames[0x02]), status)
+    status, sensors = apply_atw_unit_params(frames[0x10], status, sensors)
+    status = apply_atw_hmi_params(frames[0x0A], status)
+    status = apply_atw_silent(frames[0x05], status)
+    status = apply_atw_eco(frames[0x07], status)
+    return {"status": status, "sensors": sensors, "raw_frames": dict(frames)}
+
+
+_OVERLAY_STATUS_FIELDS = (
+    "comp_frq",
+    "comp_running",
+    "exv_drg",
+    "pressure_h",
+    "total_kwh",
+    "total_thermal_kwh",
+    "comp_total_run_hours",
+    "atw_silent_mode",
+    "atw_silent_level",
+    "atw_silent_super_selected",
+    "atw_eco_mode",
+    "atw_eco_timer",
+)
+_OVERLAY_SENSOR_FIELDS = (
+    "t3_temp",
+    "t4_temp",
+    "twin_temp",
+    "twout_temp",
+    "odu_voltage",
+)
+
+
+async def test_atw_status_push_keeps_subtype_overlays_issue225(hass):
+    """A 0x01 push must not wipe values derived from retained 0x10/0x0A/0x05/0x07."""
+    from custom_components.iletcomfort.model_profiles import decode_atw_status
+
+    coord = _atw_phone_app_coordinator(hass)
+    coord.data = _polled_atw_snapshot()
+    before_status = coord.data["status"]
+    before_sensors = coord.data["sensors"]
+    for field in _OVERLAY_STATUS_FIELDS:
+        assert getattr(before_status, field) is not None, field
+
+    coord._apply_push_status(decode_atw_status(_HYUNDAI_ATW_STATUS))
+
+    after = coord.data
+    for field in _OVERLAY_STATUS_FIELDS:
+        assert getattr(after["status"], field) == getattr(before_status, field), field
+    for field in _OVERLAY_SENSOR_FIELDS:
+        assert getattr(after["sensors"], field) == getattr(before_sensors, field), field
+    assert after["state"].status is after["status"]
+    assert after["state"].compressor_freq == before_status.comp_frq
+    assert after["state"].has_atw_0x10 is True
+
+    coord._cancel_push_status_watchdog()
+    await coord.async_shutdown()
+
+
+async def test_atw_status_push_updates_status_fields_and_keeps_overlays_issue225(
+    hass,
+):
+    """Pushed 0x01 values win while overlay-derived values persist."""
+    from custom_components.iletcomfort.model_profiles import decode_atw_status
+
+    coord = _atw_phone_app_coordinator(hass)
+    coord.data = _polled_atw_snapshot()
+    before = coord.data["status"]
+
+    pushed = bytearray(_HYUNDAI_ATW_STATUS)
+    pushed[1] = 0x0C  # Zone-1 power off
+    coord._apply_push_status(decode_atw_status(bytes(pushed)))
+
+    after = coord.data["status"]
+    assert after.raw_body == bytes(pushed)
+    assert coord.data["raw_frames"][0x01] == bytes(pushed)
+    assert after.mode != before.mode
+    assert after.comp_frq == before.comp_frq
+    assert after.comp_total_run_hours == before.comp_total_run_hours
+    assert after.atw_silent_level == before.atw_silent_level
+    assert after.atw_eco_mode == before.atw_eco_mode
+
+    coord._cancel_push_status_watchdog()
+    await coord.async_shutdown()
+
+
+async def test_atw_energy_push_keeps_subtype_overlays_issue225(hass):
+    """A 0x04 push overlays energy without dropping the other subtype overlays."""
+    from custom_components.iletcomfort.mqtt import decode_push_energy_payload
+
+    coord = _atw_phone_app_coordinator(hass)
+    coord.data = _polled_atw_snapshot()
+    before = coord.data["status"]
+
+    energy_body = decode_push_energy_payload(
+        json.dumps(
+            {"messageType": "status", "data": {"commandHex": HYUNDAI_MQTT_0X04_HEX}}
+        )
+    )
+    assert energy_body is not None
+    coord._apply_push_energy(energy_body)
+
+    after = coord.data["status"]
+    assert after.total_kwh == 14126
+    assert after.total_thermal_kwh == 32181
+    assert coord.data["sensors"].t4_temp == 0.0
+    for field in (
+        "comp_frq",
+        "comp_running",
+        "comp_total_run_hours",
+        "atw_silent_level",
+        "atw_eco_mode",
+    ):
+        assert getattr(after, field) == getattr(before, field), field
+
+    # A later 0x01 push re-derives the snapshot from all retained frames:
+    # the 0x04 energy (applied last) and the other overlays must both survive.
+    from custom_components.iletcomfort.model_profiles import decode_atw_status
+
+    coord._apply_push_status(decode_atw_status(_HYUNDAI_ATW_STATUS))
+    after = coord.data["status"]
+    assert after.total_kwh == 14126
+    assert after.total_thermal_kwh == 32181
+    assert coord.data["sensors"].t4_temp == 0.0
+    assert after.comp_frq == before.comp_frq
+    assert after.atw_eco_mode == before.atw_eco_mode
+
+    coord._cancel_push_status_watchdog()
+    await coord.async_shutdown()

@@ -80,18 +80,19 @@ from .model_profiles import (
     KJRH120L_RUN_MODE_COOL,
     KJRH120L_RUN_MODE_HEAT,
     ModelProfile,
-    apply_atw_eco,
-    apply_atw_energy_notify,
-    apply_atw_hmi_params,
-    apply_atw_silent,
-    apply_atw_unit_params,
     atw_sensors_are_placeholder,
     kjrh120l_has_zone1,
     kjrh120l_mode_change_setpoint,
     resolve_profile,
 )
 from .mqtt import ILetComfortPushClient
-from .protocols import HeatPumpState, get_adapter, resolve_state
+from .protocols import (
+    HeatPumpState,
+    build_snapshot,
+    get_adapter,
+    merge_atw_energy_notify,
+    resolve_state,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -425,11 +426,8 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 temp = int(status.t5s_def) if status.t5s_def is not None else status.set_temperature
                 self._last_on_state = (set_mode, temp)
 
-        # Apply any model-specific sensors override via the resolved protocol
-        # adapter (e.g. ATW/AQUAPURA route tank temp into th_temp).
         adapter = get_adapter(sn8)
         profile = adapter.profile
-        sensors = adapter.decode_sensors(sensors, status)
 
         raw_frames: dict[int, bytes] = {}
         if status.raw_body:
@@ -458,8 +456,7 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 raw_frames=raw_frames,
             )
             if unit_body is not None:
-                status, sensors = apply_atw_unit_params(unit_body, status, sensors)
-                hmi_body = await self._async_probe_atw_subtype(
+                await self._async_probe_atw_subtype(
                     label="HMI parameters",
                     subtype=ATW_HMI_PARAMS_SUBTYPE,
                     min_len=ATW_HMI_PARAMS_MIN_LEN,
@@ -467,12 +464,10 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     fetcher=self.client.query_atw_hmi_params,
                     raw_frames=raw_frames,
                 )
-                if hmi_body is not None:
-                    status = apply_atw_hmi_params(hmi_body, status)
 
         # Probe 0x05 (Silent/Super-Silent) and 0x07 (ECO) on C3 basic ATW units (#139/#188).
         if profile is ModelProfile.ATW and status.c3_basic is not None:
-            silent_body = await self._async_probe_atw_subtype(
+            await self._async_probe_atw_subtype(
                 label="silent",
                 subtype=ATW_SILENT_SUBTYPE,
                 min_len=ATW_SILENT_MIN_LEN,
@@ -480,9 +475,7 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 fetcher=self.client.query_atw_silent,
                 raw_frames=raw_frames,
             )
-            if silent_body is not None:
-                status = apply_atw_silent(silent_body, status)
-            eco_body = await self._async_probe_atw_subtype(
+            await self._async_probe_atw_subtype(
                 label="eco",
                 subtype=ATW_ECO_SUBTYPE,
                 min_len=ATW_ECO_MIN_LEN,
@@ -490,23 +483,24 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 fetcher=self.client.query_atw_eco,
                 raw_frames=raw_frames,
             )
-            if eco_body is not None:
-                status = apply_atw_eco(eco_body, status)
 
         self._update_offline_repair()
         self._observe_kjrh120l_zone1(status)
 
-        state = HeatPumpState(
-            profile=profile,
-            variant=adapter.describe_variant(status),
-            status=status,
-            sensors=sensors,
-            raw_frames=dict(raw_frames),
-            has_authoritative_raw_frames=True,
+        # Decode + overlay every successfully probed subtype in one pure step,
+        # shared with the MQTT push paths so push and poll stay in parity (#225).
+        return self._snapshot_data(
+            build_snapshot(adapter, status, sensors, raw_frames), raw_frames
         )
+
+    @staticmethod
+    def _snapshot_data(
+        state: HeatPumpState, raw_frames: dict[int, bytes]
+    ) -> dict[str, Any]:
+        """Return the ``coordinator.data`` dict for a built snapshot."""
         return {
-            "status": status,
-            "sensors": sensors,
+            "status": state.status,
+            "sensors": state.sensors,
             "raw_frames": raw_frames,
             "state": state,
         }
@@ -996,25 +990,14 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not isinstance(status, ITSStatus):
             return
         sensors = self.data.get("sensors")
-        status, sensors = apply_atw_energy_notify(energy_body, status, sensors)
         raw_frames = dict(self.data.get("raw_frames") or {})
-        raw_frames[0x04] = bytes(energy_body)
-        state = HeatPumpState(
-            profile=adapter.profile,
-            variant=adapter.describe_variant(status),
-            status=status,
-            sensors=sensors,
-            raw_frames=dict(raw_frames),
-            has_authoritative_raw_frames=True,
+        # Keep the last valid value of each 0x04 field: the snapshot is
+        # re-derived from frames, so a sentinel field must not clobber it.
+        raw_frames[0x04] = merge_atw_energy_notify(
+            raw_frames.get(0x04), bytes(energy_body)
         )
-        self.async_set_updated_data(
-            {
-                "status": status,
-                "sensors": sensors,
-                "raw_frames": raw_frames,
-                "state": state,
-            }
-        )
+        state = build_snapshot(adapter, status, sensors, raw_frames)
+        self.async_set_updated_data(self._snapshot_data(state, raw_frames))
 
     def _apply_push_status(self, status: ITSStatus) -> None:
         """Publish a pushed status to entities, reusing the last polled sensors.
@@ -1037,25 +1020,10 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         raw_frames = dict(self.data.get("raw_frames") or {})
         if status.raw_body:
             raw_frames[0x01] = bytes(status.raw_body)
-        if adapter.profile is ModelProfile.ATW and 0x04 in raw_frames:
-            status, _ = apply_atw_energy_notify(raw_frames[0x04], status, None)
-        sensors = self.data.get("sensors")
-        state = HeatPumpState(
-            profile=adapter.profile,
-            variant=adapter.describe_variant(status),
-            status=status,
-            sensors=sensors,
-            raw_frames=dict(raw_frames),
-            has_authoritative_raw_frames=True,
-        )
-        self.async_set_updated_data(
-            {
-                "status": status,
-                "sensors": sensors,
-                "raw_frames": raw_frames,
-                "state": state,
-            }
-        )
+        # Re-apply every retained subtype overlay (0x10/0x0A/0x05/0x07/0x04)
+        # exactly as the poll does; the push carries only the 0x01 frame (#225).
+        state = build_snapshot(adapter, status, self.data.get("sensors"), raw_frames)
+        self.async_set_updated_data(self._snapshot_data(state, raw_frames))
 
     def _cancel_push_status_watchdog(self) -> None:
         if self._push_status_watchdog is not None:
