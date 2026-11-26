@@ -29,9 +29,11 @@ def make_state(
 
     ``sn8`` selects the dialect (``None`` is STANDARD) and must match the
     coordinator's ``sn8`` for profile-specific reads. When ``raw_frames`` is
-    omitted it is derived from ``status.raw_body`` (subtype 0x01) and
-    ``sensors.raw_body`` (keyed by its first byte), mirroring what the poll
-    records.
+    omitted only subtype 0x01 (``status.raw_body``) and 0x02 (a 0x02-prefixed
+    ``sensors.raw_body``) are derived. Optional subtypes (0x10, 0x0A, 0x05,
+    0x07, 0x04) must be passed explicitly in ``raw_frames``: deriving them
+    from a sensors body would recreate the ``has_atw_0x10`` fallback that
+    production no longer has.
     """
     if status is None:
         status = ITSStatus()
@@ -39,7 +41,7 @@ def make_state(
         derived: dict[int, bytes] = {}
         if status.raw_body:
             derived[0x01] = bytes(status.raw_body)
-        if sensors is not None and sensors.raw_body:
-            derived[sensors.raw_body[0]] = bytes(sensors.raw_body)
+        if sensors is not None and sensors.raw_body[:1] == b"\x02":
+            derived[0x02] = bytes(sensors.raw_body)
         raw_frames = derived
     return build_snapshot(get_adapter(sn8), status, sensors, raw_frames)

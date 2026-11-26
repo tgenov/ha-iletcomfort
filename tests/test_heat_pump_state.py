@@ -16,6 +16,7 @@ from custom_components.iletcomfort.api import (
     decode_its_sensors,
     decode_its_status,
 )
+from custom_components.iletcomfort.binary_sensor import BINARY_SENSOR_DESCRIPTIONS
 from custom_components.iletcomfort.model_profiles import (
     ATW_SN8,
     KJRH120L_SN8,
@@ -259,3 +260,34 @@ def test_zone_and_dhw_routing_per_dialect() -> None:
     assert standard.zone1_power is None
     assert standard.dhw_target_range is None
     assert standard.active_setpoint == 42.0
+
+
+def test_atw_non_c3_25_byte_status_reports_unknown_compressor_state() -> None:
+    """Neither C3 basic nor the 27-byte layout: running state is unknown, not False."""
+    body = bytearray(25)
+    body[0] = 0x01
+    body[4] = 0x00  # not C3 heat (3) / cool (2): no C3 basic match
+    body[9] = 44  # Zone-1 setpoint x2
+    body[22] = 45  # DHW tank
+    status = decode_atw_status(bytes(body))
+    assert status.c3_basic is None
+
+    state = make_state(status, ITSSensors(), sn8=ATW_SN8)
+    assert state.compressor_running is None
+    assert state.compressor_frequency is None
+    assert state.active_setpoint == 22.0
+    binary = next(d for d in BINARY_SENSOR_DESCRIPTIONS if d.key == "compressor_running")
+    assert binary.is_on_fn(state) is None
+
+    # The C3 basic and 27-byte layouts were already unknown and stay so.
+    for frame in (_body(ROTENSO_BASELINE), NORDIS_ATW_STATUS_FRAMES["issue132"]):
+        assert decode_atw_status(frame).comp_running is None
+    # A 0x10 overlay still supplies a real running state.
+    with_0x10 = make_state(
+        status,
+        ITSSensors(),
+        {0x01: status.raw_body, 0x10: NORDIS_UNIT_PARAMS_0X10},
+        sn8=ATW_SN8,
+    )
+    assert with_0x10.compressor_running is False
+    assert with_0x10.compressor_frequency == 0

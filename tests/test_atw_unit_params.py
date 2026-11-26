@@ -25,11 +25,13 @@ from custom_components.iletcomfort.const import (
 from custom_components.iletcomfort.coordinator import ILetComfortCoordinator
 from custom_components.iletcomfort.model_profiles import (
     ATW_SN8,
+    KJRH120L_SN8,
     ModelProfile,
     apply_atw_hmi_params,
     apply_atw_unit_params,
     apply_profile_to_sensors,
     decode_atw_status,
+    decode_kjrh120l_status,
 )
 from tests.test_model_profiles import (
     ATW_PLACEHOLDER_SENSORS_BODY,
@@ -165,7 +167,16 @@ def test_climate_uses_live_water_outlet_when_0x10_telemetry_present():
     coord = MagicMock()
     coord.appliance_code = "APPL1"
     coord.sn8 = ATW_SN8
-    coord.data = make_state(status, sensors, sn8=coord.sn8)
+    coord.data = make_state(
+        status,
+        sensors,
+        {
+            0x01: status.raw_body,
+            0x02: ATW_PLACEHOLDER_SENSORS_BODY,
+            0x10: NORDIS_UNIT_PARAMS_0X10,
+        },
+        sn8=coord.sn8,
+    )
     climate = ILetComfortClimate(coord)
 
     assert climate.current_temperature == 24.0
@@ -311,7 +322,16 @@ def test_extended_0x10_sensor_descriptions_disabled_by_default_and_scaled():
         status,
     )
     status, sensors = apply_atw_unit_params(NORDIS_UNIT_PARAMS_0X10, status, sensors)
-    data = make_state(status, sensors, sn8=ATW_SN8)
+    data = make_state(
+        status,
+        sensors,
+        {
+            0x01: status.raw_body,
+            0x02: ATW_PLACEHOLDER_SENSORS_BODY,
+            0x10: NORDIS_UNIT_PARAMS_0X10,
+        },
+        sn8=ATW_SN8,
+    )
 
     by_key = {desc.key: desc for desc in SENSOR_DESCRIPTIONS}
     for key, expected in (
@@ -340,20 +360,23 @@ def test_extended_0x10_sensors_return_none_without_0x10_frame():
     by_key = {desc.key: desc for desc in SENSOR_DESCRIPTIONS}
     cases = [
         (
+            None,
             decode_its_status(ISSUE_11_STATUS_BODY),
             decode_its_sensors(ISSUE_11_SENSORS_BODY),
         ),
         (
-            decode_its_status(KJRH120L_STATUS_BODY),
+            KJRH120L_SN8,
+            decode_kjrh120l_status(KJRH120L_STATUS_BODY),
             decode_its_sensors(KJRH120L_SENSORS_BODY),
         ),
         (
+            ATW_SN8,
             decode_atw_status(NORDIS_ATW_STATUS_FRAMES["issue132"]),
             decode_its_sensors(ATW_PLACEHOLDER_SENSORS_BODY),
         ),
     ]
-    for st, sens in cases:
-        data = make_state(st, sens, {0x01: st.raw_body, 0x02: sens.raw_body})
+    for sn8, st, sens in cases:
+        data = make_state(st, sens, {0x01: st.raw_body, 0x02: sens.raw_body}, sn8=sn8)
         for key in ("water_flow", "dc_voltage", "dc_current", "exv_steps", "total_thermal_energy"):
             assert by_key[key].value_fn(data) is None
 

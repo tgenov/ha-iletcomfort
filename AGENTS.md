@@ -126,7 +126,7 @@ Status `raw_body` (0-indexed; STANDARD misreads this 25-byte frame):
 - `byte[22]` = DHW tank current temp, **direct °C** (`ATW_DHW_TANK_TEMP_INDEX`).
 - `byte[1]`  = flags (`ATW_FLAGS_INDEX`); bit `0x01` = space-heat demand (`ATW_SPACE_HEAT_DEMAND_BIT`).
 - `byte[24]` = constant `0x80` flags/MSB byte — **NOT an error code** (STANDARD wrongly read it as 128).
-- ATW sets `error_code=0` and `comp_running=False` (no confirmed running signal in this short frame).
+- ATW sets `error_code=0` and `comp_running=None` (no confirmed running signal in any 0x01 layout; only 0x10 sets it).
 - `decode_atw_status(body)` implements this. Uncertain HVAC mode/action is left conservative — validate
   on hardware before adding.
 - **Sensor-template variant (#38, Galmet Prima 8GT):** a 75-byte `0x02` response containing only the

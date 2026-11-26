@@ -146,6 +146,9 @@ def decode_atw_status(body: bytearray | bytes) -> ITSStatus:
     """Decode an ATW (sn8 171H120F) status frame into an ITSStatus."""
     status = ITSStatus()
     status.raw_body = bytes(body)
+    # No 0x01 layout carries a confirmed compressor running signal; 0x10
+    # overlays it when supported. Unknown (None), never False.
+    status.comp_running = None
     # ATW subtype 0x01 never carries cumulative energy, compressor run hours,
     # compressor frequency, EXV or refrigerant pressures: they keep the
     # ITSStatus default None until 0x10 / 0x0A / MQTT 0x04 overlay them.
@@ -190,7 +193,8 @@ def decode_atw_status(body: bytearray | bytes) -> ITSStatus:
         status.comp_frq = None
     else:
         status.t5s_def = body[ATW_ZONE1_SETPOINT_X2_INDEX] / 2
-        status.comp_running = False
+        # No confirmed running signal in this layout: unknown, never False.
+        status.comp_running = None
 
     return status
 

@@ -956,11 +956,20 @@ async def test_aquapura_status_push_th_temp_follows_box_bottom_issue225(hass):
 
 async def test_kjrh120l_status_push_t4_follows_pushed_outdoor_issue225(hass):
     from custom_components.iletcomfort.api import ITSSensors, decode_its_status
-    from custom_components.iletcomfort.model_profiles import KJRH120L_SN8
+    from custom_components.iletcomfort.model_profiles import (
+        KJRH120L_SN8,
+        decode_kjrh120l_status,
+    )
     from tests.kjrh120l_snapshots import KJRH120L_SNAPSHOT_A
 
     coord = _atw_phone_app_coordinator(hass, KJRH120L_SN8)
-    coord.data = make_state(decode_its_status(KJRH120L_SNAPSHOT_A), ITSSensors(t4_temp=12.0), {0x01: KJRH120L_SNAPSHOT_A}, sn8=coord.sn8)
+    coord.data = make_state(
+        decode_kjrh120l_status(KJRH120L_SNAPSHOT_A),
+        ITSSensors(t4_temp=12.0),
+        {0x01: KJRH120L_SNAPSHOT_A},
+        sn8=coord.sn8,
+    )
+    assert coord.data.outdoor_temp == 12.0  # seeded as the KJRH poll decodes it
 
     pushed = bytearray(KJRH120L_SNAPSHOT_A)
     pushed[57] = 0xCA  # 202 - 196 = 6 °C
