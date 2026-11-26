@@ -14,6 +14,7 @@ from .kjrh120l import (
     kjrh120l_zone1_range,
 )
 from .profile import ModelProfile
+from .views import ClimateView, EntityCapabilities, ViewContext, status_active_setpoint
 from .write import WriteContext, WritePlan
 
 
@@ -219,9 +220,7 @@ class HeatPumpState:
     @property
     def active_setpoint(self) -> float:
         """Setpoint of the active mode in °C (falls back to the direct target byte)."""
-        if self.status.t5s_def is not None:
-            return self.status.t5s_def
-        return float(self.status.set_temperature)
+        return status_active_setpoint(self.status)
 
     @property
     def boost_enabled(self) -> bool:
@@ -304,6 +303,32 @@ class HeatPumpState:
         return float(basic.zone1_target) if basic.zone1_water_temp else basic.room_target
 
     @property
+    def zone1_water_target(self) -> float | None:
+        """C3 basic Zone 1 water target (body[6]) in °C, whatever the control mode."""
+        basic = self.atw_c3_basic
+        return float(basic.zone1_target) if basic is not None else None
+
+    @property
+    def room_target(self) -> float | None:
+        """C3 basic Zone 1 room target (body[9] / 2) in °C, whatever the control mode."""
+        basic = self.atw_c3_basic
+        return basic.room_target if basic is not None else None
+
+    @property
+    def zone1_temp_mode(self) -> str | None:
+        """C3 basic Zone 1 control field: ``"water"`` or ``"room"``; None if not C3."""
+        basic = self.atw_c3_basic
+        if basic is None:
+            return None
+        return "water" if basic.zone1_water_temp else "room"
+
+    @property
+    def zone2_water_target(self) -> float | None:
+        """C3 basic Zone 2 water target in °C; None when not C3 basic."""
+        basic = self.atw_c3_basic
+        return float(basic.zone2_target) if basic is not None else None
+
+    @property
     def zone1_target_range(self) -> tuple[int, int] | None:
         """Device-reported Zone 1 ``(min, max)`` for the current run mode, if valid."""
         return kjrh120l_zone1_range(self.status)
@@ -344,10 +369,9 @@ class HeatPumpState:
     @property
     def dhw_target_range(self) -> tuple[float, float] | None:
         """Device-reported DHW ``(min, max)``, ignoring zeroed or inverted limits."""
-        basic = self.atw_c3_basic
-        if basic is None or not 0 < basic.dhw_min < basic.dhw_max:
-            return None
-        return float(basic.dhw_min), float(basic.dhw_max)
+        from .atw import atw_dhw_target_range
+
+        return atw_dhw_target_range(self.atw_c3_basic)
 
     # -- dialect helpers (climate regime logic, #192) ---------------------------
 
@@ -411,6 +435,19 @@ class ProtocolAdapter(Protocol):
 
     def dhw_target_temp(self, status: ITSStatus) -> float | None:
         """Return the DHW target in °C as this dialect reports it, else None."""
+
+    def entity_capabilities(
+        self, status: ITSStatus | None, ctx: ViewContext
+    ) -> EntityCapabilities:
+        """Project which optional entities exist / may appear (pure, #192)."""
+
+    def climate_view(self, status: ITSStatus | None, ctx: ViewContext) -> ClimateView:
+        """Project the main (Zone 1 / DHW) climate entity (pure, #192)."""
+
+    def zone2_climate_view(
+        self, status: ITSStatus | None, ctx: ViewContext
+    ) -> ClimateView:
+        """Project the Zone-2 climate entity (pure, #192)."""
 
     def plan_write(self, command: HeatPumpCommand, ctx: WriteContext) -> WritePlan:
         """Plan ``command`` as a wire write for this dialect (pure, no I/O, #113).

@@ -42,7 +42,12 @@ from custom_components.iletcomfort.number import (
     ILetComfortKjrh120lDhwSetpoint,
     ILetComfortKjrh120lZone1Setpoint,
 )
-from custom_components.iletcomfort.protocols import build_snapshot, get_adapter
+from custom_components.iletcomfort.protocols import (
+    ViewContext,
+    build_snapshot,
+    get_adapter,
+    project_entity_capabilities,
+)
 from custom_components.iletcomfort.select import (
     ILetComfortKjrh120lModeSelect,
     ILetComfortMuteSelect,
@@ -278,3 +283,29 @@ def test_platform_unique_id_stability_contract() -> None:
         ILetComfortKjrh120lDhwPowerSwitch(coord).unique_id
         == "APPL123_kjrh120l_dhw_power"
     )
+
+
+@pytest.mark.parametrize("case", CORPUS_CASES, ids=lambda case: case["id"])
+def test_boost_and_mute_exposure_contract(case: dict[str, Any]) -> None:
+    """Boost and Silent Mode keep existing for every model except the KJRH-120L.
+
+    Deliberate change in #192: no Boost/Silent write was ever captured for the
+    KJRH-120L (they sent DHW-OFF before #229 and refuse since), so its dialect
+    no longer exposes them and their stale registry entries are removed. Every
+    other model keeps both entities with the pinned unique_ids above.
+    """
+    sn8 = case["sn8"]
+    status = apply_profile_to_status(
+        resolve_profile(sn8), decode_its_status(bytearray(_hex_csv(case["frames"]["0x01"])))
+    )
+    state = build_snapshot(get_adapter(sn8), status, None, {})
+    for latched in (False, True):
+        for control in (False, True):
+            caps = project_entity_capabilities(
+                sn8, state, ViewContext(c3_basic_control=control, kjrh120l_zone1_latched=latched)
+            )
+            expected = case["expected_profile"] != "kjrh120l"
+            assert caps.boost.exists is expected
+            assert caps.mute.exists is expected
+            assert caps.boost.possible is expected
+            assert caps.mute.possible is expected

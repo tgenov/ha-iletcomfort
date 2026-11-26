@@ -12,7 +12,12 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from .commands import SetSilentModeCommand, SetZoneRunModeCommand
 from .const import DOMAIN
 from .coordinator import ILetComfortCoordinator
-from .entity import async_add_kjrh120l_zone1_entities, build_device_info
+from .entity import (
+    async_add_kjrh120l_zone1_entities,
+    async_add_supported,
+    async_remove_unsupported,
+    build_device_info,
+)
 from .model_profiles import (
     KJRH120L_RUN_MODE_COOL,
     KJRH120L_RUN_MODE_HEAT,
@@ -37,13 +42,32 @@ async def async_setup_entry(
 ) -> None:
     """Set up select entities."""
     coordinator: ILetComfortCoordinator = hass.data[DOMAIN][entry.entry_id]
-    async_add_entities([ILetComfortMuteSelect(coordinator)])
+    async_add_supported(
+        coordinator,
+        entry,
+        async_add_entities,
+        lambda caps: caps.mute,
+        lambda: [ILetComfortMuteSelect(coordinator)],
+    )
+    # Silent Mode used to be created for every model; drop it where unsupported.
+    async_remove_unsupported(
+        coordinator,
+        entry,
+        "select",
+        [mute_unique_id(coordinator.appliance_code)],
+        "mute",
+    )
     async_add_kjrh120l_zone1_entities(
         coordinator,
         entry,
         async_add_entities,
         lambda: [ILetComfortKjrh120lModeSelect(coordinator)],
     )
+
+
+def mute_unique_id(appliance_code: str) -> str:
+    """Return the Silent Mode select unique_id (pinned; see test_hardware_corpus)."""
+    return f"{appliance_code}_mute"
 
 
 class ILetComfortMuteSelect(CoordinatorEntity[ILetComfortCoordinator], SelectEntity):
@@ -56,7 +80,7 @@ class ILetComfortMuteSelect(CoordinatorEntity[ILetComfortCoordinator], SelectEnt
 
     def __init__(self, coordinator: ILetComfortCoordinator) -> None:
         super().__init__(coordinator)
-        self._attr_unique_id = f"{coordinator.appliance_code}_mute"
+        self._attr_unique_id = mute_unique_id(coordinator.appliance_code)
         self._attr_device_info = build_device_info(coordinator)
 
     @property

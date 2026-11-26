@@ -544,8 +544,8 @@ def _kjrh_ctx(setpoint: int) -> WriteContext:
 @pytest.mark.parametrize(
     ("command", "ctx", "expected"),
     [
-        (SetZoneTargetCommand(zone=1, temperature=51), None, "00040133ff"),
-        (SetZoneTargetCommand(zone=1, temperature=63), None, "0004013fff"),
+        (SetZoneTargetCommand(zone=1, temperature=51), _kjrh_ctx(50), "00040133ff"),
+        (SetZoneTargetCommand(zone=1, temperature=63), _kjrh_ctx(50), "0004013fff"),
         (SetZoneRunModeCommand(zone=1, mode="cool"), _kjrh_ctx(25), "00030102ff00040119ff"),
         (SetZoneRunModeCommand(zone=1, mode="heat"), _kjrh_ctx(50), "00030103ff00040132ff"),
         (SetZonePowerCommand(zone=1, on=True), None, "00000101ff"),

@@ -1285,7 +1285,7 @@ async def test_async_send_command_wraps_write_errors(hass: HomeAssistant, error)
     mock_cls.return_value.send_hex_command.side_effect = error
 
     with pytest.raises(HomeAssistantError, match="Heat pump command failed") as exc_info:
-        await coord.async_send_command(SetZoneTargetCommand(zone=1, temperature=50))
+        await coord.async_send_command(SetZonePowerCommand(zone=1, on=True))
 
     assert exc_info.value.__cause__ is error
     coord.async_request_refresh.assert_not_awaited()

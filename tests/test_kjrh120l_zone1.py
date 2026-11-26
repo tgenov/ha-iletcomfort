@@ -387,6 +387,16 @@ def _existing_entities_present(hass: HomeAssistant) -> bool:
     )
 
 
+def _kjrh_entities_present(hass: HomeAssistant) -> bool:
+    """KJRH-120L keeps its climate but has no Boost or Silent Mode (#192)."""
+    registry = er.async_get(hass)
+    return (
+        registry.async_get_entity_id("climate", DOMAIN, "APPL1_climate") is not None
+        and registry.async_get_entity_id("select", DOMAIN, "APPL1_mute") is None
+        and registry.async_get_entity_id("switch", DOMAIN, "APPL1_boost") is None
+    )
+
+
 async def test_dual_unit_gets_entities_at_setup_and_latches_without_reload(
     hass: HomeAssistant, mock_client
 ):
@@ -403,7 +413,7 @@ async def test_dual_unit_gets_entities_at_setup_and_latches_without_reload(
     assert hass.states.get(ids["APPL1_kjrh120l_mode"]).state == "heat"
     assert hass.states.get(ids["APPL1_kjrh120l_zone1_power"]).state == STATE_ON
     assert hass.states.get(ids["APPL1_kjrh120l_dhw_power"]).state == STATE_ON
-    assert _existing_entities_present(hass)
+    assert _kjrh_entities_present(hass)
 
 
 @pytest.mark.parametrize("sn8", [None, "171H120F", "171000AU", "17100007"])
@@ -430,7 +440,7 @@ async def test_never_dual_kjrh_unit_gets_no_zone1_entities(
 
     assert CONF_KJRH120L_ZONE1_CAPABLE not in entry.data
     assert not any(_entity_ids(hass).values())
-    assert _existing_entities_present(hass)
+    assert _kjrh_entities_present(hass)
 
 
 async def test_latched_unit_restarting_with_zone_off_keeps_entities_available(

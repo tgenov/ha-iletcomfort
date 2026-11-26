@@ -769,7 +769,9 @@ async def test_c3_write_errors_surface_in_ha(hass: HomeAssistant, error):
     ("reply", "command"),
     [
         (ROTENSO_COOLING_REPLY, SetZonePowerCommand(zone=1, on=True)),
-        (ROTENSO_BASELINE, SetDhwTargetCommand(70)),
+        # 55 °C is inside the cached 20-60 °C range (so not clamped), but the
+        # fresh read reports a 50 °C maximum: refused before any SET.
+        (ROTENSO_BASELINE.replace("3c,22,3c,14", "3c,22,32,14"), SetDhwTargetCommand(55)),
         ("aa,0b,c3,00,00,00,00,00,00,03,05,2b", SetSilentModeCommand(enabled=True)),
     ],
 )
@@ -989,6 +991,29 @@ async def test_water_heater_writes_only_with_opt_in(hass: HomeAssistant):
         await entity.async_set_operation_mode("electric")
 
 
+async def test_water_heater_refuses_non_finite_target(hass: HomeAssistant):
+    """A NaN service value is refused, never clamped to the minimum (#192)."""
+    coordinator = _control_coordinator(hass)
+    coordinator.async_execute_plan = AsyncMock()  # type: ignore[method-assign]
+    entity = ILetComfortDhw(coordinator)
+
+    with pytest.raises(HomeAssistantError, match="finite"):
+        await entity.async_set_temperature(**{ATTR_TEMPERATURE: float("nan")})
+
+    coordinator.async_execute_plan.assert_not_awaited()
+
+
+@pytest.mark.parametrize(("requested", "dhw"), [(99, 60), (5, 20), (54, 54)])
+def test_atw_dialect_clamps_dhw_target_to_reported_range(requested, dhw):
+    """The ATW dialect, not the water heater, clamps the DHW target (#192)."""
+    ctx = WriteContext(
+        status=decode_atw_status(_body(ROTENSO_BASELINE)), c3_basic_control=True
+    )
+    plan = get_adapter(ATW_SN8).plan_write(SetDhwTargetCommand(requested), ctx)
+
+    assert plan.resolve(_body(ROTENSO_BASELINE)) == _rotenso_set(dhw=dhw)
+
+
 async def test_switches(hass: HomeAssistant):
     coordinator = _control_coordinator(hass)
     coordinator.async_execute_plan = AsyncMock()  # type: ignore[method-assign]
@@ -1076,8 +1101,9 @@ async def test_c3_switches_added_only_with_opt_in(hass: HomeAssistant):
     added_opt_in: list = []
     await switch.async_setup_entry(hass, opt_in.entry, added_opt_in.extend)
     assert [e.unique_id for e in added_opt_in] == ["APPL1_boost"]
-    # Two listeners while sn8 is unknown: KJRH-120L Zone-1 and C3 switches.
-    assert len(opt_in._listeners) == 2
+    # Three listeners while sn8 is unknown: KJRH-120L Zone-1, C3 switches and
+    # the Boost registry cleanup (#192), which waits for the profile to settle.
+    assert len(opt_in._listeners) == 3
 
     opt_in.appliance_meta = {"sn8": ATW_SN8}
     opt_in.data = make_state(decode_atw_status(_body(ROTENSO_BASELINE)), ITSSensors(), sn8=ATW_SN8)

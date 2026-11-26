@@ -32,6 +32,15 @@ def bind_write_path(
         setattr(
             coordinator, name, getattr(ILetComfortCoordinator, name).__get__(coordinator)
         )
+    # The dialect projections entities read (#192). Every Mock instance has its
+    # own class, so binding the real properties there affects only this stub.
+    for name in (
+        "view_context",
+        "entity_capabilities",
+        "climate_view",
+        "zone2_climate_view",
+    ):
+        setattr(type(coordinator), name, getattr(ILetComfortCoordinator, name))
     return coordinator
 
 

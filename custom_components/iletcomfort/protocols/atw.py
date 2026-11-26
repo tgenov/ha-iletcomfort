@@ -59,6 +59,21 @@ from ..commands import (
 from .kjrh120l import zone1_run_mode_setpoint
 from .profile import ModelProfile, resolve_profile
 from .standard import default_climate_temp_bounds
+from .views import (
+    ATW_CONTROL_DISABLED,
+    C3_FALLBACK_RANGE,
+    HEAT_OFF_MODES,
+    HVAC_COOL,
+    HVAC_HEAT,
+    HVAC_OFF,
+    NO_ZONE2_VIEW,
+    ClimateView,
+    EntityCapabilities,
+    EntitySupport,
+    ViewContext,
+    legacy_climate_view,
+    read_only_c3_hvac_modes,
+)
 from .write import (
     C3_CONTROL_DISABLED,
     KJRH120L_ONLY_ZONE1,
@@ -439,6 +454,142 @@ def atw_c3_basic(sn8: str | None, status: ITSStatus | None) -> C3BasicStatus | N
     return status.c3_basic
 
 
+def atw_climate_temp_bounds(
+    status: ITSStatus | None, set_mode: int | None
+) -> tuple[float, float]:
+    """Zone-1 bounds of a read-only/legacy ATW climate (C3 range, else mode defaults)."""
+    basic = status.c3_basic if status is not None else None
+    if isinstance(basic, C3BasicStatus):
+        low, high = (
+            basic.zone1_water_range
+            if basic.zone1_water_temp
+            else (basic.room_min, basic.room_max)
+        )
+        if 0 < low < high:
+            return float(low), float(high)
+    return default_climate_temp_bounds(set_mode)
+
+
+# The water heater's displayed range when the unit reports no valid DHW
+# limits: Home Assistant's WaterHeaterEntity default of 110-140 °F in °C.
+ATW_DHW_FALLBACK_RANGE = ((110 - 32) / 1.8, (140 - 32) / 1.8)
+
+
+def atw_dhw_target_range(basic: C3BasicStatus | None) -> tuple[float, float] | None:
+    """Device-reported DHW ``(min, max)``, ignoring zeroed or inverted limits."""
+    if basic is None or not 0 < basic.dhw_min < basic.dhw_max:
+        return None
+    return float(basic.dhw_min), float(basic.dhw_max)
+
+
+def _c3_zone_range(low: float, high: float) -> tuple[float, float]:
+    """A C3 basic zone's reported range, or the fallback when zeroed/inverted."""
+    if not 0 < low < high:
+        return C3_FALLBACK_RANGE
+    return low, high
+
+
+def _c3_controlled_modes(basic: C3BasicStatus) -> tuple[str, ...]:
+    # Only Heat/Off can be selected; Cool is listed only to report a unit that
+    # is already cooling (mode switching is not validated).
+    return (HVAC_OFF, HVAC_HEAT, HVAC_COOL) if basic.is_cooling_mode else HEAT_OFF_MODES
+
+
+def atw_climate_view(status: ITSStatus | None, ctx: ViewContext) -> ClimateView:
+    """Zone-1 climate view for the three ATW regimes.
+
+    * No C3 basic layout: the legacy status-mode view (writes refuse in
+      ``plan_atw_write``).
+    * C3 basic, control not enabled: modes from the capability bits, read-only
+      with the opt-in hint.
+    * C3 basic with the opt-in: Heat/Off control of the field the unit writes
+      (water target, or the 0.5 °C room target), clamped to its range.
+    """
+    basic = status.c3_basic if status is not None else None
+
+    def _bounds(set_mode: int | None) -> tuple[float, float]:
+        return atw_climate_temp_bounds(status, set_mode)
+
+    if not isinstance(basic, C3BasicStatus):
+        return legacy_climate_view(status, _bounds)
+    step = 1.0 if basic.zone1_water_temp else 0.5
+    if not ctx.c3_basic_control:
+        return legacy_climate_view(
+            status,
+            _bounds,
+            hvac_modes=read_only_c3_hvac_modes(
+                cap_heat=basic.cap_heat,
+                cap_cool=basic.cap_cool,
+                zone_power=basic.zone1_power,
+                cooling=basic.is_cooling_mode,
+            ),
+            step=step,
+            read_only_reason=ATW_CONTROL_DISABLED,
+        )
+    # With control enabled the climate shows the field it writes. The option
+    # text asks the owner to confirm it matches the app (#124).
+    if basic.zone1_water_temp:
+        target: float = float(basic.zone1_target)
+        low, high = _c3_zone_range(*basic.zone1_water_range)
+    else:
+        target = basic.room_target
+        low, high = _c3_zone_range(basic.room_min, basic.room_max)
+    if not basic.zone1_power:
+        mode = HVAC_OFF
+    else:
+        mode = HVAC_COOL if basic.is_cooling_mode else HVAC_HEAT
+    return ClimateView(
+        hvac_modes=_c3_controlled_modes(basic),
+        hvac_mode=mode,
+        target_temperature=target,
+        target_temperature_step=step,
+        min_temp=low,
+        max_temp=high,
+        supports_target_temperature=True,
+        supports_turn_on_off=True,
+    )
+
+
+def atw_zone2_climate_view(status: ITSStatus | None, ctx: ViewContext) -> ClimateView:
+    """Zone-2 climate view for dual-zone ATW units (#151).
+
+    Unavailable unless the C3 basic status reports ``double_zone``; read-only
+    without the opt-in; with it, Heat/Off and (water-mode) target control.
+    """
+    basic = status.c3_basic if status is not None else None
+    if not isinstance(basic, C3BasicStatus):
+        return NO_ZONE2_VIEW
+    control = ctx.c3_basic_control
+    if control:
+        modes = _c3_controlled_modes(basic)
+    else:
+        modes = read_only_c3_hvac_modes(
+            cap_heat=basic.cap_heat,
+            cap_cool=basic.cap_cool,
+            zone_power=basic.zone2_power,
+            cooling=basic.is_cooling_mode,
+        )
+    if not basic.zone2_power:
+        mode = HVAC_OFF
+    else:
+        mode = HVAC_COOL if basic.is_cooling_mode else HVAC_HEAT
+    low, high = _c3_zone_range(*basic.zone2_water_range)
+    writable = control and basic.double_zone
+    return ClimateView(
+        hvac_modes=modes,
+        hvac_mode=mode,
+        target_temperature=float(basic.zone2_target) if basic.zone2_water_temp else None,
+        target_temperature_step=1.0,
+        min_temp=low,
+        max_temp=high,
+        supports_target_temperature=writable and basic.zone2_water_temp,
+        supports_turn_on_off=writable,
+        available=basic.double_zone,
+        read_only_reason=None if control else ATW_CONTROL_DISABLED,
+        settable_hvac_modes=HEAT_OFF_MODES,
+    )
+
+
 def _c3_basic_plan(**changes: Any) -> WritePlan:
     """Plan a C3 basic SET: fresh 0x01 read → validated changes → full write-back."""
 
@@ -514,9 +665,11 @@ def plan_atw_write(command: HeatPumpCommand, ctx: WriteContext) -> WritePlan:
     if isinstance(command, SetTargetTemperatureCommand):
         if basic is None:
             raise ApiError(ATW_LEGACY_WRITE_REFUSED)
+        # Clamp to the range the controlled climate view shows.
+        temp = atw_climate_view(ctx.status, ctx.view_context).clamp(command.temperature)
         if basic.zone1_water_temp:
-            return _c3_basic_plan(zone1_water_target=command.temperature)
-        return _c3_basic_plan(room_target=command.temperature)
+            return _c3_basic_plan(zone1_water_target=temp)
+        return _c3_basic_plan(room_target=temp)
     if isinstance(command, SetBoostCommand):
         raise ApiError(ATW_LEGACY_WRITE_REFUSED)
     if isinstance(command, SetSilentModeCommand):
@@ -539,7 +692,10 @@ def plan_atw_write(command: HeatPumpCommand, ctx: WriteContext) -> WritePlan:
     if isinstance(command, SetDhwPowerCommand):
         return _c3_basic_plan(dhw_power=command.on)
     if isinstance(command, SetDhwTargetCommand):
-        return _c3_basic_plan(dhw_target=command.temperature)
+        # Clamp to the range the water heater shows; apply_basic_changes
+        # still refuses a value outside the fresh read's limits.
+        low, high = atw_dhw_target_range(basic) or ATW_DHW_FALLBACK_RANGE
+        return _c3_basic_plan(dhw_target=max(low, min(command.temperature, high)))
     if isinstance(command, SetFastDhwCommand):
         return _c3_basic_plan(fast_dhw=command.enabled)
     if isinstance(command, SetZonePowerCommand):
@@ -548,7 +704,10 @@ def plan_atw_write(command: HeatPumpCommand, ctx: WriteContext) -> WritePlan:
         return _c3_basic_plan(zone1_power=command.on)
     if isinstance(command, SetZoneTargetCommand):
         if command.zone == 2:
-            return _c3_basic_plan(zone2_water_target=command.temperature)
+            temp = atw_zone2_climate_view(ctx.status, ctx.view_context).clamp(
+                command.temperature
+            )
+            return _c3_basic_plan(zone2_water_target=temp)
         return _c3_basic_plan(zone1_water_target=command.temperature)
     if isinstance(command, SetZoneCurveCommand):
         if command.zone == 2:
@@ -603,16 +762,15 @@ class AtwAdapter:
     def climate_temp_bounds(
         self, status: ITSStatus | None, set_mode: int | None
     ) -> tuple[float, float]:
-        basic = status.c3_basic if status is not None else None
-        if isinstance(basic, C3BasicStatus):
-            low, high = (
-                basic.zone1_water_range
-                if basic.zone1_water_temp
-                else (basic.room_min, basic.room_max)
-            )
-            if 0 < low < high:
-                return float(low), float(high)
-        return default_climate_temp_bounds(set_mode)
+        return atw_climate_temp_bounds(status, set_mode)
+
+    def climate_view(self, status: ITSStatus | None, ctx: ViewContext) -> ClimateView:
+        return atw_climate_view(status, ctx)
+
+    def zone2_climate_view(
+        self, status: ITSStatus | None, ctx: ViewContext
+    ) -> ClimateView:
+        return atw_zone2_climate_view(status, ctx)
 
     def is_kjrh120l_dual(
         self, status: ITSStatus | None, zone1_latched: bool
@@ -625,6 +783,48 @@ class AtwAdapter:
     def dhw_target_temp(self, status: ITSStatus) -> float | None:
         basic = status.c3_basic
         return float(basic.dhw_target) if isinstance(basic, C3BasicStatus) else None
+
+    def entity_capabilities(
+        self, status: ITSStatus | None, ctx: ViewContext
+    ) -> EntityCapabilities:
+        basic = self.c3_basic(status)
+        controllable = basic if ctx.c3_basic_control else None
+        control = controllable is not None
+        double_zone = basic is not None and basic.double_zone
+        c3_possible = ctx.c3_basic_control
+        zone2_curve = control and double_zone
+        fast_dhw = controllable is not None and controllable.cap_dhw
+        return EntityCapabilities(
+            # Boost has no C3 write; Silent writes need the C3 opt-in.
+            boost=EntitySupport(exists=True, possible=True, available=True),
+            mute=EntitySupport(
+                exists=True, possible=True, available=True, writable=control
+            ),
+            zone2_climate=EntitySupport(
+                exists=double_zone,
+                possible=True,
+                available=double_zone,
+                writable=control and double_zone,
+            ),
+            dhw_water_heater=EntitySupport(
+                exists=basic is not None and basic.cap_dhw,
+                possible=True,
+                available=basic is not None,
+                writable=control,
+            ),
+            c3_controls=EntitySupport(
+                exists=control, possible=c3_possible, available=control, writable=control
+            ),
+            zone2_curve=EntitySupport(
+                exists=zone2_curve,
+                possible=c3_possible,
+                available=zone2_curve,
+                writable=zone2_curve,
+            ),
+            fast_dhw=EntitySupport(
+                exists=fast_dhw, possible=c3_possible, available=control, writable=fast_dhw
+            ),
+        )
 
     def plan_write(self, command: HeatPumpCommand, ctx: WriteContext) -> WritePlan:
         return plan_atw_write(command, ctx)
