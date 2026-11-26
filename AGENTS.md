@@ -155,18 +155,14 @@ Status `raw_body` (0-indexed; STANDARD misreads this 25-byte frame):
   mode (3 heat, 2 cool), `[6]` zone1 water target, `[7]` zone2, `[8]` DHW target, `[9]` room target
   ×2, `[10..21]` limits, `[22]` tank, `[23]` error. `decode_c3_basic` decodes the raw fields into
   `ITSStatus.c3_basic`; `model_profiles.atw_c3_basic(sn8, status)` returns it only for the ATW profile.
-- **Rotenso layout (25 bytes, `[2]=0x15`):** `[1]` bit 0 is Zone-1 power — confirmed by the #124
-  reporter (heating on in the app) and on a second unit by switching Zone-1 from HA and seeing it in
-  the app. Decoded as Heat/Off, or Cool when `[4]` is Cool. Compressor state is unknown (`None`).
-- **Every other 25-byte mask** (Italtherm `0x07`, Kaisai #123 `0x11`, …): unchanged — `[1]` bit 0
-  stays space-heat demand, not Heat/Off, until validated on that hardware. The gate is the exact
-  Rotenso signature (`len == 25 and [2] == 0x15`), never "not Italtherm".
-- **Zone-1 setpoint is unresolved for the Rotenso layout.** The #124 reporter's app showed 24 °C =
-  `[9]/2` while `[6]` was 40; the second Rotenso's app shows 29 °C = `[6]` while `[9]/2` is 24. Both
-  frames carry `[2]=0x15` (water-temperature control) and `[9]/2` lies below the zone1 heat minimum
-  in both. Until corrected evidence or a validated discriminator exists, the climate keeps the
-  established `[9]/2` mapping; both candidates are exposed as the `zone1_water_target` /
-  `room_target` climate attributes so reporters can compare them with the app.
+- **Unified `C3BasicStatus` read decode (`171H120F`):** Cross-checking `midea-local`
+  (`MideaC3Device.process_message`) against 10+ Dollin hardware captures (`#22`, `#38`, `#120`, `#125`,
+  `#129`, `#132`, `#134`, `#143`, `#150`, `#151`) confirms all `C3BasicStatus` frames use `[1] & 0x01`
+  as Zone-1 power (`[4]` Cool/Heat), and `body[2] & 0x10` (`zone1_water_temp`) to select `body[6]`
+  (direct water target) vs `body[9]/2` (0.5 °C room target). Compressor state stays `None` in `0x01`
+  and is overlaid by `0x10` when supported. Note: `#124` (`merol77a`, `[2]=0x15`) had one snapshot
+  reporting 24 °C (`[9]/2`) while `[6]=40` (unconfirmed since Comment 7); both `zone1_water_target`
+  and `room_target` remain exposed as climate attributes alongside `zone1_temp_mode`.
 - The DHW water-heater entity (`water_heater.py`) is added only after a status frame for an ATW unit
   matched the layout (re-evaluated on coordinator updates, since `sn8` can be unknown at setup).
 - **Subtype `0x10` live telemetry (`v0.21.0`, #120 / #139 / #142):** `171H120F` firmware splits on

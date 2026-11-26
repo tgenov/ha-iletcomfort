@@ -116,6 +116,15 @@ class HeatPumpState:
 
     def climate_temp_bounds(self, set_mode: int | None) -> tuple[float, float]:
         """Return ``(min_temp, max_temp)`` for the climate entity."""
+        basic = self.atw_c3_basic
+        if isinstance(basic, C3BasicStatus):
+            low, high = (
+                basic.zone1_water_range
+                if basic.zone1_water_temp
+                else (basic.room_min, basic.room_max)
+            )
+            if 0 < low < high:
+                return float(low), float(high)
         return profile_climate_temp_bounds(self.profile, set_mode)
 
 

@@ -10,12 +10,13 @@
       "0x01": "01,0d,07,68,03,03,1e,28,32,3a,37,19,19,05,41,23,19,05,3c,22,3c,14,2e,00,80"
     },
     "expected_status": {
+      "mode_name": "Heat",
       "set_temperature": 50,
       "t5s_def": 29.0,
       "box_bottom_temp": 46.0,
       "pump_system": true,
       "error_code": 0,
-      "comp_running": false
+      "comp_running": null
     }
   },
   {
@@ -108,7 +109,7 @@
       "mode": 1,
       "mode_name": "Heat",
       "set_temperature": 50,
-      "t5s_def": 24.0,
+      "t5s_def": 40.0,
       "box_bottom_temp": 50.0,
       "comp_running": null,
       "comp_frq": null,
@@ -165,6 +166,72 @@
       "atw_silent_super_selected": false,
       "atw_eco_mode": true,
       "atw_eco_timer": true,
+      "error_code": 0
+    }
+  },
+  {
+    "id": "atw_inventor_room_mode_issue125",
+    "source_issue": "#125",
+    "hardware": "Inventor Matrix ATM16S (25-byte [2]=0x05 room-mode target 30 C)",
+    "sn8": "171H120F",
+    "expected_profile": "atw",
+    "expected_variant": "atw_25_byte",
+    "expected_atw_0x02_placeholder": true,
+    "frames": {
+      "0x01": "01,09,05,11,03,03,32,28,3c,3c,41,23,19,05,41,23,19,05,3c,22,3c,14,25,00,80",
+      "0x02": "02,13,03,1e,09,00,11,00,03,14,00,00,08,32,03,18,00,00,00,00,03,18,00,00,00,00,03,15,11,0a,17,32,03,18,00,00,00,00"
+    },
+    "expected_status": {
+      "mode": 1,
+      "mode_name": "Heat",
+      "set_temperature": 60,
+      "t5s_def": 30.0,
+      "box_bottom_temp": 37.0,
+      "comp_running": null,
+      "error_code": 0
+    }
+  },
+  {
+    "id": "atw_kosner_water_mode_issue134",
+    "source_issue": "#134",
+    "hardware": "Kosner ATW (25-byte [2]=0x17 water-mode 33 C + mixed 02/03 0x02 schedule)",
+    "sn8": "171H120F",
+    "expected_profile": "atw",
+    "expected_variant": "atw_25_byte",
+    "expected_atw_0x02_placeholder": true,
+    "frames": {
+      "0x01": "01,05,17,a0,03,03,21,1e,31,30,37,19,19,05,37,19,19,05,3c,22,3c,14,31,00,80",
+      "0x02": "02,00,03,19,00,00,00,00,03,28,07,1e,00,00,02,0c,00,00,00,00,02,0c,00,00,00,00,02,0c,00,00,00,00,02,0c,00,00,00,00"
+    },
+    "expected_status": {
+      "mode": 1,
+      "mode_name": "Heat",
+      "set_temperature": 49,
+      "t5s_def": 33.0,
+      "box_bottom_temp": 49.0,
+      "comp_running": null,
+      "error_code": 0
+    }
+  },
+  {
+    "id": "atw_kaisai_dual_zone_water_mode_issue151",
+    "source_issue": "#151",
+    "hardware": "Kaisai Arctic / Rotenso Dual-Zone Water-Mode ([2]=0x3f, Z1=35 C, Z2=25 C)",
+    "sn8": "171H120F",
+    "expected_profile": "atw",
+    "expected_variant": "atw_25_byte",
+    "expected_atw_0x02_placeholder": true,
+    "frames": {
+      "0x01": "01,1f,3f,00,03,03,23,19,2c,30,37,19,19,05,37,19,19,05,3c,22,3c,14,2c,00,80",
+      "0x02": "02,00,03,28,00,00,00,00,03,28,00,00,00,00,03,28,00,00,00,00,03,28,00,00,00,00,03,28,00,00,00,00,03,28,00,00,00,00"
+    },
+    "expected_status": {
+      "mode": 1,
+      "mode_name": "Heat",
+      "set_temperature": 44,
+      "t5s_def": 35.0,
+      "box_bottom_temp": 44.0,
+      "comp_running": null,
       "error_code": 0
     }
   }

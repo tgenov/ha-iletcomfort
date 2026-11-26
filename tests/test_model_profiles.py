@@ -346,34 +346,38 @@ def test_nordis_27_byte_status_zone1_off_when_power_bit_clear():
     assert decode_atw_status(bytes(body)).mode_name == "Off"
 
 
-def test_25_byte_atw_frames_keep_italtherm_layout():
-    """Unvalidated 25-byte masks (Kaisai [2]=0x11) keep the established decode."""
+def test_25_byte_atw_frames_decode_via_c3_basic_layout():
+    """All valid C3Basic 171H120F frames use Zone-1 power and cap_water selector."""
     body = ATW_25_BYTE_STATUS_FRAMES["kaisai"]
     status = decode_atw_status(body)
 
-    assert status.t5s_def == body[9] / 2
+    # Kaisai [2]=0x11 has zone1_water_temp=True -> body[6] (35 °C), zone1_power=False.
+    assert status.t5s_def == float(body[6])
     assert status.mode_name == "Off"
-    assert status.comp_running is False
+    assert status.comp_running is None
+    assert status.comp_frq is None
 
 
-def test_25_byte_rotenso_frame_decodes_zone1_power():
-    """Rotenso [2]=0x15 (#124): bit 0 of byte[1] is Zone-1 power."""
+def test_25_byte_rotenso_frame_decodes_zone1_power_and_water_target():
+    """Rotenso [2]=0x15 (#124): Zone-1 power + zone1_water_temp selects body[6]."""
     body = ATW_25_BYTE_STATUS_FRAMES["rotenso"]
     status = decode_atw_status(body)
 
-    assert status.t5s_def == body[9] / 2  # setpoint mapping unchanged
+    assert status.t5s_def == float(body[6])
     assert status.mode_name == "Heat"
     assert status.comp_running is None
 
 
 @pytest.mark.parametrize("mask", [0x05, 0x11, 0x13, 0x73])
-def test_other_25_byte_capability_masks_do_not_decode_zone1_power(mask):
+def test_other_25_byte_capability_masks_decode_zone1_power_and_setpoint(mask):
     body = bytearray(ATW_25_BYTE_STATUS_FRAMES["rotenso"])
     body[2] = mask
     status = decode_atw_status(bytes(body))
 
-    assert status.mode_name == "Off"
-    assert status.comp_running is False
+    assert status.mode_name == "Heat"
+    expected_target = float(body[6]) if (mask & 0x10) else body[9] / 2
+    assert status.t5s_def == expected_target
+    assert status.comp_running is None
 
 
 def test_atw_profile_applied_to_status_object():
@@ -384,11 +388,13 @@ def test_atw_profile_applied_to_status_object():
     assert std.set_temperature == 3
 
     atw = apply_profile_to_status(ModelProfile.ATW, std)
+    # Mode is Off because Italtherm state1 has zone1_power=False (body[4]=3 Heat).
+    assert atw.mode_name == "Off"
     assert atw.set_temperature == 50
     assert atw.t5s_def == 21.0
     assert atw.box_bottom_temp == 46.0
     assert atw.error_code == 0
-    assert not atw.comp_running
+    assert atw.comp_running is None
 
 
 def test_atw_tank_temp_routed_to_th_temp_not_twin_temp():

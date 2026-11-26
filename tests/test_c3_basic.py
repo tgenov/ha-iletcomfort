@@ -159,21 +159,19 @@ def test_decode_rejects_non_basic_frames(body):
 # ---------------------------------------------------------------------------
 
 def test_issue124_heating_shows_heat_not_off():
-    """The #124 bug: heating on in the app, HA showed Off."""
+    """The #124 frame has zone1_power=True and body[2] & 0x10 -> body[6] (40 °C)."""
     status = decode_atw_status(ROTENSO_ISSUE124_HEATING)
     assert status.mode == STATUS_MODE_HEAT
     assert status.mode_name == "Heat"
-    assert status.c3_basic.zone1_power
-    # The #124 reporter's app showed a 24 °C target at that moment; the
-    # established byte[9] / 2 mapping is kept for this layout.
-    assert status.t5s_def == 24.0
+    assert status.c3_basic is not None and status.c3_basic.zone1_power
+    assert status.t5s_def == 40.0
 
 
 def test_rotenso_baseline_status():
     status = decode_atw_status(_body(ROTENSO_BASELINE))
     assert status.mode == STATUS_MODE_OFF
     assert status.mode_name == "Off"
-    assert status.t5s_def == 24.0  # mapping unchanged
+    assert status.t5s_def == 29.0
     assert status.set_temperature == 55
     assert status.box_bottom_temp == 16.0
     assert status.comp_running is None
@@ -186,13 +184,17 @@ def test_rotenso_powered_zone_in_cooling_mode_is_cool_not_heat():
     assert status.mode_name == "Cool"
 
 
-def test_italtherm_heat_off_decode_is_unchanged():
-    """byte[1] bit 0 on the 25-byte [2]=0x07 layout is not read as power."""
+def test_italtherm_room_mode_decodes_heat_power_cool_and_room_target():
+    """Italtherm [2]=0x07 (room-temp mode) reads Zone-1 power and room target body[9]/2."""
     status = decode_atw_status(ITALTHERM_STATE2)
     assert status.c3_basic is not None and status.c3_basic.zone1_power
-    assert status.mode == 0 and status.mode_name == "Off"  # ITSStatus default
+    assert not status.c3_basic.zone1_water_temp
+    assert status.mode == STATUS_MODE_HEAT and status.mode_name == "Heat"
     assert status.t5s_def == 29.0
-    assert status.comp_running is False
+    assert status.comp_running is None
+
+    cool_status = decode_atw_status(_cooling(ITALTHERM_STATE2))
+    assert cool_status.mode == STATUS_MODE_COOL and cool_status.mode_name == "Cool"
 
 
 def test_atw_c3_basic_is_gated_on_sn8():
@@ -240,10 +242,11 @@ def _coordinator(
 def test_climate_reports_heat_and_both_setpoint_candidates(hass: HomeAssistant):
     climate = ILetComfortClimate(_coordinator(hass, ROTENSO_ISSUE124_HEATING))
     assert climate.hvac_mode is HVACMode.HEAT
-    assert climate.target_temperature == 24.0
+    assert climate.target_temperature == 40.0
     attrs = climate.extra_state_attributes
     assert attrs["zone1_water_target"] == 40.0
     assert attrs["room_target"] == 24.0
+    assert attrs["zone1_temp_mode"] == "water"
     assert attrs["weather_curve"] is True
 
 
@@ -753,10 +756,20 @@ async def test_climate_room_mode_set_temperature_is_refused_without_sending(
     assert client.send_hex_command.call_count == 1  # query only, no SET sent
 
 
-async def test_climate_without_opt_in_keeps_existing_behaviour(hass: HomeAssistant):
-    climate = ILetComfortClimate(_control_coordinator(hass, enabled=False))
-    assert climate.target_temperature == 24.0
-    assert HVACMode.FAN_ONLY in climate.hvac_modes
+async def test_climate_without_opt_in_shows_read_only_c3_basic_state(
+    hass: HomeAssistant,
+):
+    coordinator = _control_coordinator(hass, enabled=False)
+    climate = ILetComfortClimate(coordinator)
+    assert climate.target_temperature == 29.0
+    assert climate.hvac_modes == [HVACMode.OFF, HVACMode.HEAT]
+    assert HVACMode.FAN_ONLY not in climate.hvac_modes
+    assert (climate.min_temp, climate.max_temp) == (25.0, 55.0)
+    coordinator.async_set_c3_basic = AsyncMock()  # type: ignore[method-assign]
+    coordinator.async_set_device = AsyncMock()  # type: ignore[method-assign]
+    # Opt-in disabled falls through without calling c3_basic SET.
+    await climate.async_set_hvac_mode(HVACMode.HEAT)
+    coordinator.async_set_c3_basic.assert_not_awaited()
 
 
 async def test_water_heater_writes_only_with_opt_in(hass: HomeAssistant):
