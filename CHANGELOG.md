@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.33.1](https://github.com/tgenov/ha-iletcomfort/compare/v0.33.0...v0.33.1) (2026-11-26)
+
+
+### Bug Fixes
+
+* follow MQTT link liveness for ATW units in phone-app mode ([#226](https://github.com/tgenov/ha-iletcomfort/issues/226)) ([ed8403a](https://github.com/tgenov/ha-iletcomfort/commit/ed8403aaf440e8fba3c1d48e4ba7daa4431dad9d))
+
 ## [0.33.0](https://github.com/tgenov/ha-iletcomfort/compare/v0.32.1...v0.33.0) (2026-11-26)
 
 
