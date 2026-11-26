@@ -14,6 +14,11 @@ dev = [
 
 [tool.uv]
 package = false
+# Home Assistant 2026.10.4 pins pillow==12.3.0; override to 13.0+ for CVE fixes
+# in dev/CI without downgrading Home Assistant.
+override-dependencies = [
+  "pillow>=13.0.0",
+]
 
 [tool.ruff]
 target-version = "py314"
