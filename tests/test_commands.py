@@ -17,9 +17,10 @@ from custom_components.iletcomfort.api import (
     MODE_OFF,
     MODE_WATERPUMP,
     ITSSensors,
+    build_c3_query,
 )
-from custom_components.iletcomfort.c3_basic import FEATURE_ECO, FEATURE_SILENT
 from custom_components.iletcomfort.commands import (
+    HeatPumpCommand,
     SetBoostCommand,
     SetDhwPowerCommand,
     SetDhwTargetCommand,
@@ -43,13 +44,31 @@ from custom_components.iletcomfort.const import (
 from custom_components.iletcomfort.coordinator import ILetComfortCoordinator
 from custom_components.iletcomfort.model_profiles import (
     ATW_SN8,
-    KJRH120L_RUN_MODE_COOL,
     KJRH120L_SN8,
     decode_atw_status,
     decode_kjrh120l_status,
 )
 from tests.kjrh120l_snapshots import KJRH120L_SNAPSHOT_A
-from tests.test_c3_basic import KAISAI_DUAL_ZONE
+from tests.test_api import ISSUE_11_STATUS_BODY
+from tests.test_c3_basic import (
+    KAISAI_DUAL_ZONE,
+    ROTENSO_ECO_QUERY,
+    ROTENSO_SILENCE_QUERY,
+    SET_ECO_ON,
+    SET_SILENT_OFF,
+    SET_SILENT_ON,
+)
+
+Q01 = build_c3_query(0x01)
+Q05 = build_c3_query(0x05)
+Q07 = build_c3_query(0x07)
+
+
+def _reply(body: bytes) -> str:
+    return (bytes([0xAA, 0x00, 0xC3, 0, 0, 0, 0, 0, 0, 0x03]) + body + b"\x00").hex()
+
+
+ISSUE_11_REPLY = _reply(ISSUE_11_STATUS_BODY)
 
 
 def _make_coordinator(
@@ -73,9 +92,7 @@ def _make_coordinator(
         coord = ILetComfortCoordinator(hass, entry)
     coord.appliance_meta = {"sn8": sn8} if sn8 else None
     coord._c3_basic_control = c3_basic_control
-    coord.async_set_device = AsyncMock()  # type: ignore[method-assign]
-    coord.async_set_c3_basic = AsyncMock()  # type: ignore[method-assign]
-    coord.async_set_c3_feature = AsyncMock()  # type: ignore[method-assign]
+    coord.async_request_refresh = AsyncMock()  # type: ignore[method-assign]
     return coord
 
 
@@ -117,31 +134,54 @@ def test_command_validation_rejects_invalid_and_contradictory_intents() -> None:
         SetZoneRunModeCommand(zone=1, mode="auto")  # type: ignore[arg-type]
 
 
+class _Transport:
+    """Fake cloud transport: records every hex command, answers fresh reads."""
+
+    def __init__(self, replies: dict[str, str] | None = None) -> None:
+        self.replies = replies or {}
+        self.sent: list[str] = []
+
+    def __call__(self, _appliance_code: str, command_hex: str) -> str:
+        self.sent.append(command_hex)
+        return self.replies.get(command_hex, "ack")
+
+    def pop(self) -> list[str]:
+        sent, self.sent = self.sent, []
+        return sent
+
+
+def _wire(coord: ILetComfortCoordinator, replies: dict[str, str] | None = None) -> _Transport:
+    transport = _Transport(replies)
+    coord.client.send_hex_command = transport  # type: ignore[method-assign]
+    return transport
+
+
 async def test_async_send_command_dispatches_standard_intents(
     hass: HomeAssistant,
 ) -> None:
     coord = _make_coordinator(hass)
+    transport = _wire(coord, {Q01: ISSUE_11_REPLY})
 
-    await coord.async_send_command(SetPowerCommand(on=True))
-    coord.async_set_device.assert_awaited_with(power_on=True)  # type: ignore[attr-defined]
+    async def _set_frame(command: HeatPumpCommand) -> bytes:
+        await coord.async_send_command(command)
+        sent = transport.pop()
+        assert sent[0] == Q01  # fresh status echo read inside the transaction
+        assert len(sent) == 2
+        return bytes.fromhex(sent[1])
 
-    await coord.async_send_command(SetPowerCommand(on=False))
-    coord.async_set_device.assert_awaited_with(mode=MODE_OFF)  # type: ignore[attr-defined]
+    # Power-on restores the last on-state (mode, temperature).
+    coord._last_on_state = (MODE_COOL, 22)
+    frame = await _set_frame(SetPowerCommand(on=True))
+    assert (frame[12], frame[13] - 35) == (MODE_COOL, 22)
+    coord._last_on_state = None
 
-    await coord.async_send_command(SetHvacModeCommand("cool"))
-    coord.async_set_device.assert_awaited_with(mode=MODE_COOL)  # type: ignore[attr-defined]
-
-    await coord.async_send_command(SetHvacModeCommand("fan_only"))
-    coord.async_set_device.assert_awaited_with(mode=MODE_WATERPUMP)  # type: ignore[attr-defined]
-
-    await coord.async_send_command(SetTargetTemperatureCommand(28.0))
-    coord.async_set_device.assert_awaited_with(temperature=28)  # type: ignore[attr-defined]
-
-    await coord.async_send_command(SetBoostCommand(enabled=True))
-    coord.async_set_device.assert_awaited_with(boost=True)  # type: ignore[attr-defined]
-
-    await coord.async_send_command(SetSilentModeCommand(level=2))
-    coord.async_set_device.assert_awaited_with(mute=2)  # type: ignore[attr-defined]
+    assert (await _set_frame(SetPowerCommand(on=False)))[12] == MODE_OFF
+    assert (await _set_frame(SetHvacModeCommand("cool")))[12] == MODE_COOL
+    assert (await _set_frame(SetHvacModeCommand("fan_only")))[12] == MODE_WATERPUMP
+    assert (await _set_frame(SetTargetTemperatureCommand(28.0)))[13] == 28 + 35
+    assert (await _set_frame(SetBoostCommand(enabled=True)))[25:27] == bytes([0, 2])
+    assert (await _set_frame(SetSilentModeCommand(level=2)))[25:27] == bytes([1, 1])
+    assert (await _set_frame(SetDhwPowerCommand(on=True)))[12] == MODE_HEAT
 
 
 async def test_async_send_command_dispatches_atw_c3_basic_intents(
@@ -152,57 +192,70 @@ async def test_async_send_command_dispatches_atw_c3_basic_intents(
         "status": decode_atw_status(KAISAI_DUAL_ZONE),
         "sensors": ITSSensors(),
     }
+    transport = _wire(
+        coord,
+        {
+            Q01: _reply(KAISAI_DUAL_ZONE),
+            Q05: _reply(ROTENSO_SILENCE_QUERY),
+            Q07: _reply(ROTENSO_ECO_QUERY),
+        },
+    )
 
-    await coord.async_send_command(SetHvacModeCommand("heat"))
-    coord.async_set_c3_basic.assert_awaited_with(zone1_power=True)  # type: ignore[attr-defined]
+    async def _basic_set(command: HeatPumpCommand) -> bytes:
+        await coord.async_send_command(command)
+        sent = transport.pop()
+        assert sent[0] == Q01  # fresh status read immediately before the SET
+        assert len(sent) == 2
+        frame = bytes.fromhex(sent[1])
+        assert frame[9:11] == bytes([0x02, 0x01])
+        return frame[11:18]  # [power, mode, z1, z2, dhw, room*2, flags]
+
+    # Kaisai baseline: power 0x07 (z1, z2, DHW), heat, Z1 35, Z2 25, DHW 44,
+    # room 0x30, curve flags 0x03.
+    assert await _basic_set(SetHvacModeCommand("heat")) == bytes.fromhex("070323192c3003")
 
     with pytest.raises(HomeAssistantError, match="only Heat and Off"):
         await coord.async_send_command(SetHvacModeCommand("cool"))
+    assert transport.pop() == []
 
-    await coord.async_send_command(SetTargetTemperatureCommand(36.0))
-    coord.async_set_c3_basic.assert_awaited_with(zone1_water_target=36.0)  # type: ignore[attr-defined]
-
-    await coord.async_send_command(SetZonePowerCommand(zone=2, on=False))
-    coord.async_set_c3_basic.assert_awaited_with(zone2_power=False)  # type: ignore[attr-defined]
-
-    await coord.async_send_command(SetZoneTargetCommand(zone=2, temperature=27.0))
-    coord.async_set_c3_basic.assert_awaited_with(zone2_water_target=27.0)  # type: ignore[attr-defined]
-
-    await coord.async_send_command(SetZoneCurveCommand(zone=1, enabled=False))
-    coord.async_set_c3_basic.assert_awaited_with(zone1_curve=False)  # type: ignore[attr-defined]
-
-    await coord.async_send_command(SetZoneCurveCommand(zone=2, enabled=True))
-    coord.async_set_c3_basic.assert_awaited_with(zone2_curve=True)  # type: ignore[attr-defined]
-
-    await coord.async_send_command(SetDhwPowerCommand(on=True))
-    coord.async_set_c3_basic.assert_awaited_with(dhw_power=True)  # type: ignore[attr-defined]
-
-    await coord.async_send_command(SetDhwTargetCommand(50.0))
-    coord.async_set_c3_basic.assert_awaited_with(dhw_target=50.0)  # type: ignore[attr-defined]
-
-    await coord.async_send_command(SetFastDhwCommand(enabled=True))
-    coord.async_set_c3_basic.assert_awaited_with(fast_dhw=True)  # type: ignore[attr-defined]
+    assert (await _basic_set(SetTargetTemperatureCommand(36.0)))[2] == 36
+    assert (await _basic_set(SetZonePowerCommand(zone=2, on=False)))[0] == 0x05
+    assert (await _basic_set(SetZoneTargetCommand(zone=2, temperature=27.0)))[3] == 27
+    assert (await _basic_set(SetZoneCurveCommand(zone=1, enabled=False)))[6] == 0x02
+    assert (await _basic_set(SetZoneCurveCommand(zone=2, enabled=True)))[6] == 0x03
+    assert (await _basic_set(SetDhwPowerCommand(on=False)))[0] == 0x03
+    assert (await _basic_set(SetDhwTargetCommand(50.0)))[4] == 50
+    assert (await _basic_set(SetFastDhwCommand(enabled=True)))[6] == 0x0B
+    assert (await _basic_set(SetPowerCommand(on=False)))[0] == 0x06
 
     await coord.async_send_command(SetSilentModeCommand(level=1))
-    coord.async_set_c3_feature.assert_awaited_with(  # type: ignore[attr-defined]
-        FEATURE_SILENT, True, silent_level=1
-    )
-
-    await coord.async_send_command(SetSilentModeCommand(enabled=True))
-    coord.async_set_c3_feature.assert_awaited_with(FEATURE_SILENT, True)  # type: ignore[attr-defined]
-
-    await coord.async_send_command(SetPowerCommand(on=True))
-    coord.async_set_c3_basic.assert_awaited_with(zone1_power=True)  # type: ignore[attr-defined]
+    assert transport.pop() == [Q05, SET_SILENT_ON]
+    await coord.async_send_command(SetSilentModeCommand(enabled=False))
+    assert transport.pop() == [Q05, SET_SILENT_OFF]
+    await coord.async_send_command(SetEcoModeCommand(enabled=True))
+    assert transport.pop() == [Q07, SET_ECO_ON]
 
     # Room-temperature mode routes SetTargetTemperatureCommand to room_target.
     room_frame = bytearray(KAISAI_DUAL_ZONE)
     room_frame[2] &= ~0x10
     coord.data["status"] = decode_atw_status(bytes(room_frame))
-    await coord.async_send_command(SetTargetTemperatureCommand(22.5))
-    coord.async_set_c3_basic.assert_awaited_with(room_target=22.5)  # type: ignore[attr-defined]
+    transport.replies[Q01] = _reply(bytes(room_frame))
+    assert (await _basic_set(SetTargetTemperatureCommand(22.5)))[5] == 45
 
-    await coord.async_send_command(SetEcoModeCommand(enabled=True))
-    coord.async_set_c3_feature.assert_awaited_with(FEATURE_ECO, True)  # type: ignore[attr-defined]
+
+async def test_async_send_command_atw_without_opt_in_sends_nothing(
+    hass: HomeAssistant,
+) -> None:
+    coord = _make_coordinator(hass, sn8=ATW_SN8, c3_basic_control=False)
+    coord.data = {"status": decode_atw_status(KAISAI_DUAL_ZONE), "sensors": ITSSensors()}
+    transport = _wire(coord)
+
+    with pytest.raises(HomeAssistantError, match="C3 basic control is not enabled"):
+        await coord.async_send_command(SetDhwTargetCommand(50.0))
+    with pytest.raises(HomeAssistantError, match="Heat pump command failed.*171H120F"):
+        await coord.async_send_command(SetTargetTemperatureCommand(30.0))
+    assert transport.sent == []
+    coord.async_request_refresh.assert_not_awaited()  # type: ignore[attr-defined]
 
 
 async def test_async_send_command_dispatches_kjrh120l_intents(
@@ -213,21 +266,20 @@ async def test_async_send_command_dispatches_kjrh120l_intents(
         "status": decode_kjrh120l_status(KJRH120L_SNAPSHOT_A),
         "sensors": ITSSensors(),
     }
+    transport = _wire(coord)
 
     await coord.async_send_command(SetDhwPowerCommand(on=True))
-    coord.async_set_device.assert_awaited_with(mode=MODE_HEAT)  # type: ignore[attr-defined]
-
     await coord.async_send_command(SetDhwTargetCommand(52.0))
-    coord.async_set_device.assert_awaited_with(temperature=52)  # type: ignore[attr-defined]
-
     await coord.async_send_command(SetZonePowerCommand(zone=1, on=False))
-    coord.async_set_device.assert_awaited_with(zone1_power=False)  # type: ignore[attr-defined]
-
     await coord.async_send_command(SetZoneTargetCommand(zone=1, temperature=45.0))
-    coord.async_set_device.assert_awaited_with(zone1_temperature=45)  # type: ignore[attr-defined]
-
     # Switching KJRH-120L to Cool clamps the 50 °C heating target into 5-25 °C Cool range.
     await coord.async_send_command(SetZoneRunModeCommand(zone=1, mode="cool"))
-    coord.async_set_device.assert_awaited_with(  # type: ignore[attr-defined]
-        zone1_run_mode=KJRH120L_RUN_MODE_COOL, zone1_temperature=25
-    )
+
+    # One captured short command per intent, never a status read.
+    assert transport.sent == [
+        "00020101ff",
+        "00070134ff",
+        "00000100ff",
+        "0004012dff",
+        "00030102ff00040119ff",
+    ]

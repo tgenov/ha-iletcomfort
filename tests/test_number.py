@@ -1,9 +1,8 @@
 """Tests for KJRH-120L dual-variant DHW setpoint control (issue #5)."""
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 from custom_components.iletcomfort.api import ITSSensors
-from custom_components.iletcomfort.coordinator import ILetComfortCoordinator
 from custom_components.iletcomfort.model_profiles import (
     KJRH120L_SN8,
     decode_kjrh120l_status,
@@ -12,6 +11,7 @@ from custom_components.iletcomfort.number import (
     ILetComfortKjrh120lDhwSetpoint,
     _is_kjrh120l_dual,
 )
+from tests.write_helpers import bind_write_path, sent_commands
 
 
 def _entity() -> ILetComfortKjrh120lDhwSetpoint:
@@ -28,12 +28,8 @@ def _entity() -> ILetComfortKjrh120lDhwSetpoint:
         "status": decode_kjrh120l_status(body),
         "sensors": ITSSensors(),
     }
-    coordinator.async_set_device = AsyncMock()
     coordinator.c3_basic_controllable = None
-    coordinator.async_send_command = ILetComfortCoordinator.async_send_command.__get__(
-        coordinator
-    )
-    return ILetComfortKjrh120lDhwSetpoint(coordinator)
+    return ILetComfortKjrh120lDhwSetpoint(bind_write_path(coordinator))
 
 
 async def test_dhw_number_reads_and_writes_confirmed_dhw_setpoint():
@@ -42,7 +38,7 @@ async def test_dhw_number_reads_and_writes_confirmed_dhw_setpoint():
     assert entity.native_value == 51.0
     await entity.async_set_native_value(55)
 
-    entity.coordinator.async_set_device.assert_awaited_once_with(temperature=55)
+    assert sent_commands(entity.coordinator) == ["00070137ff"]
 
 
 async def test_dhw_number_clamps_to_validated_range():
@@ -50,7 +46,7 @@ async def test_dhw_number_clamps_to_validated_range():
 
     await entity.async_set_native_value(99)
 
-    entity.coordinator.async_set_device.assert_awaited_once_with(temperature=60)
+    assert sent_commands(entity.coordinator) == ["0007013cff"]
 
 
 def test_pure_dhw_kjrh_does_not_create_separate_number():
