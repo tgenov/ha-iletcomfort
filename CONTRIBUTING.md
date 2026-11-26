@@ -54,17 +54,18 @@ You never run `git tag` by hand.
 
 ## Running tests locally
 
-```bash
-# fastest: with uv (matches CI)
-uv venv
-uv pip install -r requirements_test.txt
-uv run pytest tests/
+Local and CI environments share the same Python version (`.python-version`) and
+pinned dependency versions (`uv.lock`):
 
-# or with pip
-python3 -m venv .venv
-.venv/bin/pip install -r requirements_test.txt
-.venv/bin/pytest tests/
+```bash
+uv sync --frozen
+uv run pytest tests/
+uv run ruff check .
+uv run mypy custom_components/iletcomfort/
 ```
+
+To upgrade locked dev dependencies intentionally, run `uv lock --upgrade` and
+commit the updated `uv.lock`.
 
 CI runs the same suite on every PR via `.github/workflows/tests.yml`, plus `ruff`, `mypy`, `hassfest`, and `HACS` validation via `.github/workflows/validate.yml`.
 

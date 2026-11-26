@@ -8,26 +8,20 @@ on:
 
 jobs:
   pytest:
-    name: pytest (Python ${{ matrix.python-version }})
+    name: pytest
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.12"]
     steps:
       - uses: actions/checkout@v5
 
-      - name: Install uv and Python ${{ matrix.python-version }}
+      - name: Install uv and Python
         uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-          cache-dependency-glob: requirements_test.txt
-          python-version: ${{ matrix.python-version }}
+          cache-dependency-glob: uv.lock
+          python-version-file: .python-version
 
-      - name: Install test dependencies
-        run: |
-          uv venv
-          uv pip install -r requirements_test.txt
+      - name: Sync locked dev dependencies
+        run: uv sync --frozen
 
       - name: Run pytest
-        run: uv run pytest tests/ -v
+        run: uv run --no-sync pytest tests/ -v
