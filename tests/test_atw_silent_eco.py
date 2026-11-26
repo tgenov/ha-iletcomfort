@@ -234,7 +234,7 @@ async def test_coordinator_disables_0x05_and_0x07_on_initial_api_error_and_retri
     assert client.query_atw_eco.call_count == 3
     assert coord.capabilities.atw_eco.supported is True
     assert d1["status"].atw_eco_mode is True
-    assert d2["status"].atw_eco_mode is None
+    assert d2["status"].atw_eco_mode is True  # cached fallback on transient error
     assert d3["status"].atw_eco_mode is False
 
 

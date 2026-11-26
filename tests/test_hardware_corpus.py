@@ -219,6 +219,11 @@ _PINNED_SENSORS: dict[str, tuple[Any, Any, Any]] = {
         UnitOfElectricCurrent.AMPERE,
     ),
     "exv_steps": (None, SensorStateClass.MEASUREMENT, None),
+    "total_thermal_energy": (
+        SensorDeviceClass.ENERGY,
+        SensorStateClass.TOTAL_INCREASING,
+        UnitOfEnergy.KILO_WATT_HOUR,
+    ),
 }
 
 _PINNED_BINARY_SENSORS: dict[str, Any] = {

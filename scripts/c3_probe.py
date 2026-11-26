@@ -222,7 +222,7 @@ def decode_unit_para(body: bytearray) -> dict[str, Any]:
     out: dict[str, Any] = {
         "comp_freq_Hz": body[d],
         "unit_mode_run": body[d + 1],
-        "fan_speed_rpm": body[d + 3] * 10,
+        "fan_speed_rpm": body[d + 2] * 10,
         "capacity_need": body[d + 5],
         "T3_coil_C": _s8(body[d + 6]),
         "T4_outdoor_C": _s8(body[d + 7]),

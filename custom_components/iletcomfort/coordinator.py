@@ -153,6 +153,10 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._push_status_watchdog: Callable[[], None] | None = None
         # Centralized runtime probe / capability state (#171).
         self.capabilities = DeviceCapabilities()
+        # Last valid optional ATW subtype bodies (0x10, 0x0A, 0x05, 0x07),
+        # retained as transient-error fallback so a single cloud blip never
+        # drops telemetry to unknown or resets TOTAL_INCREASING energy (#118).
+        self._last_atw_subtypes: dict[int, bytes] = {}
 
     @property
     def _atw_unit_params_supported(self) -> bool | None:
@@ -307,6 +311,7 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # They cannot be used as fallback for the newly discovered model.
             self.data = None  # type: ignore[assignment]
             self._last_on_state = None
+            self._last_atw_subtypes.clear()
             self.capabilities.reset_probes()
         cached = self.data or {}
         sn8 = self.sn8
@@ -527,8 +532,19 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if isinstance(body, (bytes, bytearray)) and len(body) >= min_len:
                 probe.mark_supported()
                 raw = bytes(body)
+                self._last_atw_subtypes[subtype] = raw
                 raw_frames[subtype] = raw
                 return raw
+            _LOGGER.debug(
+                "ATW subtype 0x%02X %s returned short/invalid reply (%d bytes)",
+                subtype,
+                label,
+                len(body) if isinstance(body, (bytes, bytearray)) else 0,
+            )
+        if probe.supported is True and subtype in self._last_atw_subtypes:
+            cached = self._last_atw_subtypes[subtype]
+            raw_frames[subtype] = cached
+            return cached
         return None
 
     def _update_offline_repair(self) -> None:

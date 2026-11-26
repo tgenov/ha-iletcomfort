@@ -259,6 +259,15 @@ SENSOR_DESCRIPTIONS: tuple[ILetComfortSensorDescription, ...] = (
         entity_registry_enabled_default=False,
         value_fn=_atw_0x10_st("exv_drg"),
     ),
+    ILetComfortSensorDescription(
+        key="total_thermal_energy",
+        name="Total Thermal Energy",
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        entity_registry_enabled_default=False,
+        value_fn=_atw_0x10_st("total_thermal_kwh"),
+    ),
 )
 
 

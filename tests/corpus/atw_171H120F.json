@@ -234,5 +234,41 @@
       "comp_running": null,
       "error_code": 0
     }
+  },
+  {
+    "id": "atw_galmet_prima_8gt_0x10_issue118",
+    "source_issue": "#118",
+    "hardware": "Galmet Prima 8GT (27-byte + 200-byte 0x10 + 109-byte 0x0A, Sinum RS-485 verified)",
+    "sn8": "171H120F",
+    "expected_profile": "atw",
+    "expected_variant": "atw_27_byte",
+    "expected_atw_0x02_placeholder": true,
+    "frames": {
+      "0x01": "01,0d,15,a0,03,03,1c,1e,2c,30,37,19,19,05,37,19,19,05,3c,22,3c,14,2c,00,e0,06,01",
+      "0x02": "02,00,03,1e,00,00,00,00,03,1e,00,00,00,00,03,1e,00,00,00,00,03,1e,00,00,00,00,03,1e,00,00,00,00,03,1e,00,00,00,00,00,03,1e,00,00,00,00,03,1e,00,00,00,00,03,1e,00,00,00,00,03,1e,00,00,00,00,03,1e,00,00,00,00,03,1e,00,00,00,00",
+      "0x10": "10,1d,03,35,02,01,00,fe,00,22,1a,1e,7f,00,00,00,00,02,00,ec,00,60,08,01,00,00,00,00,04,00,87,50,20,68,1d,19,1c,1e,2c,19,7f,7f,1e,07,62,08,34,fe,02,1e,03,25,0e,1d,ff,00,57,00,01,90,00,00,00,00,00,00,35,00,00,05,ed,00,00,1e,4f,00,00,05,ec,00,00,1e,4f,00,4e,01,aa",
+      "0x0a": "0a,38,00,1c,05,68,05,70,14,a3,00,01"
+    },
+    "expected_status": {
+      "mode": 1,
+      "mode_name": "Heat",
+      "set_temperature": 44,
+      "t5s_def": 28.0,
+      "box_bottom_temp": 44.0,
+      "comp_frq": 29,
+      "comp_running": true,
+      "total_kwh": 1517,
+      "total_thermal_kwh": 7759,
+      "comp_total_run_hours": 1384,
+      "error_code": 0
+    },
+    "expected_sensors": {
+      "t4_temp": 0.0,
+      "twin_temp": 26.0,
+      "twout_temp": 30.0,
+      "t1_temp": 29.0,
+      "th_temp": 44.0,
+      "water_flow": 87
+    }
   }
 ]
