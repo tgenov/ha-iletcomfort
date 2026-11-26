@@ -65,8 +65,10 @@ from custom_components.iletcomfort.model_profiles import (
     atw_c3_basic,
     decode_atw_status,
 )
+from custom_components.iletcomfort.select import ILetComfortMuteSelect
 from custom_components.iletcomfort.switch import (
     ILetComfortC3CurveSwitch,
+    ILetComfortC3FastDhwSwitch,
     ILetComfortC3FeatureSwitch,
 )
 from custom_components.iletcomfort.water_heater import ILetComfortDhw
@@ -424,13 +426,90 @@ def test_cooling_mode_still_allows_zone1_off_and_dhw():
     assert frame[11] & 0x01 == 0
 
 
-def test_room_temperature_setpoint_write_is_refused():
+def test_room_temperature_setpoint_write_and_mode_guards():
     body = bytearray(_body(ROTENSO_BASELINE))
-    body[2] &= ~0x10  # room-temperature control: not validated
+    body[2] &= ~0x10  # room-temperature control
     room_status = decode_c3_basic(body)
     assert room_status is not None
+
+    # Water target is refused in room-temperature mode.
     with pytest.raises(UnsupportedC3Write):
         apply_basic_changes(room_status, zone1_water_target=30)
+
+    # Room target (0.5 °C resolution) is encoded as raw * 2 at body[6] (frame[16]).
+    updated = apply_basic_changes(room_status, room_target=22.5)
+    assert updated.room_target == 22.5
+    frame = bytes.fromhex(build_basic_set(updated))
+    assert frame[16] == 45  # 22.5 * 2 == 0x2d
+
+    # Room target is refused in water-temperature mode.
+    with pytest.raises(UnsupportedC3Write):
+        apply_basic_changes(_baseline(), room_target=22.0)
+
+    # Mutual exclusion of water and room targets.
+    with pytest.raises(UnsupportedC3Write, match="Cannot set Zone-1 water and room"):
+        apply_basic_changes(_baseline(), zone1_water_target=30, room_target=22.0)
+
+    # Room target out of bounds is rejected.
+    with pytest.raises(ValueError, match="outside"):
+        apply_basic_changes(room_status, room_target=40.0)
+
+
+def test_dhw_capability_guard_and_fast_dhw_write():
+    # Fast DHW sets bit 3 (0x08) in SET flags byte (frame[17]).
+    frame = bytes.fromhex(
+        build_basic_set(apply_basic_changes(_baseline(), fast_dhw=True))
+    )
+    assert frame[17] & 0x08 == 0x08
+
+    # Without cap_dhw, all DHW writes are refused.
+    body = bytearray(_body(ROTENSO_BASELINE))
+    body[2] &= ~0x04
+    no_dhw = decode_c3_basic(body)
+    assert no_dhw is not None
+    for kwargs in ({"dhw_power": True}, {"dhw_target": 50}, {"fast_dhw": True}):
+        with pytest.raises(UnsupportedC3Write, match="DHW"):
+            apply_basic_changes(no_dhw, **kwargs)
+
+
+def test_build_feature_set_explicit_silent_levels_preserve_schedule():
+    # Airwell #139 C8 capture: Super Silent bit (0x08) retained even when OFF.
+    airwell_off_super = bytes.fromhex("05 08 06 1e 09 1e 16 00 07 00")
+
+    # Level 1 must set bit 0 and explicitly clear bit 3 (0x08 -> 0x01).
+    lvl1 = bytes.fromhex(build_feature_set(airwell_off_super, True, silent_level=1))
+    assert lvl1[10] == 0x05
+    assert lvl1[11] == 0x01
+    assert lvl1[12:20] == airwell_off_super[2:]
+
+    # Level 2 sets both bit 0 and bit 3 (0x08 -> 0x09).
+    lvl2 = bytes.fromhex(build_feature_set(airwell_off_super, True, silent_level=2))
+    assert lvl2[11] == 0x09
+    assert lvl2[12:20] == airwell_off_super[2:]
+
+    # Level 0 clears bit 0 while keeping bit 3 & schedule intact (0x09 -> 0x08).
+    airwell_on_super = bytes.fromhex("05 09 06 1e 09 1e 16 00 07 00")
+    lvl0 = bytes.fromhex(build_feature_set(airwell_on_super, False, silent_level=0))
+    assert lvl0[11] == 0x08
+    assert lvl0[12:20] == airwell_on_super[2:]
+
+    # Invalid silent_level, mismatched on/silent_level, or ECO with silent_level is rejected.
+    with pytest.raises(ValueError, match="silent_level"):
+        build_feature_set(airwell_off_super, True, silent_level=3)
+    with pytest.raises(ValueError, match="inconsistent"):
+        build_feature_set(airwell_off_super, True, silent_level=0)
+    with pytest.raises(ValueError, match="inconsistent"):
+        build_feature_set(airwell_off_super, False, silent_level=1)
+    with pytest.raises(ValueError, match="silent_level"):
+        build_feature_set(ROTENSO_ECO_QUERY, True, silent_level=1)
+
+
+def test_client_set_device_refuses_atw_legacy_write():
+    client = ILetComfortClient()
+    client.send_hex_command = MagicMock()  # type: ignore[method-assign]
+    with pytest.raises(ApiError, match="171H120F"):
+        client.set_device("APPL1", temperature=40, sn8=ATW_SN8)
+    client.send_hex_command.assert_not_called()
 
 
 @pytest.mark.parametrize(
@@ -733,11 +812,11 @@ async def test_climate_heat_request_on_cooling_unit_is_refused_end_to_end(
     coordinator.async_set_c3_basic.assert_awaited_with(zone1_power=False)
 
 
-async def test_climate_room_mode_set_temperature_is_refused_without_sending(
+async def test_climate_room_mode_set_temperature_writes_room_target(
     hass: HomeAssistant,
 ):
     body = bytearray(_body(ROTENSO_BASELINE))
-    body[2] &= ~0x10  # room-temperature control: not validated
+    body[2] &= ~0x10  # room-temperature control
     coordinator = _control_coordinator(hass)
     coordinator.data["status"] = decode_atw_status(bytes(body))
     client = ILetComfortClient()
@@ -746,14 +825,18 @@ async def test_climate_room_mode_set_temperature_is_refused_without_sending(
         + ",".join(f"{b:02x}" for b in body)
         + ",00"
     )
-    client.send_hex_command = MagicMock(return_value=reply)  # type: ignore[method-assign]
+    client.send_hex_command = MagicMock(  # type: ignore[method-assign]
+        side_effect=[reply, "aa,0b,c3,00,00,00,00,00,00,02,01,00"]
+    )
     coordinator.client = client
 
-    with pytest.raises(HomeAssistantError, match="water-temperature"):
-        await ILetComfortClimate(coordinator).async_set_temperature(
-            **{ATTR_TEMPERATURE: 22.0}
-        )
-    assert client.send_hex_command.call_count == 1  # query only, no SET sent
+    await ILetComfortClimate(coordinator).async_set_temperature(
+        **{ATTR_TEMPERATURE: 22.5}
+    )
+    assert client.send_hex_command.call_count == 2
+    sent = bytes.fromhex(client.send_hex_command.call_args_list[1].args[1])
+    assert sent[9] == 0x02  # MSG_SET
+    assert sent[16] == 45  # 22.5 * 2
 
 
 async def test_climate_without_opt_in_shows_read_only_c3_basic_state(
@@ -767,9 +850,11 @@ async def test_climate_without_opt_in_shows_read_only_c3_basic_state(
     assert (climate.min_temp, climate.max_temp) == (25.0, 55.0)
     coordinator.async_set_c3_basic = AsyncMock()  # type: ignore[method-assign]
     coordinator.async_set_device = AsyncMock()  # type: ignore[method-assign]
-    # Opt-in disabled falls through without calling c3_basic SET.
-    await climate.async_set_hvac_mode(HVACMode.HEAT)
+    # Opt-in disabled refuses writes cleanly instead of sending legacy 62-byte ITS SET.
+    with pytest.raises(HomeAssistantError, match="disabled by default"):
+        await climate.async_set_hvac_mode(HVACMode.HEAT)
     coordinator.async_set_c3_basic.assert_not_awaited()
+    coordinator.async_set_device.assert_not_awaited()
 
 
 async def test_water_heater_writes_only_with_opt_in(hass: HomeAssistant):
@@ -812,11 +897,63 @@ async def test_switches(hass: HomeAssistant):
         "Silent Mode",
         "mdi:volume-off",
         lambda b: b.silent_mode,
+        status_state_fn=lambda s: s.atw_silent_mode,
     )
     assert silent.unique_id == "APPL1_silent_mode"
     assert silent.is_on is False
     await silent.async_turn_on()
     coordinator.async_set_c3_feature.assert_awaited_with(FEATURE_SILENT, True)
+
+    # ECO switch reads live 0x07 atw_eco_mode even when 0x01 basic.eco_mode is False.
+    eco = ILetComfortC3FeatureSwitch(
+        coordinator,
+        FEATURE_ECO,
+        "ECO Mode",
+        "mdi:leaf",
+        lambda b: b.eco_mode,
+        status_state_fn=lambda s: s.atw_eco_mode,
+    )
+    assert eco.is_on is False
+    coordinator.data["status"].atw_eco_mode = True
+    assert eco.is_on is True
+
+    fast_dhw = ILetComfortC3FastDhwSwitch(coordinator)
+    assert fast_dhw.unique_id == "APPL1_fast_dhw"
+    assert fast_dhw.is_on is False
+    await fast_dhw.async_turn_on()
+    coordinator.async_set_c3_basic.assert_awaited_with(fast_dhw=True)
+    await fast_dhw.async_turn_off()
+    coordinator.async_set_c3_basic.assert_awaited_with(fast_dhw=False)
+
+
+async def test_mute_select_routes_to_c3_feature_when_opt_in(hass: HomeAssistant):
+    coordinator = _control_coordinator(hass)
+    coordinator.async_set_c3_feature = AsyncMock()  # type: ignore[method-assign]
+    coordinator.async_set_device = AsyncMock()  # type: ignore[method-assign]
+    select = ILetComfortMuteSelect(coordinator)
+
+    await select.async_select_option("Level 1")
+    coordinator.async_set_c3_feature.assert_awaited_with(
+        FEATURE_SILENT, True, silent_level=1
+    )
+    await select.async_select_option("Level 2")
+    coordinator.async_set_c3_feature.assert_awaited_with(
+        FEATURE_SILENT, True, silent_level=2
+    )
+    await select.async_select_option("Off")
+    coordinator.async_set_c3_feature.assert_awaited_with(
+        FEATURE_SILENT, False, silent_level=0
+    )
+    coordinator.async_set_device.assert_not_awaited()
+
+    # Without opt-in, legacy set_device refuses ATW without sending any command.
+    read_only = _control_coordinator(hass, enabled=False)
+    client = ILetComfortClient()
+    client.send_hex_command = MagicMock()  # type: ignore[method-assign]
+    read_only.client = client
+    with pytest.raises(HomeAssistantError, match="171H120F"):
+        await ILetComfortMuteSelect(read_only).async_select_option("Level 1")
+    client.send_hex_command.assert_not_called()
 
 
 async def test_c3_switches_added_only_with_opt_in(hass: HomeAssistant):
@@ -844,10 +981,26 @@ async def test_c3_switches_added_only_with_opt_in(hass: HomeAssistant):
     assert sorted(e.unique_id for e in added_opt_in) == [
         "APPL1_boost",
         "APPL1_eco_mode",
+        "APPL1_fast_dhw",
         "APPL1_silent_mode",
         "APPL1_zone1_curve",
     ]
     assert opt_in._listeners == {}
+
+
+async def test_c3_switches_omit_fast_dhw_when_unit_lacks_cap_dhw(hass: HomeAssistant):
+    body = bytearray(_body(ROTENSO_BASELINE))
+    body[2] &= ~0x04  # no DHW capability
+    coordinator = _coordinator(hass, bytes(body))
+    coordinator._c3_basic_control = True
+    added: list = []
+    await switch.async_setup_entry(hass, coordinator.entry, added.extend)
+    assert sorted(e.unique_id for e in added) == [
+        "APPL1_boost",
+        "APPL1_eco_mode",
+        "APPL1_silent_mode",
+        "APPL1_zone1_curve",
+    ]
 
 
 # --- options flow --------------------------------------------------------------

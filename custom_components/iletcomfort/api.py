@@ -572,10 +572,11 @@ class ILetComfortClient(DollinCloudClient):
         ``sn8`` selects the write encoding per model. The KJRH-120L (sn8
         17100003) rejects the standard 62-byte C3 SET frame, so for that profile
         a captured short write command (``00 <field> 01 <value> ff``) is sent
-        directly. Every other (unknown/None/ATW/AQUAPURA) sn8 keeps the legacy
-        build_c3_set path unchanged: query current status for echo bytes, merge
-        the requested changes, validate temperature ranges, build and send the
-        SET frame.
+        directly. ATW (sn8 171H120F) units also reject the legacy 62-byte ITS
+        frame and must use ``set_c3_basic`` / ``set_c3_feature`` instead. Every
+        other (unknown/None/AQUAPURA) sn8 keeps the legacy build_c3_set path
+        unchanged: query current status for echo bytes, merge the requested
+        changes, validate temperature ranges, build and send the SET frame.
 
         ``zone1_temperature``, ``zone1_run_mode`` and ``zone1_power`` exist only
         for the KJRH-120L. Any other sn8 raises ApiError before anything is sent.
@@ -600,6 +601,11 @@ class ILetComfortClient(DollinCloudClient):
             raise ApiError(
                 "Zone 1 setpoint, run mode and Zone 1 power writes are only "
                 "supported on the KJRH-120L (sn8 17100003)"
+            )
+        if resolve_profile(sn8) is ModelProfile.ATW:
+            raise ApiError(
+                "Legacy ITS commands are not supported on ATW (171H120F) units; "
+                "use the C3 basic entities (with C3 basic control enabled in options)"
             )
 
         # Query current status for echo bytes
@@ -737,9 +743,15 @@ class ILetComfortClient(DollinCloudClient):
         return {"sent": command, "response": response_hex}
 
     def set_c3_feature(
-        self, appliance_code: str, *, sn8: str | None, feature: str, on: bool,
+        self,
+        appliance_code: str,
+        *,
+        sn8: str | None,
+        feature: str,
+        on: bool,
+        silent_level: int | None = None,
     ) -> dict[str, Any]:
-        """Switch the C3 silent or ECO mode, keeping the device's schedule."""
+        """Switch the C3 silent (with optional level 0/1/2) or ECO mode, keeping schedules."""
         from .c3_basic import FEATURE_BODY_TYPES, build_feature_set
 
         self._require_c3_basic_profile(sn8)
@@ -747,9 +759,17 @@ class ILetComfortClient(DollinCloudClient):
         if body_type is None:
             raise ValueError(f"Unknown C3 feature {feature!r}")
         command = build_feature_set(
-            self._query_c3_body(appliance_code, body_type), on,
+            self._query_c3_body(appliance_code, body_type),
+            on,
+            silent_level=silent_level,
         )
-        _LOGGER.debug("set_c3_feature %s on=%s -> %s", feature, on, command)
+        _LOGGER.debug(
+            "set_c3_feature %s on=%s level=%s -> %s",
+            feature,
+            on,
+            silent_level,
+            command,
+        )
         response_hex = self.send_hex_command(appliance_code, command)
         return {"sent": command, "response": response_hex}
 

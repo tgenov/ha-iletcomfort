@@ -9,6 +9,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
+from .c3_basic import FEATURE_SILENT, C3BasicStatus
 from .const import DOMAIN
 from .coordinator import ILetComfortCoordinator
 from .entity import async_add_kjrh120l_zone1_entities, build_device_info
@@ -80,7 +81,13 @@ class ILetComfortMuteSelect(CoordinatorEntity[ILetComfortCoordinator], SelectEnt
         return "Level 2" if sensors.mute_level == 1 else "Level 1"
 
     async def async_select_option(self, option: str) -> None:
-        await self.coordinator.async_set_device(mute=_MUTE_TO_API[option])
+        level = _MUTE_TO_API[option]
+        if isinstance(self.coordinator.c3_basic_controllable, C3BasicStatus):
+            await self.coordinator.async_set_c3_feature(
+                FEATURE_SILENT, level > 0, silent_level=level
+            )
+            return
+        await self.coordinator.async_set_device(mute=level)
 
 
 class ILetComfortKjrh120lModeSelect(

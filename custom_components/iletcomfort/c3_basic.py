@@ -29,14 +29,16 @@ C3 SET with the same AA header as the status query (``c3_frame.build_c3_frame``)
 
 * basic SET — message type ``0x02``, body ``01`` + 7 bytes
   ``[power, mode, zone1, zone2, dhw, room×2, curve flags]``; direct °C, no
-  +35 offset. Validated in Heat mode with water-temperature control: DHW
-  target, DHW power, Zone-1 water target, Zone-1 curve and Zone-1 power.
-  The builders refuse anything outside that envelope (mode changes, Cool,
-  room-temperature setpoints).
+  +35 offset. Supports Heat mode in both water-temperature control
+  (``zone1_water_target``, validated on Rotenso) and room-temperature control
+  (``room_target`` at 0.5 °C resolution), plus DHW target/power/fast DHW
+  (gated on ``cap_dhw``) and Zone-1 curve/power. Refuses mode changes and
+  Zone-1 Heat writes while the unit is in Cool mode.
 * silence SET — body ``05`` + 9 bytes, ECO SET — body ``07`` + 6 bytes. Bit 0
-  of the first byte is on/off; the rest is the device's timer schedule,
-  copied from a fresh query of the same body type so the owner's schedule is
-  preserved.
+  of the first byte is on/off (and bit 3 is Super Silent for ``0x05``, cleared
+  explicitly when selecting Silent Level 1); the rest is the device's timer
+  schedule, copied from a fresh query of the same body type so the owner's
+  schedule is preserved.
 
 Every basic SET is built from a fresh status, so only the requested field
 changes.
@@ -176,19 +178,22 @@ def apply_basic_changes(
     zone1_power: bool | None = None,
     dhw_power: bool | None = None,
     zone1_curve: bool | None = None,
+    fast_dhw: bool | None = None,
     zone1_water_target: float | None = None,
+    room_target: float | None = None,
     dhw_target: float | None = None,
 ) -> C3BasicStatus:
     """Return ``status`` with the requested changes, or raise.
 
     Only changes validated on hardware are accepted. The operating mode byte
-    is always written back unchanged, so a Zone-1 power-on or setpoint change
-    is refused unless the unit is already in Heat mode: powering the zone on
-    must never start cooling.
+    is always written back unchanged, so a Zone-1 power-on, curve, or setpoint
+    change is refused unless the unit is already in Heat mode: powering the zone
+    on must never start cooling.
     """
     zone1_change = (
         bool(zone1_power)
         or zone1_water_target is not None
+        or room_target is not None
         or zone1_curve is not None
     )
     if zone1_change and status.mode != C3_MODE_HEAT:
@@ -196,9 +201,20 @@ def apply_basic_changes(
             "Zone-1 control is only supported in Heat mode; switching the "
             "operating mode has not been validated"
         )
+    dhw_change = (
+        dhw_power is not None or dhw_target is not None or fast_dhw is not None
+    )
+    if dhw_change and not status.cap_dhw:
+        raise UnsupportedC3Write("DHW control is not supported on this unit")
+    if zone1_water_target is not None and room_target is not None:
+        raise UnsupportedC3Write(
+            "Cannot set Zone-1 water and room targets in one command"
+        )
+
     new_zone1_power = status.zone1_power if zone1_power is None else zone1_power
     new_zone1_curve = status.zone1_curve if zone1_curve is None else zone1_curve
     new_dhw_power = status.dhw_power if dhw_power is None else dhw_power
+    new_fast_dhw = status.fast_dhw if fast_dhw is None else fast_dhw
     new_dhw_target = status.dhw_target
     if dhw_target is not None:
         if not (0 < status.dhw_min < status.dhw_max) or not (
@@ -213,8 +229,7 @@ def apply_basic_changes(
     if zone1_water_target is not None:
         if not status.zone1_water_temp:
             raise UnsupportedC3Write(
-                "Zone-1 setpoint writes are only supported with "
-                "water-temperature control"
+                "Zone-1 water setpoint writes require water-temperature control"
             )
         low, high = status.zone1_water_range
         if not (0 < low < high) or not (low <= zone1_water_target <= high):
@@ -222,13 +237,29 @@ def apply_basic_changes(
                 f"Zone-1 target {zone1_water_target} °C outside {low:g}-{high:g} °C"
             )
         new_zone1_target = int(round(zone1_water_target))
+    new_room_target = status.room_target
+    if room_target is not None:
+        if status.zone1_water_temp:
+            raise UnsupportedC3Write(
+                "Room setpoint writes are only supported with room-temperature control"
+            )
+        if not (0 < status.room_min < status.room_max) or not (
+            status.room_min <= room_target <= status.room_max
+        ):
+            raise ValueError(
+                f"Room target {room_target} °C outside "
+                f"{status.room_min:g}-{status.room_max:g} °C"
+            )
+        new_room_target = round(float(room_target) * 2) / 2
     return replace(
         status,
         zone1_power=new_zone1_power,
         zone1_curve=new_zone1_curve,
         dhw_power=new_dhw_power,
+        fast_dhw=new_fast_dhw,
         dhw_target=new_dhw_target,
         zone1_target=new_zone1_target,
+        room_target=new_room_target,
     )
 
 
@@ -258,16 +289,36 @@ def build_basic_set(status: C3BasicStatus) -> str:
     return build_c3_frame(MSG_SET, body)
 
 
-def build_feature_set(query_body: bytes | bytearray, on: bool) -> str:
-    """Build a silence/ECO SET from that feature's query body, flipping bit 0.
+def build_feature_set(
+    query_body: bytes | bytearray,
+    on: bool,
+    *,
+    silent_level: int | None = None,
+) -> str:
+    """Build a silence/ECO SET from that feature's query body, keeping schedules.
 
     The device's timer bytes are copied from ``query_body`` (unlike
     midea-local, which zeroes them) so the owner's schedules survive. A reply
     too short to carry the whole schedule is rejected rather than zero-filled.
+
+    When ``silent_level`` is provided for Silence (``0x05``):
+      - ``0`` (Off): clears bit 0 (preserving bit 3 and timer schedule bytes).
+      - ``1`` (Level 1): sets bit 0 and explicitly clears bit 3 (Super Silent)
+        so selecting Level 1 after Super Silent does not stay stuck (#139 C8).
+      - ``2`` (Level 2 / Super Silent): sets bit 0 and bit 3.
     """
     if not query_body or query_body[0] not in _FEATURE_SET_LEN:
         raise ValueError("not a silence/ECO query body")
     body_type = query_body[0]
+    if silent_level is not None:
+        if body_type != BODY_SILENCE:
+            raise ValueError("silent_level is only valid for Silence (0x05) writes")
+        if silent_level not in (0, 1, 2):
+            raise ValueError(f"silent_level must be 0, 1, or 2, got {silent_level!r}")
+        if (silent_level == 0) == on:
+            raise ValueError(
+                f"inconsistent on={on!r} for silent_level={silent_level!r}"
+            )
     payload = bytearray(query_body[1:])
     if len(payload) < _FEATURE_QUERY_MIN_LEN[body_type]:
         raise ValueError(
@@ -276,7 +327,14 @@ def build_feature_set(query_body: bytes | bytearray, on: bool) -> str:
         )
     size = _FEATURE_SET_LEN[body_type]
     payload = (payload + bytearray(size))[:size]
-    payload[0] = (payload[0] & ~0x01) | (0x01 if on else 0)
+    if silent_level is None:
+        payload[0] = (payload[0] & ~0x01) | (0x01 if on else 0)
+    elif silent_level == 0:
+        payload[0] = payload[0] & ~0x01
+    elif silent_level == 1:
+        payload[0] = (payload[0] & ~0x09) | 0x01
+    else:
+        payload[0] = (payload[0] & ~0x09) | 0x09
     return build_c3_frame(MSG_SET, bytes([body_type]) + bytes(payload))
 
 
