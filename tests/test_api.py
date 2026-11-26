@@ -27,7 +27,7 @@ from custom_components.iletcomfort.commands import (
     SetZoneRunModeCommand,
     SetZoneTargetCommand,
 )
-from custom_components.iletcomfort.model_profiles import decode_kjrh120l_status
+from custom_components.iletcomfort.protocols.kjrh120l import decode_kjrh120l_status
 from custom_components.iletcomfort.protocols import (
     WriteContext,
     WriteRefused,

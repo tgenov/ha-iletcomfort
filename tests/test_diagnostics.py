@@ -229,12 +229,13 @@ async def test_diagnostics_preserves_raw_frames_and_probe_state_for_atw(
     from unittest.mock import AsyncMock
 
     from custom_components.iletcomfort.api import ApiError, decode_its_sensors
-    from custom_components.iletcomfort.model_profiles import ATW_SN8, decode_atw_status
+    from custom_components.iletcomfort.protocols.atw import decode_atw_status
+    from custom_components.iletcomfort.protocols.profile import ATW_SN8
     from tests.test_atw_unit_params import (
         NORDIS_HMI_PARAMS_0X0A,
         NORDIS_UNIT_PARAMS_0X10,
     )
-    from tests.test_model_profiles import (
+    from tests.test_dialect_profiles import (
         ATW_PLACEHOLDER_SENSORS_BODY,
         NORDIS_ATW_STATUS_FRAMES,
     )

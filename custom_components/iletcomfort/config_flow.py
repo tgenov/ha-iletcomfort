@@ -40,7 +40,7 @@ from .const import (
     REGION_URLS,
     REGION_US,
 )
-from .model_profiles import ModelProfile, resolve_profile
+from .protocols import get_adapter
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -249,7 +249,7 @@ class ILetComfortOptionsFlow(OptionsFlow):
         )
 
     def _offers_c3_basic_control(self) -> bool:
-        """Offer C3 basic control only for loaded sn8 171H120F (ATW) units."""
+        """Offer C3 basic control only where the loaded unit's dialect supports it."""
         coordinator = self.hass.data.get(DOMAIN, {}).get(self.config_entry.entry_id)
         sn8 = getattr(coordinator, "sn8", None)
-        return resolve_profile(sn8) is ModelProfile.ATW
+        return get_adapter(sn8).offers_c3_basic_control

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 from ..api import (
@@ -36,6 +37,7 @@ from ..commands import (
     SetZoneTargetCommand,
 )
 from .kjrh120l import zone1_run_mode_setpoint
+from .probes import OptionalProbe
 from .profile import ModelProfile
 from .views import (
     LEGACY_BOOST_MUTE,
@@ -208,6 +210,9 @@ class StandardAdapter:
 
     profile = ModelProfile.STANDARD
     periodic_status_push = True
+    accepts_energy_notify = False
+    offers_c3_basic_control = False
+    latches_zone1_capability = False
 
     def build_query(self, subtype: int) -> str:
         return build_c3_query(subtype)
@@ -219,6 +224,28 @@ class StandardAdapter:
         self, sensors: ITSSensors, status: ITSStatus
     ) -> ITSSensors:
         return sensors
+
+    def sensors_placeholder(self, raw_0x02: bytes) -> bool | None:
+        return None
+
+    def optional_probes(
+        self, status: ITSStatus, raw_frames: Mapping[int, bytes]
+    ) -> tuple[OptionalProbe, ...]:
+        return ()
+
+    def apply_overlays(
+        self,
+        status: ITSStatus,
+        sensors: ITSSensors | None,
+        raw_frames: Mapping[int, bytes],
+        *,
+        retained_subtypes: bool,
+        energy_notify: bytes | None,
+    ) -> tuple[ITSStatus, ITSSensors | None]:
+        return status, sensors
+
+    def observed_zone1(self, status: ITSStatus) -> bool:
+        return False
 
     def describe_variant(self, status: ITSStatus | None) -> str:
         return "standard"

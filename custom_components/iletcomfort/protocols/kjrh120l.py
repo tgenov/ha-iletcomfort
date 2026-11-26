@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 import dataclasses
 import math
 from typing import Any
@@ -25,6 +26,7 @@ from ..commands import (
     SetZoneTargetCommand,
     ZoneRunModeIntent,
 )
+from .probes import OptionalProbe
 from .profile import ModelProfile
 from .views import (
     KJRH120L_ZONE1_READ_ONLY,
@@ -380,6 +382,9 @@ class Kjrh120lAdapter:
 
     profile = ModelProfile.KJRH120L
     periodic_status_push = True
+    accepts_energy_notify = False
+    offers_c3_basic_control = False
+    latches_zone1_capability = True
 
     def build_query(self, subtype: int) -> str:
         return "ffff%02x%02x%02xff" % (subtype, subtype, subtype)
@@ -394,6 +399,30 @@ class Kjrh120lAdapter:
         if status is not None and status.kjrh120l_outdoor_temp is not None:
             overrides["t4_temp"] = status.kjrh120l_outdoor_temp
         return dataclasses.replace(sensors, **overrides)
+
+    def sensors_placeholder(self, raw_0x02: bytes) -> bool | None:
+        return None
+
+    def optional_probes(
+        self, status: ITSStatus, raw_frames: Mapping[int, bytes]
+    ) -> tuple[OptionalProbe, ...]:
+        return ()
+
+    def apply_overlays(
+        self,
+        status: ITSStatus,
+        sensors: ITSSensors | None,
+        raw_frames: Mapping[int, bytes],
+        *,
+        retained_subtypes: bool,
+        energy_notify: bytes | None,
+    ) -> tuple[ITSStatus, ITSSensors | None]:
+        return status, sensors
+
+    def observed_zone1(self, status: ITSStatus) -> bool:
+        # body[8:10] follow the Zone 1 / Zone 2 power state (00 00 while
+        # Zone 1 is off), so the coordinator latches one positive frame.
+        return kjrh120l_has_zone1(status.raw_body)
 
     def describe_variant(self, status: ITSStatus | None) -> str:
         body = bytes(status.raw_body) if status is not None and status.raw_body else b""

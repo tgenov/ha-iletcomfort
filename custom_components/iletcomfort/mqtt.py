@@ -38,7 +38,7 @@ from .api import (
     mask_identifier,
     parse_hex_response,
 )
-from .model_profiles import ATW_ENERGY_NOTIFY_MIN_LEN, ATW_ENERGY_NOTIFY_SUBTYPE
+from .protocols.atw import ATW_ENERGY_NOTIFY_MIN_LEN, ATW_ENERGY_NOTIFY_SUBTYPE
 from .mqtt_credentials import (
     CERT_RENEW_BEFORE,
     CERT_RENEW_RETRY,

@@ -30,18 +30,10 @@ from custom_components.iletcomfort.const import (
     DOMAIN,
     REGION_US,
 )
-from custom_components.iletcomfort.model_profiles import (
-    KJRH120L_SN8,
-    apply_profile_to_status,
-    decode_kjrh120l_status,
-    resolve_profile,
-)
+from custom_components.iletcomfort.protocols import get_adapter, run_write_plan, WriteContext
+from custom_components.iletcomfort.protocols.kjrh120l import decode_kjrh120l_status
+from custom_components.iletcomfort.protocols.profile import KJRH120L_SN8
 from custom_components.iletcomfort.number import ILetComfortKjrh120lZone1Setpoint
-from custom_components.iletcomfort.protocols import (
-    WriteContext,
-    get_adapter,
-    run_write_plan,
-)
 from custom_components.iletcomfort.select import ILetComfortKjrh120lModeSelect
 from custom_components.iletcomfort.switch import (
     ILetComfortKjrh120lDhwPowerSwitch,
@@ -320,9 +312,7 @@ _NEW_ENTITIES = (
 
 
 def _status_for(sn8: str | None, body: bytes):
-    return apply_profile_to_status(
-        resolve_profile(sn8), decode_its_status(bytearray(body))
-    )
+    return get_adapter(sn8).decode_status(decode_its_status(bytearray(body)))
 
 
 @pytest.fixture

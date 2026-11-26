@@ -106,14 +106,28 @@ model-code serial prefix (e.g. `171H120F` vs `171000AU`). However, #11 and #12 b
 `sn8=171000AU` with different frame semantics, so `sn8` is not proven to uniquely identify a layout.
 The full per-device serial `sn` is **redacted** and never stored.
 
-**Model-specific decoding is gated on an `sn8 → profile` table** (`custom_components/iletcomfort/model_profiles.py`):
-- `resolve_profile(sn8)` → `ModelProfile.{STANDARD,ATW,AQUAPURA}`. **Unknown/missing sn8 → STANDARD
+**Model-specific behaviour is gated on an `sn8 → profile` table** (`protocols/profile.py`) and selected
+**once** as a per-dialect `ProtocolAdapter` (`protocols.get_adapter(sn8)`, registry in
+`protocols/__init__.py`):
+- `resolve_profile(sn8)` → `ModelProfile.{STANDARD,ATW,AQUAPURA,KJRH120L}`. **Unknown/missing sn8 → STANDARD
   (unchanged today's behavior).** So a new model can never be *corrupted* — worst case it doesn't get a
   profile yet. Caveat: `sn8` is assumed model-level (shared across units of a model); only ever confirmed
   on one unit per model so far. Do not select or extend a profile from `sn8` alone without corroborating
   frame evidence.
 - `17100007` (`KJRH-120L2`) is a known C3 catalogue model code with no hardware reports or validated
   decode profile yet. It is intentionally absent from `_SN8_PROFILES` and defaults to STANDARD.
+- **Callers never branch on `ModelProfile` (#110).** Outside `protocols/`, code asks the adapter: reads
+  (`decode_status`/`decode_sensors`, `build_snapshot` → `apply_overlays`), writes (`plan_write`),
+  entity projections (`entity_capabilities`, `climate_view`), which optional subtypes to query
+  (`optional_probes` → `OptionalProbe` specs; the coordinator keeps `ProbeState`, session-disable and
+  transient fallback), and capability flags (`accepts_energy_notify`, `offers_c3_basic_control`,
+  `latches_zone1_capability` + `observed_zone1`, `periodic_status_push`, `sensors_placeholder`).
+  Only `diagnostics.py` reads `adapter.profile.value`, as an output label. Need a new model-specific
+  decision? Add an adapter method or flag (named for the behaviour, not the model) to
+  `ProtocolAdapter` (`protocols/base.py`) and implement it in every dialect.
+- **Adding a dialect:** create `protocols/<dialect>.py` with an adapter class implementing every
+  `ProtocolAdapter` member, add a `ModelProfile` member and its sn8 code to `protocols/profile.py`,
+  register the adapter in `protocols/__init__.py::_ADAPTERS`, and add its captures to `tests/corpus/`.
 
 Key decode constants (`api.py`): base offset `d=1` (body[0] is the subtype byte);
 `_temp_offset(raw) = raw - TEMP_OFFSET` with `TEMP_OFFSET=35`, returning `None` for
@@ -164,7 +178,7 @@ Status `raw_body` (0-indexed; STANDARD misreads this 25-byte frame):
   capabilities (`0x10` = zone1 water-temperature control), `[3]` silent `0x02` / ECO `0x08`, `[4]`
   mode (3 heat, 2 cool), `[6]` zone1 water target, `[7]` zone2, `[8]` DHW target, `[9]` room target
   ×2, `[10..21]` limits, `[22]` tank, `[23]` error. `decode_c3_basic` decodes the raw fields into
-  `ITSStatus.c3_basic`; `model_profiles.atw_c3_basic(sn8, status)` returns it only for the ATW profile.
+  `ITSStatus.c3_basic`; `ProtocolAdapter.c3_basic(status)` returns it only for the ATW dialect.
 - **Unified `C3BasicStatus` read decode (`171H120F`):** Cross-checking `midea-local`
   (`MideaC3Device.process_message`) against 10+ Dollin hardware captures (`#22`, `#38`, `#120`, `#125`,
   `#129`, `#132`, `#134`, `#143`, `#150`, `#151`) confirms all `C3BasicStatus` frames use `[1] & 0x01`
@@ -180,7 +194,8 @@ Status `raw_body` (0-indexed; STANDARD misreads this 25-byte frame):
   Wellea Split (#139: outdoor, water inlet/outlet, compressor frequency, ODU voltage, total energy,
   condenser/evaporator/plate-HX/refrigerant temps, and high pressure in kPa). Rejected/unsupported
   on Rotenso (#143) and Midea M-Thermal 16 kW (#142 `@blahavl`, 25-byte `[2]=0x11` with 38-byte
-  schedule template). `coordinator.py` probes `0x10` only when `0x02` is a placeholder and disables
+  schedule template). The ATW dialect's `optional_probes` asks for `0x10` only when `0x02` is a
+  placeholder; the coordinator runs it and disables
   it for the session after the first `ApiError` or invalid frame. Compressor total run hours are not
   in `0x10`; they sit in subtype `0x0A` (`body[4..5]`, verified on NØRDIS #120) and are polled only
   when `0x10` succeeds, with their own single-probe `ApiError` session disable. The `0x10` energy
@@ -431,12 +446,14 @@ does not enforce per-appliance topic ACLs.
 | `error_codes.py` | Vendor C3 numeric `error_code` → panel code + description table; `sensor.py` exposes known entries as attributes while preserving the numeric sensor state. |
 | `scripts/fetch_plugin.py` | **Dev tool, not shipped** — fetches the vendor per-model plugin bundle (`0xC3` = Weex JS) via the `version:"0.0.0"` downgrade on `/v1/product/upgrade/plugin/get/latest`. Source of truth for the control **schema** (not bytes) — see §4. |
 | `scripts/c3_probe.py` | **Dev tool, not shipped, read-only** — sends C3 queries for `171H120F` units and decodes them (midea-local C3 layouts); reads only `ILET_EMAIL`/`ILET_PASSWORD`/`ILET_REGION` from `.env`. Cannot send SET frames. |
-| `model_profiles.py` | `ModelProfile` enum, `_SN8_PROFILES` table, `resolve_profile`, `decode_atw_status`, `apply_profile_to_status`, `apply_profile_to_sensors`. **Add new model support here.** |
-| `protocols/snapshot.py` | `build_snapshot(adapter, status, sensors, raw_frames, *, retained_subtypes=False, energy_notify=None)` — the **one** pure step that applies the profile sensors decode and every ATW overlay (0x10 → 0x0A → 0x05/0x07 when C3 basic → 0x04 last). `_poll`, `_apply_push_status` and `_apply_push_energy` and the corpus contract all use it (#225); never re-implement the overlay chain elsewhere. Pushes pass `retained_subtypes=True` (0x10 counters only, 0x05 reconciled with the 0x01 Silent bit) and the coordinator's sentinel-filtered 0x04 state as `energy_notify`; `raw_frames[0x04]` stays literal. Probing stays in the coordinator. |
+| `protocols/__init__.py` / `protocols/profile.py` | Dialect selection: `ModelProfile` enum, `_SN8_PROFILES` table, `resolve_profile`, and the adapter registry `get_adapter(sn8)`. |
+| `protocols/{standard,aquapura,atw,kjrh120l}.py` | One `ProtocolAdapter` per dialect: query encoding, status/sensors decode, optional probes and overlays, write planning, entity projections and capability flags. **Add new model support here** (see §4 "Adding a dialect"). |
+| `protocols/probes.py` | `OptionalProbe` (subtype, label, min length, `requires`): what a dialect asks the coordinator to probe. |
+| `protocols/snapshot.py` | `build_snapshot(adapter, status, sensors, raw_frames, *, retained_subtypes=False, energy_notify=None)` — the **one** pure step that applies the profile sensors decode and every ATW overlay (0x10 → 0x0A → 0x05/0x07 when C3 basic → 0x04 last). `_poll`, `_apply_push_status` and `_apply_push_energy` and the corpus contract all use it (#225); never re-implement the overlay chain elsewhere. Pushes pass `retained_subtypes=True` (0x10 counters only, 0x05 reconciled with the 0x01 Silent bit) and the coordinator's sentinel-filtered 0x04 state as `energy_notify`; `raw_frames[0x04]` stays literal. The overlay chain itself is the dialect's `apply_overlays` (ATW: `atw.apply_atw_overlays`; no-op elsewhere). What to probe is the dialect's `optional_probes`; running the probes stays in the coordinator. |
 | `c3_basic.py` | Standard Midea C3 basic status decode (`decode_c3_basic`, `C3BasicStatus`) and validated SET builders (`apply_basic_changes`, `build_basic_set`, `build_feature_set`) for `171H120F`; used by the ATW dialect's `plan_write`. |
 | `c3_frame.py` | Low-level C3 framing (`build_c3_frame`, `build_c3_query`, `build_c3_set`, `parse_hex_response`, `extract_c3_body`, `_temp_offset`). |
 | `water_heater.py` | DHW entity for ATW units whose status matches the C3 basic layout. |
-| `coordinator.py` | `ILetComfortCoordinator` (`DataUpdateCoordinator[HeatPumpState]`): polling, re-auth, cache-fallback, offline Repair card. `coordinator.data` is the typed `HeatPumpState` returned by `build_snapshot` (`status`, `sensors`, `raw_frames`); there is no dict snapshot (#111). Caches `appliance_meta` (best-effort, never fatal) and exposes `sn8`; threads profile into decode. |
+| `coordinator.py` | `ILetComfortCoordinator` (`DataUpdateCoordinator[HeatPumpState]`): polling, re-auth, cache-fallback, offline Repair card. `coordinator.data` is the typed `HeatPumpState` returned by `build_snapshot` (`status`, `sensors`, `raw_frames`); there is no dict snapshot (#111). Caches `appliance_meta` (best-effort, never fatal) and exposes `sn8`; selects the adapter via `get_adapter(sn8)` (resetting caches and probes when the adapter changes after the metadata fetch) and runs its `optional_probes` with the session `ProbeState`s. |
 | `diagnostics.py` | Redacted snapshot: raw frames, decoded status/sensors, `sensors_temperature_scan` (per-byte `_temp_offset` map — use it to find a model's misplaced temp byte), and the `appliance` metadata block. `APPLIANCE_TO_REDACT = {owner, sn, name}` (keeps `applianceType`/`modelNumber`/`sn8`). |
 | `climate.py` / `number.py` / `sensor.py` / `binary_sensor.py` / `switch.py` / `select.py` / `water_heater.py` | HA entities; they read domain-named `HeatPumpState` properties and the dialect projections (`coordinator.entity_capabilities`, `coordinator.climate_view`) only. `climate.py` is a thin `ClimateView` mapping. See §4 entity routing. |
 | `protocols/base.py` | `HeatPumpState` (`coordinator.data`, domain-named read properties, unknown = `None`) and the `ProtocolAdapter` contract. |
@@ -453,7 +470,7 @@ does not enforce per-appliance topic ACLs.
    diagnostics) **and** the **real value from the iLetComfort/BTRI app** at the same moment.
 2. From diagnostics, read the `appliance` block (`sn8`!) and `sensors_temperature_scan`.
 3. Cross-reference the app's real value against the scan / raw bytes to find the correct byte.
-4. If it's model-specific, add/extend an `sn8` profile in `model_profiles.py` (default-safe), TDD against
+4. If it's model-specific, add/extend an `sn8` dialect under `protocols/` (default-safe), TDD against
    the real frames, keep STANDARD unchanged.
 5. If setup fails before diagnostics exist (`1214` / truncated): get **debug logs**; the fix needs the
    command the **iLetComfort app** sends (mitmproxy capture — see §2b, no rooting assumptions).

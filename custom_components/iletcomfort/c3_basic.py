@@ -21,7 +21,7 @@ is laid out like the standard Midea C3 basic body (midea-local
 
 Which byte holds the setpoint the official app displays is **not** settled
 for every unit (see #124), so the decoder only exposes the raw fields; the
-profile decoder in ``model_profiles`` decides what entities show.
+ATW dialect (``protocols/atw.py``) decides what entities show.
 
 Writes (hardware-validated on a Rotenso Aquami, EU cloud, 2026-11-17; each
 change sent once, verified by re-query and reverted) use the standard Midea

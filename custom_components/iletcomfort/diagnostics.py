@@ -20,7 +20,6 @@ from homeassistant.core import HomeAssistant
 from .api import SENSOR_DISCONNECTED, TEMP_OFFSET, mask_identifier
 from .const import CONF_APPLIANCE_CODE, DOMAIN
 from .coordinator import ILetComfortCoordinator
-from .model_profiles import ModelProfile, atw_sensors_are_placeholder
 from .protocols import get_adapter
 
 # Account credentials are the only secrets in the entry. Region is kept as-is.
@@ -116,7 +115,6 @@ async def async_get_config_entry_diagnostics(
             raw_frames[raw_sensors[0]] = raw_sensors
 
     adapter = get_adapter(coordinator.sn8)
-    profile = adapter.profile
     energy_merged = getattr(coordinator, "_atw_energy_notify", None)
     if not isinstance(energy_merged, bytes):
         energy_merged = None
@@ -154,12 +152,10 @@ async def async_get_config_entry_diagnostics(
             "repair_issued": coordinator._repair_issued,
         },
         "protocol": {
-            "resolved_profile": profile.value,
+            "resolved_profile": adapter.profile.value,
             "matched_variant": adapter.describe_variant(status_obj),
             "atw_0x02_placeholder": (
-                atw_sensors_are_placeholder(raw_0x02)
-                if profile is ModelProfile.ATW and raw_0x02
-                else None
+                adapter.sensors_placeholder(raw_0x02) if raw_0x02 else None
             ),
             "kjrh120l_zone1_capable": coordinator.kjrh120l_zone1_capable,
             "probes": coordinator.capabilities.probes_as_dict(),

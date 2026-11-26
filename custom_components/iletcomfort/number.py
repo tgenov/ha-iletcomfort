@@ -25,7 +25,7 @@ from .entity import (
     build_device_info,
     target_command,
 )
-from .model_profiles import (
+from .protocols.kjrh120l import (
     KJRH120L_DHW_TEMP_MAX,
     KJRH120L_DHW_TEMP_MIN,
 )
