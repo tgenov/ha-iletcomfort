@@ -425,15 +425,11 @@ class ILetComfortClient(DollinCloudClient):
         ``ffff<ss><ss><ss>ff`` form, so the command is built via
         ``build_query_command``. Other profiles keep the standard frame.
         """
-        # Imported lazily to avoid a circular import (model_profiles imports api).
-        from .model_profiles import (
-            apply_profile_to_status,
-            build_query_command,
-            resolve_profile,
-        )
+        # Imported lazily to avoid a circular import (protocols imports api).
+        from .protocols import get_adapter
 
-        profile = resolve_profile(sn8)
-        command = build_query_command(profile, 0x01)
+        adapter = get_adapter(sn8)
+        command = adapter.build_query(0x01)
         response_hex = self.send_hex_command(appliance_code, command)
         _LOGGER.debug("query_status raw response: %s", response_hex)
         raw = parse_hex_response(response_hex)
@@ -445,7 +441,7 @@ class ILetComfortClient(DollinCloudClient):
                 f"unsupported. Raw: {response_hex}"
             )
         status = decode_its_status(body)
-        return apply_profile_to_status(profile, status)
+        return adapter.decode_status(status)
 
     def query_sensors(
         self, appliance_code: str, sn8: str | None = None,
@@ -456,10 +452,10 @@ class ILetComfortClient(DollinCloudClient):
         rejects the standard long C3 query frame (code 1214) and needs a short
         ``ffff<ss><ss><ss>ff`` form. Unknown/None sn8 uses the standard frame.
         """
-        # Imported lazily to avoid a circular import (model_profiles imports api).
-        from .model_profiles import build_query_command, resolve_profile
+        # Imported lazily to avoid a circular import (protocols imports api).
+        from .protocols import get_adapter
 
-        command = build_query_command(resolve_profile(sn8), 0x02)
+        command = get_adapter(sn8).build_query(0x02)
         response_hex = self.send_hex_command(appliance_code, command)
         _LOGGER.debug("query_sensors raw response: %s", response_hex)
         raw = parse_hex_response(response_hex)

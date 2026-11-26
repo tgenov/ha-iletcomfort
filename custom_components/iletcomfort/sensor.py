@@ -55,6 +55,36 @@ def _st(attr: str) -> Callable[[dict[str, Any]], Any]:
     return _get
 
 
+def _has_atw_0x10(data: dict[str, Any]) -> bool:
+    """Return True when live ATW subtype 0x10 telemetry populated this snapshot."""
+    raw_frames = data.get("raw_frames")
+    if isinstance(raw_frames, dict):
+        return 0x10 in raw_frames
+    sensors = data.get("sensors")
+    raw_body = getattr(sensors, "raw_body", b"") if sensors is not None else b""
+    return bytes(raw_body)[:1] == b"\x10"
+
+
+def _atw_0x10_s(attr: str) -> Callable[[dict[str, Any]], Any]:
+    """Read a sensor field only when ATW 0x10 telemetry is present."""
+    def _get(data: dict[str, Any]) -> Any:
+        if not _has_atw_0x10(data):
+            return None
+        sensors = data.get("sensors")
+        return getattr(sensors, attr, None) if sensors is not None else None
+    return _get
+
+
+def _atw_0x10_st(attr: str) -> Callable[[dict[str, Any]], Any]:
+    """Read a status field only when ATW 0x10 telemetry is present."""
+    def _get(data: dict[str, Any]) -> Any:
+        if not _has_atw_0x10(data):
+            return None
+        status = data.get("status")
+        return getattr(status, attr, None) if status is not None else None
+    return _get
+
+
 SENSOR_DESCRIPTIONS: tuple[ILetComfortSensorDescription, ...] = (
     ILetComfortSensorDescription(
         key="water_inlet",
@@ -197,7 +227,8 @@ SENSOR_DESCRIPTIONS: tuple[ILetComfortSensorDescription, ...] = (
         entity_registry_enabled_default=False,
         value_fn=lambda data: (
             round(flow / 100.0, 2)
-            if (sensors := data.get("sensors")) is not None
+            if _has_atw_0x10(data)
+            and (sensors := data.get("sensors")) is not None
             and (flow := getattr(sensors, "water_flow", None)) is not None
             else None
         ),
@@ -210,7 +241,7 @@ SENSOR_DESCRIPTIONS: tuple[ILetComfortSensorDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         entity_category=EntityCategory.DIAGNOSTIC,
         entity_registry_enabled_default=False,
-        value_fn=_s("dc_voltage"),
+        value_fn=_atw_0x10_s("dc_voltage"),
     ),
     ILetComfortSensorDescription(
         key="dc_current",
@@ -220,7 +251,7 @@ SENSOR_DESCRIPTIONS: tuple[ILetComfortSensorDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         entity_category=EntityCategory.DIAGNOSTIC,
         entity_registry_enabled_default=False,
-        value_fn=_s("dc_current"),
+        value_fn=_atw_0x10_s("dc_current"),
     ),
     ILetComfortSensorDescription(
         key="exv_steps",
@@ -229,7 +260,7 @@ SENSOR_DESCRIPTIONS: tuple[ILetComfortSensorDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         entity_category=EntityCategory.DIAGNOSTIC,
         entity_registry_enabled_default=False,
-        value_fn=_st("exv_drg"),
+        value_fn=_atw_0x10_st("exv_drg"),
     ),
 )
 

@@ -322,3 +322,89 @@ def test_extended_0x10_sensor_descriptions_disabled_by_default_and_scaled():
         desc = by_key[key]
         assert desc.entity_registry_enabled_default is False
         assert desc.value_fn(data) == expected
+
+
+def test_extended_0x10_sensors_return_none_without_0x10_frame():
+    """Non-0x10 models (AQUAPURA, KJRH-120L, STANDARD, ATW placeholder) must return None."""
+    from custom_components.iletcomfort.api import decode_its_status
+    from custom_components.iletcomfort.sensor import SENSOR_DESCRIPTIONS
+    from tests.test_model_profiles import (
+        ISSUE_11_SENSORS_BODY,
+        ISSUE_11_STATUS_BODY,
+        KJRH120L_SENSORS_BODY,
+        KJRH120L_STATUS_BODY,
+    )
+
+    by_key = {desc.key: desc for desc in SENSOR_DESCRIPTIONS}
+    cases = [
+        (
+            decode_its_status(ISSUE_11_STATUS_BODY),
+            decode_its_sensors(ISSUE_11_SENSORS_BODY),
+        ),
+        (
+            decode_its_status(KJRH120L_STATUS_BODY),
+            decode_its_sensors(KJRH120L_SENSORS_BODY),
+        ),
+        (
+            decode_atw_status(NORDIS_ATW_STATUS_FRAMES["issue132"]),
+            decode_its_sensors(ATW_PLACEHOLDER_SENSORS_BODY),
+        ),
+    ]
+    for st, sens in cases:
+        data = {"status": st, "sensors": sens, "raw_frames": {0x01: st.raw_body, 0x02: sens.raw_body}}
+        for key in ("water_flow", "dc_voltage", "dc_current", "exv_steps"):
+            assert by_key[key].value_fn(data) is None
+
+    # Even if cached sensors.raw_body starts with 0x10 (degraded sensors +
+    # transient 0x10 failure), a raw_frames dict without 0x10 is authoritative.
+    st = decode_atw_status(NORDIS_ATW_STATUS_FRAMES["issue132"])
+    sens = decode_its_sensors(ATW_PLACEHOLDER_SENSORS_BODY)
+    _, cached_0x10_sens = apply_atw_unit_params(NORDIS_UNIT_PARAMS_0X10, st, sens)
+    degraded_data = {
+        "status": st,
+        "sensors": cached_0x10_sens,
+        "raw_frames": {0x01: st.raw_body, 0x02: ATW_PLACEHOLDER_SENSORS_BODY},
+    }
+    for key in ("water_flow", "dc_voltage", "dc_current", "exv_steps"):
+        assert by_key[key].value_fn(degraded_data) is None
+
+
+async def test_coordinator_sensors_cache_fallback_preserves_0x02_and_keeps_0x10_active(
+    hass: HomeAssistant,
+):
+    """A transient query_sensors failure after 0x10 must not overwrite raw_frames[0x02]."""
+    coord, client = _atw_coordinator(hass)
+    client.query_atw_unit_params.return_value = NORDIS_UNIT_PARAMS_0X10
+    client.query_atw_hmi_params.return_value = NORDIS_HMI_PARAMS_0X0A
+
+    with patch("custom_components.iletcomfort.coordinator.asyncio.sleep", new=AsyncMock()):
+        coord.data = await coord._poll()
+        client.query_sensors.side_effect = ApiError("transient sensors timeout")
+        data2 = await coord._poll()
+
+    assert data2["raw_frames"][0x02].startswith(b"\x02\x00\x03\x1e")
+    assert 0x10 in data2["raw_frames"]
+    assert 0x0A in data2["raw_frames"]
+    assert client.query_atw_unit_params.call_count == 2
+
+
+async def test_coordinator_transient_api_error_after_0x10_supported_retries_next_poll(
+    hass: HomeAssistant,
+):
+    """Once 0x10 is proven supported, a transient ApiError must not disable it."""
+    coord, client = _atw_coordinator(hass)
+    client.query_atw_unit_params.side_effect = [
+        NORDIS_UNIT_PARAMS_0X10,
+        ApiError("transient code=1214"),
+        NORDIS_UNIT_PARAMS_0X10,
+    ]
+    client.query_atw_hmi_params.return_value = NORDIS_HMI_PARAMS_0X0A
+
+    with patch("custom_components.iletcomfort.coordinator.asyncio.sleep", new=AsyncMock()):
+        await coord._poll()
+        await coord._poll()
+        data3 = await coord._poll()
+
+    assert coord.capabilities.atw_unit_params.supported is True
+    assert client.query_atw_unit_params.call_count == 3
+    assert data3["status"].total_kwh == 6463

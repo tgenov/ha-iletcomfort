@@ -139,3 +139,41 @@ async def test_async_execute_command_translates_errors_without_refresh(
     with pytest.raises(HomeAssistantError, match="Heat pump command failed"):
         await coord.async_execute_command(failing)
     coord.async_request_refresh.assert_not_awaited()
+
+
+async def test_async_execute_command_propagates_reauth_failure(
+    hass: HomeAssistant,
+) -> None:
+    coord = _coordinator(hass)
+    coord._async_login = AsyncMock(side_effect=AuthError("bad creds"))  # type: ignore[method-assign]
+    coord.async_request_refresh = AsyncMock()  # type: ignore[method-assign]
+
+    def failing() -> None:
+        raise AuthError("expired")
+
+    with pytest.raises(HomeAssistantError, match="Heat pump command failed"):
+        await coord.async_execute_command(failing)
+    coord.async_request_refresh.assert_not_awaited()
+
+
+def test_apply_push_status_preserves_raw_frames_and_updates_state(
+    hass: HomeAssistant,
+) -> None:
+    coord = _coordinator(hass)
+    coord.appliance_meta = {"applianceCode": "APPL1", "sn8": ATW_SN8}
+    coord.data = {
+        "status": MagicMock(),
+        "sensors": MagicMock(th_temp=46.0),
+        "raw_frames": {0x02: b"\x02\x00"},
+    }
+    pushed = MagicMock(raw_body=NORDIS_ATW_STATUS_FRAMES["issue132"])
+
+    coord._apply_push_status(pushed)
+
+    assert coord.data["raw_frames"][0x02] == b"\x02\x00"
+    assert coord.data["raw_frames"][0x01] == NORDIS_ATW_STATUS_FRAMES["issue132"]
+    state = coord.data["state"]
+    assert isinstance(state, HeatPumpState)
+    assert state.profile is ModelProfile.ATW
+    assert state.variant == "atw_27_byte"
+    assert state.raw_frames is not coord.data["raw_frames"]

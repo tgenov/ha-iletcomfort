@@ -66,7 +66,17 @@ python3 -m venv .venv
 .venv/bin/pytest tests/
 ```
 
-CI runs the same suite on every PR via `.github/workflows/tests.yml`.
+CI runs the same suite on every PR via `.github/workflows/tests.yml`, plus `ruff`, `mypy`, `hassfest`, and `HACS` validation via `.github/workflows/validate.yml`.
+
+## Mandatory Pre-PR Self-Review (Clean Context)
+
+Before opening or pushing a PR for review, **always perform a self-review of the full diff in a fresh, clean context** (for AI agents: invoke an independent read-only subagent with zero shared session bias; for humans: review the complete `git diff main...HEAD` from scratch).
+
+Check explicitly for:
+1. **Correctness & edge cases:** cache fallbacks, MQTT push vs. poll parity, transient cloud errors vs. permanent capability latching, listener teardown on unload/profile change.
+2. **Backwards compatibility:** HA entity `unique_id`, `device_class`, `state_class`, `native_unit_of_measurement`, and `ConfigEntry` rollback safety (`tests/test_hardware_corpus.py`).
+3. **Privacy & redaction:** no tokens, credentials, full `applianceCode`, or per-device serials in logs, diagnostics, or test fixtures.
+4. **Local quality gates:** `pytest`, `ruff check .`, and `mypy custom_components/iletcomfort/` all green before pushing.
 
 ## Reading raw C3 frames (`scripts/c3_probe.py`)
 
