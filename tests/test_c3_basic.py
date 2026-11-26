@@ -1004,8 +1004,7 @@ async def test_switches(hass: HomeAssistant):
         FEATURE_SILENT,
         "Silent Mode",
         "mdi:volume-off",
-        lambda b: b.silent_mode,
-        status_state_fn=lambda s: s.atw_silent_mode,
+        lambda state: state.silent_enabled,
     )
     assert silent.unique_id == "APPL1_silent_mode"
     assert silent.is_on is False
@@ -1018,8 +1017,7 @@ async def test_switches(hass: HomeAssistant):
         FEATURE_ECO,
         "ECO Mode",
         "mdi:leaf",
-        lambda b: b.eco_mode,
-        status_state_fn=lambda s: s.atw_eco_mode,
+        lambda state: state.eco_enabled,
     )
     assert eco.is_on is False
     coordinator.data.status.atw_eco_mode = True

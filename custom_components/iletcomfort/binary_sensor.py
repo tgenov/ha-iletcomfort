@@ -33,19 +33,19 @@ BINARY_SENSOR_DESCRIPTIONS: tuple[ILetComfortBinarySensorDescription, ...] = (
         key="compressor_running",
         name="Compressor Running",
         device_class=BinarySensorDeviceClass.RUNNING,
-        is_on_fn=lambda state: state.status.comp_running,
+        is_on_fn=lambda state: state.compressor_running,
     ),
     ILetComfortBinarySensorDescription(
         key="ibh_running",
         name="IBH Running",
         device_class=BinarySensorDeviceClass.RUNNING,
-        is_on_fn=lambda state: state.status.ibh_running,
+        is_on_fn=lambda state: state.ibh_running,
     ),
     ILetComfortBinarySensorDescription(
         key="error",
         name="Error",
         device_class=BinarySensorDeviceClass.PROBLEM,
-        is_on_fn=lambda state: state.status.error_code != 0,
+        is_on_fn=lambda state: state.has_error,
     ),
 )
 

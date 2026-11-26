@@ -99,10 +99,8 @@ def decode_kjrh120l_status(body: bytearray | bytes) -> ITSStatus:
 
     status.error_code = 0
     status.comp_running = False
-    status.total_kwh = None
-    status.comp_total_run_hours = None
-    status.pressure_h = None
-    status.pressure_l = None
+    # Compressor frequency, energy, run hours, EXV and pressures are not in
+    # this frame and keep the ITSStatus default None (unknown, not 0).
 
     if body_len > KJRH120L_POWER_INDEX:
         dhw_on = body[KJRH120L_POWER_INDEX] != 0
@@ -354,6 +352,14 @@ class Kjrh120lAdapter:
 
     def c3_basic(self, status: ITSStatus | None) -> C3BasicStatus | None:
         return None
+
+    def dhw_target_temp(self, status: ITSStatus) -> float | None:
+        if status.kjrh120l_dhw_setpoint is not None:
+            return status.kjrh120l_dhw_setpoint
+        # When Zone 1 is off (body[8:10] == 00 00), decode_kjrh120l_status
+        # leaves body[15] (the DHW setpoint) in t5s_def so pure-DHW units
+        # keep their existing single-setpoint behavior.
+        return status.t5s_def
 
     def plan_write(self, command: HeatPumpCommand, ctx: WriteContext) -> WritePlan:
         return plan_kjrh120l_write(command, ctx)

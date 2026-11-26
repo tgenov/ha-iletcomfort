@@ -17,7 +17,6 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .api import ITSStatus
 from .commands import SetDhwTargetCommand, SetZoneTargetCommand
 from .const import DOMAIN
 from .coordinator import ILetComfortCoordinator
@@ -25,7 +24,6 @@ from .entity import async_add_kjrh120l_zone1_entities, build_device_info
 from .model_profiles import (
     KJRH120L_DHW_TEMP_MAX,
     KJRH120L_DHW_TEMP_MIN,
-    kjrh120l_zone1_range,
 )
 from .protocols import is_kjrh120l_dual_state
 
@@ -82,15 +80,8 @@ class ILetComfortKjrh120lDhwSetpoint(
 
     @property
     def native_value(self) -> float | None:
-        if self.coordinator.data is None:
-            return None
-        status = self.coordinator.data.status
-        if status.kjrh120l_dhw_setpoint is not None:
-            return status.kjrh120l_dhw_setpoint
-        # When Zone 1 is off (body[8:10] == 00 00), decode_kjrh120l_status
-        # leaves body[15] (the DHW setpoint) in t5s_def so pure-DHW units
-        # keep their existing single-setpoint behavior.
-        return status.t5s_def
+        state = self.coordinator.data
+        return state.dhw_target_temp if state is not None else None
 
     async def async_set_native_value(self, value: float) -> None:
         clamped = max(
@@ -123,14 +114,9 @@ class ILetComfortKjrh120lZone1Setpoint(
         self._attr_device_info = build_device_info(coordinator)
 
     @property
-    def _status(self) -> ITSStatus | None:
-        state = self.coordinator.data
-        return state.status if state is not None else None
-
-    @property
     def _range(self) -> tuple[int, int] | None:
-        status = self._status
-        return kjrh120l_zone1_range(status) if status is not None else None
+        state = self.coordinator.data
+        return state.zone1_target_range if state is not None else None
 
     @property
     def available(self) -> bool:
@@ -142,8 +128,8 @@ class ILetComfortKjrh120lZone1Setpoint(
 
     @property
     def native_value(self) -> float | None:
-        status = self._status
-        return status.kjrh120l_zone1_setpoint if status is not None else None
+        state = self.coordinator.data
+        return state.zone1_target_temp if state is not None else None
 
     @property
     def native_min_value(self) -> float:

@@ -64,19 +64,7 @@ class ILetComfortMuteSelect(CoordinatorEntity[ILetComfortCoordinator], SelectEnt
         state = self.coordinator.data
         if state is None:
             return "Off"
-        status = state.status
-        if status.atw_silent_level is not None:
-            return {0: "Off", 1: "Level 1", 2: "Level 2"}.get(
-                status.atw_silent_level, "Off"
-            )
-        basic = state.atw_c3_basic
-        if basic is not None:
-            return "Level 1" if basic.silent_mode else "Off"
-        sensors = state.sensors
-        if sensors is None or sensors.ctrl_flag != 1:
-            return "Off"
-        # mute_level: 0=Level 1, 1=Level 2
-        return "Level 2" if sensors.mute_level == 1 else "Level 1"
+        return {0: "Off", 1: "Level 1", 2: "Level 2"}.get(state.silent_level, "Off")
 
     async def async_select_option(self, option: str) -> None:
         level = _MUTE_TO_API[option]
@@ -107,11 +95,8 @@ class ILetComfortKjrh120lModeSelect(
     def current_option(self) -> str | None:
         if self.coordinator.data is None:
             return None
-        status = self.coordinator.data.status
-        for option, code in _KJRH120L_RUN_MODE_OPTIONS.items():
-            if status.kjrh120l_run_mode == code:
-                return option
-        return None
+        run_mode = self.coordinator.data.zone1_run_mode
+        return run_mode if run_mode in _KJRH120L_RUN_MODE_OPTIONS else None
 
     async def async_select_option(self, option: str) -> None:
         if option not in _KJRH120L_RUN_MODE_OPTIONS:

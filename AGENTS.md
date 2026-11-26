@@ -89,7 +89,7 @@ user to do hard work — re-read the whole thread and check the new signal again
   connect/disconnect only. Unknown `sn8` → STANDARD keeps the heartbeat.
   On ATW units, phone-app mode only sees the optional subtypes from the setup poll; pushes carry 0x01
   and/or 0x04 only, if anything (#225). Cumulative counters (0x10 energy, 0x0A run hours) are kept on
-  push, but live 0x10 telemetry (compressor frequency/running, pressures) is only available from the
+  push, but live 0x10 telemetry (compressor frequency/running, pressures, EXV) is only available from the
   setup poll and goes unknown after the first push. ECO state reflects the setup poll until restart,
   because no push frame carries it (0x01 `body[3]` does not change with ECO, #139). Silent on/off
   follows the pushed 0x01 bit; the level comes from the setup 0x05 only while both agree.
@@ -276,9 +276,20 @@ Status `raw_body` (0-indexed; STANDARD misreads this 25-byte frame):
   AQUAPURA layouts.
 
 ### Entity routing (important)
-- `sensor.py`: **"Water Inlet Temperature"** ← `twin_temp`; **"DHW Tank Temperature"** ← `th_temp`.
-- `climate.py` `current_temperature` is **profile-aware**: `th_temp` for AQUAPURA and validated ATW
-  layouts, unavailable for the ATW sensor-template variant, and `twin_temp` for STANDARD.
+- Entities read **only domain-named `HeatPumpState` properties** (`protocols/base.py`), never
+  `ITSStatus`/`ITSSensors` wire fields (#111). Model-specific routing lives in the property
+  (data-driven) or in a `ProtocolAdapter` method (e.g. `dhw_target_temp`). Add a property before an
+  entity needs a new value. Climate's per-regime mode/target/bounds logic still reads `C3BasicStatus`
+  (#192).
+- `sensor.py`: **"Water Inlet Temperature"** ← `water_inlet_temp` (`twin_temp`); **"DHW Tank
+  Temperature"** ← `dhw_tank_temp` (`th_temp`).
+- **Unknown vs zero:** telemetry fields (`comp_frq`, `exv_drg`, `pressure_h/l`, `total_kwh`,
+  `comp_total_run_hours`, sensor `tf/tp/th_temp`, `odu_*`, `water_flow`, `dc_*`) default to `None`
+  and are set only by a decoder/overlay that actually carries them. Never default a telemetry field
+  to `0`: TOTAL_INCREASING energy/run-hours reading 0 for unknown is a meter reset in HA statistics.
+- `climate.py` `current_temperature` (`climate_current_temperature`) is **profile-aware**: `th_temp`
+  for AQUAPURA and validated ATW layouts, unavailable for the ATW sensor-template variant, and
+  `twin_temp` for STANDARD.
 - For ATW/AQUAPURA the tank temp is routed into **`th_temp`** (so the correctly-named "DHW Tank
   Temperature" entity shows it). Do **not** route a tank reading into `twin_temp` (that mislabels "Water
   Inlet"). This was corrected after a reporter flagged it.
@@ -392,7 +403,8 @@ does not enforce per-appliance topic ACLs.
 | `water_heater.py` | DHW entity for ATW units whose status matches the C3 basic layout. |
 | `coordinator.py` | `ILetComfortCoordinator` (`DataUpdateCoordinator[HeatPumpState]`): polling, re-auth, cache-fallback, offline Repair card. `coordinator.data` is the typed `HeatPumpState` returned by `build_snapshot` (`status`, `sensors`, `raw_frames`); there is no dict snapshot (#111). Caches `appliance_meta` (best-effort, never fatal) and exposes `sn8`; threads profile into decode. |
 | `diagnostics.py` | Redacted snapshot: raw frames, decoded status/sensors, `sensors_temperature_scan` (per-byte `_temp_offset` map — use it to find a model's misplaced temp byte), and the `appliance` metadata block. `APPLIANCE_TO_REDACT = {owner, sn, name}` (keeps `applianceType`/`modelNumber`/`sn8`). |
-| `climate.py` / `number.py` / `sensor.py` / `binary_sensor.py` / `switch.py` / `select.py` | HA entities. See §4 for which field backs which entity. |
+| `climate.py` / `number.py` / `sensor.py` / `binary_sensor.py` / `switch.py` / `select.py` / `water_heater.py` | HA entities; they read domain-named `HeatPumpState` properties only. See §4 entity routing. |
+| `protocols/base.py` | `HeatPumpState` (`coordinator.data`, domain-named read properties, unknown = `None`) and the `ProtocolAdapter` contract. |
 | `config_flow.py` / `__init__.py` / `const.py` / `entity.py` | Setup, entry, constants, base entity. |
 | `tests/` | pytest suite; real captured frames are pinned as fixtures (e.g. issue-#11 frames for STANDARD regression). Build a test `coordinator.data` with `tests/snapshot_helpers.py::make_state(status, sensors, raw_frames, sn8=...)`, which runs the production `build_snapshot`. |
 

@@ -712,14 +712,20 @@ async def test_atw_status_push_does_not_freeze_instant_0x10_values_issue225(hass
     coord._apply_push_status(pushed)
 
     # Instantaneous fields are exactly what the pushed 0x01 decode produces
-    # (None, or ITSStatus's int default for exv_drg), never the poll's value.
+    # (None: not in the frame), never the poll's value.
     for field in _INSTANT_0X10_STATUS_FIELDS:
         assert getattr(coord.data.status, field) == getattr(pushed, field), field
         assert getattr(coord.data.status, field) != getattr(polled, field), field
     assert coord.data.status.comp_frq is None
     assert coord.data.status.comp_running is None
     assert coord.data.status.pressure_h is None
-    assert coord.data.compressor_freq is None
+    assert coord.data.status.exv_drg is None
+    assert coord.data.compressor_frequency is None
+    # The 0x10 frame is still retained, but the EXV sensor goes unknown
+    # rather than reporting the not-decoded 0 (#111).
+    assert coord.data.has_atw_0x10 is True
+    assert coord.data.exv_opening is None
+    assert coord.data.high_pressure is None
 
     coord._cancel_push_status_watchdog()
     await coord.async_shutdown()

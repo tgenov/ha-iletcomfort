@@ -227,5 +227,9 @@ class StandardAdapter:
     def c3_basic(self, status: ITSStatus | None) -> C3BasicStatus | None:
         return None
 
+    def dhw_target_temp(self, status: ITSStatus) -> float | None:
+        # No DHW-target entity reads the legacy layout; not exposed.
+        return None
+
     def plan_write(self, command: HeatPumpCommand, ctx: WriteContext) -> WritePlan:
         return plan_legacy_its_write(command, ctx)

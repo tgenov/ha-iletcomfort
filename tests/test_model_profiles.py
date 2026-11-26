@@ -650,15 +650,15 @@ def test_kjrh120l_status_surfaces_confirmed_setpoint_only():
     # raw_body preserved.
     assert status.raw_body == bytes(KJRH120L_STATUS_BODY)
     # The bogus fields the STANDARD decode produced must NOT be populated.
-    assert status.total_kwh in (None, 0)
-    assert status.comp_frq in (None, 0)
+    assert status.total_kwh is None
+    assert status.comp_frq is None
     assert status.box_bottom_temp is None
     assert status.tr_temperature is None
     assert status.ptc_temperature is None
-    assert status.exv_drg in (None, 0)
-    assert status.comp_total_run_hours in (None, 0)
-    assert status.pressure_h in (None, 0)
-    assert status.pressure_l in (None, 0)
+    assert status.exv_drg is None
+    assert status.comp_total_run_hours is None
+    assert status.pressure_h is None
+    assert status.pressure_l is None
 
 
 def test_kjrh120l_status_setpoint_tracks_body15():
@@ -752,8 +752,8 @@ def test_kjrh120l_profile_applied_to_status_object():
     assert kjrh.set_temperature == 60
     assert kjrh.error_code == 0
     assert kjrh.comp_running is False
-    assert kjrh.total_kwh in (None, 0)
-    assert kjrh.comp_frq in (None, 0)
+    assert kjrh.total_kwh is None
+    assert kjrh.comp_frq is None
     assert kjrh.box_bottom_temp is None
 
 

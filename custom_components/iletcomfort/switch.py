@@ -12,7 +12,6 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .api import ITSStatus
 from .c3_basic import FEATURE_ECO, FEATURE_SILENT, C3BasicStatus
 from .commands import (
     SetBoostCommand,
@@ -31,7 +30,7 @@ from .entity import (
     build_device_info,
 )
 from .model_profiles import ModelProfile
-from .protocols import get_adapter
+from .protocols import HeatPumpState, get_adapter
 
 
 async def async_setup_entry(
@@ -76,16 +75,14 @@ def _build_c3_switches(coordinator: ILetComfortCoordinator) -> list[SwitchEntity
             FEATURE_SILENT,
             "Silent Mode",
             "mdi:volume-off",
-            lambda basic: basic.silent_mode,
-            status_state_fn=lambda status: status.atw_silent_mode,
+            lambda state: state.silent_enabled,
         ),
         ILetComfortC3FeatureSwitch(
             coordinator,
             FEATURE_ECO,
             "ECO Mode",
             "mdi:leaf",
-            lambda basic: basic.eco_mode,
-            status_state_fn=lambda status: status.atw_eco_mode,
+            lambda state: state.eco_enabled,
         ),
     ]
     basic = coordinator.c3_basic_controllable
@@ -112,10 +109,7 @@ class ILetComfortBoostSwitch(CoordinatorEntity[ILetComfortCoordinator], SwitchEn
     def is_on(self) -> bool:
         if self.coordinator.data is None:
             return False
-        sensors = self.coordinator.data.sensors
-        if sensors is None:
-            return False
-        return sensors.ctrl_flag == 2
+        return self.coordinator.data.boost_enabled
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         await self.coordinator.async_send_command(SetBoostCommand(enabled=True))
@@ -145,7 +139,7 @@ class ILetComfortKjrh120lZone1PowerSwitch(
     @property
     def is_on(self) -> bool | None:
         state = self.coordinator.data
-        return state.status.kjrh120l_zone1_power if state is not None else None
+        return state.zone1_power if state is not None else None
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         await self.coordinator.async_send_command(
@@ -180,7 +174,7 @@ class ILetComfortKjrh120lDhwPowerSwitch(
     @property
     def is_on(self) -> bool | None:
         state = self.coordinator.data
-        return state.status.kjrh120l_dhw_power if state is not None else None
+        return state.dhw_power if state is not None else None
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         await self.coordinator.async_send_command(SetDhwPowerCommand(on=True))
@@ -208,6 +202,13 @@ class _ILetComfortC3Switch(CoordinatorEntity[ILetComfortCoordinator], SwitchEnti
     def available(self) -> bool:
         return super().available and self._basic is not None
 
+    def _controlled_value(self, read: Callable[[HeatPumpState], bool | None]) -> bool | None:
+        """Read a domain value only while C3 basic control is active."""
+        state = self.coordinator.data
+        if self._basic is None or state is None:
+            return None
+        return read(state)
+
 
 class ILetComfortC3CurveSwitch(_ILetComfortC3Switch):
     """Zone-1 weather-compensation curve on/off."""
@@ -220,8 +221,7 @@ class ILetComfortC3CurveSwitch(_ILetComfortC3Switch):
 
     @property
     def is_on(self) -> bool | None:
-        basic = self._basic
-        return basic.zone1_curve if basic is not None else None
+        return self._controlled_value(lambda state: state.zone1_curve_enabled)
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         await self.coordinator.async_send_command(
@@ -250,8 +250,7 @@ class ILetComfortC3Zone2CurveSwitch(_ILetComfortC3Switch):
 
     @property
     def is_on(self) -> bool | None:
-        basic = self._basic
-        return basic.zone2_curve if basic is not None else None
+        return self._controlled_value(lambda state: state.zone2_curve_enabled)
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         await self.coordinator.async_send_command(
@@ -275,8 +274,7 @@ class ILetComfortC3FastDhwSwitch(_ILetComfortC3Switch):
 
     @property
     def is_on(self) -> bool | None:
-        basic = self._basic
-        return basic.fast_dhw if basic is not None else None
+        return self._controlled_value(lambda state: state.fast_dhw_enabled)
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         await self.coordinator.async_send_command(SetFastDhwCommand(enabled=True))
@@ -294,26 +292,17 @@ class ILetComfortC3FeatureSwitch(_ILetComfortC3Switch):
         feature: str,
         name: str,
         icon: str,
-        state_fn: Callable[[C3BasicStatus], bool],
-        status_state_fn: Callable[[ITSStatus], bool | None] | None = None,
+        state_fn: Callable[[HeatPumpState], bool | None],
     ) -> None:
         super().__init__(coordinator, f"{feature}_mode")
         self._attr_name = name
         self._attr_icon = icon
         self._feature = feature
         self._state_fn = state_fn
-        self._status_state_fn = status_state_fn
 
     @property
     def is_on(self) -> bool | None:
-        basic = self._basic
-        if basic is None:
-            return None
-        if self._status_state_fn is not None and self.coordinator.data is not None:
-            override = self._status_state_fn(self.coordinator.data.status)
-            if override is not None:
-                return override
-        return self._state_fn(basic)
+        return self._controlled_value(self._state_fn)
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         if self._feature == FEATURE_SILENT:

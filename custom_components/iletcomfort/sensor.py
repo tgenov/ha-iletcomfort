@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -40,52 +41,6 @@ class ILetComfortSensorDescription(SensorEntityDescription):
     value_fn: Callable[[HeatPumpState], Any]
 
 
-def _s(attr: str) -> Callable[[HeatPumpState], Any]:
-    """Helper: get attribute from sensors data."""
-    def _get(state: HeatPumpState) -> Any:
-        return getattr(state.sensors, attr, None) if state.sensors else None
-    return _get
-
-
-def _st(attr: str) -> Callable[[HeatPumpState], Any]:
-    """Helper: get attribute from status data."""
-    def _get(state: HeatPumpState) -> Any:
-        return getattr(state.status, attr, None)
-    return _get
-
-
-def _atw_0x10_s(attr: str) -> Callable[[HeatPumpState], Any]:
-    """Read a sensor field only when ATW 0x10 telemetry is present."""
-    def _get(state: HeatPumpState) -> Any:
-        if not state.has_atw_0x10 or state.sensors is None:
-            return None
-        return getattr(state.sensors, attr, None)
-    return _get
-
-
-def _has_atw_energy_frame(state: HeatPumpState) -> bool:
-    """Return True when ATW 0x10 or MQTT 0x04 energy telemetry populated this snapshot."""
-    return state.has_atw_0x10 or 0x04 in state.raw_frames
-
-
-def _atw_energy_st(attr: str) -> Callable[[HeatPumpState], Any]:
-    """Read a status energy field when ATW 0x10 or MQTT 0x04 telemetry is present."""
-    def _get(state: HeatPumpState) -> Any:
-        if not _has_atw_energy_frame(state):
-            return None
-        return getattr(state.status, attr, None)
-    return _get
-
-
-def _atw_0x10_st(attr: str) -> Callable[[HeatPumpState], Any]:
-    """Read a status field only when ATW 0x10 telemetry is present."""
-    def _get(state: HeatPumpState) -> Any:
-        if not state.has_atw_0x10:
-            return None
-        return getattr(state.status, attr, None)
-    return _get
-
-
 SENSOR_DESCRIPTIONS: tuple[ILetComfortSensorDescription, ...] = (
     ILetComfortSensorDescription(
         key="water_inlet",
@@ -93,7 +48,7 @@ SENSOR_DESCRIPTIONS: tuple[ILetComfortSensorDescription, ...] = (
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         device_class=SensorDeviceClass.TEMPERATURE,
         state_class=SensorStateClass.MEASUREMENT,
-        value_fn=_s("twin_temp"),
+        value_fn=lambda state: state.water_inlet_temp,
     ),
     ILetComfortSensorDescription(
         key="water_outlet",
@@ -101,7 +56,7 @@ SENSOR_DESCRIPTIONS: tuple[ILetComfortSensorDescription, ...] = (
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         device_class=SensorDeviceClass.TEMPERATURE,
         state_class=SensorStateClass.MEASUREMENT,
-        value_fn=_s("twout_temp"),
+        value_fn=lambda state: state.water_outlet_temp,
     ),
     ILetComfortSensorDescription(
         key="dhw_tank",
@@ -109,7 +64,7 @@ SENSOR_DESCRIPTIONS: tuple[ILetComfortSensorDescription, ...] = (
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         device_class=SensorDeviceClass.TEMPERATURE,
         state_class=SensorStateClass.MEASUREMENT,
-        value_fn=_s("th_temp"),
+        value_fn=lambda state: state.dhw_tank_temp,
     ),
     ILetComfortSensorDescription(
         key="outdoor_ambient",
@@ -117,7 +72,7 @@ SENSOR_DESCRIPTIONS: tuple[ILetComfortSensorDescription, ...] = (
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         device_class=SensorDeviceClass.TEMPERATURE,
         state_class=SensorStateClass.MEASUREMENT,
-        value_fn=_s("t4_temp"),
+        value_fn=lambda state: state.outdoor_temp,
     ),
     ILetComfortSensorDescription(
         key="condenser",
@@ -125,7 +80,7 @@ SENSOR_DESCRIPTIONS: tuple[ILetComfortSensorDescription, ...] = (
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         device_class=SensorDeviceClass.TEMPERATURE,
         state_class=SensorStateClass.MEASUREMENT,
-        value_fn=_s("t3_temp"),
+        value_fn=lambda state: state.condenser_temp,
     ),
     ILetComfortSensorDescription(
         key="evaporator",
@@ -133,7 +88,7 @@ SENSOR_DESCRIPTIONS: tuple[ILetComfortSensorDescription, ...] = (
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         device_class=SensorDeviceClass.TEMPERATURE,
         state_class=SensorStateClass.MEASUREMENT,
-        value_fn=_s("t2_temp"),
+        value_fn=lambda state: state.evaporator_temp,
     ),
     ILetComfortSensorDescription(
         key="refrigerant",
@@ -141,7 +96,7 @@ SENSOR_DESCRIPTIONS: tuple[ILetComfortSensorDescription, ...] = (
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         device_class=SensorDeviceClass.TEMPERATURE,
         state_class=SensorStateClass.MEASUREMENT,
-        value_fn=_s("tf_temp"),
+        value_fn=lambda state: state.refrigerant_temp,
     ),
     ILetComfortSensorDescription(
         key="plate_hx",
@@ -149,7 +104,7 @@ SENSOR_DESCRIPTIONS: tuple[ILetComfortSensorDescription, ...] = (
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         device_class=SensorDeviceClass.TEMPERATURE,
         state_class=SensorStateClass.MEASUREMENT,
-        value_fn=_s("tp_temp"),
+        value_fn=lambda state: state.plate_hx_temp,
     ),
     ILetComfortSensorDescription(
         key="compressor_freq",
@@ -157,7 +112,7 @@ SENSOR_DESCRIPTIONS: tuple[ILetComfortSensorDescription, ...] = (
         native_unit_of_measurement=UnitOfFrequency.HERTZ,
         device_class=SensorDeviceClass.FREQUENCY,
         state_class=SensorStateClass.MEASUREMENT,
-        value_fn=_st("comp_frq"),
+        value_fn=lambda state: state.compressor_frequency,
     ),
     ILetComfortSensorDescription(
         key="total_energy",
@@ -165,7 +120,7 @@ SENSOR_DESCRIPTIONS: tuple[ILetComfortSensorDescription, ...] = (
         native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         device_class=SensorDeviceClass.ENERGY,
         state_class=SensorStateClass.TOTAL_INCREASING,
-        value_fn=_st("total_kwh"),
+        value_fn=lambda state: state.total_energy_kwh,
     ),
     ILetComfortSensorDescription(
         key="comp_run_hours",
@@ -173,27 +128,27 @@ SENSOR_DESCRIPTIONS: tuple[ILetComfortSensorDescription, ...] = (
         native_unit_of_measurement=UnitOfTime.HOURS,
         device_class=SensorDeviceClass.DURATION,
         state_class=SensorStateClass.TOTAL_INCREASING,
-        value_fn=_st("comp_total_run_hours"),
+        value_fn=lambda state: state.compressor_run_hours,
     ),
     ILetComfortSensorDescription(
         key="pressure_high",
         name="High Pressure",
         icon="mdi:gauge-full",
         state_class=SensorStateClass.MEASUREMENT,
-        value_fn=_st("pressure_h"),
+        value_fn=lambda state: state.high_pressure,
     ),
     ILetComfortSensorDescription(
         key="pressure_low",
         name="Low Pressure",
         icon="mdi:gauge-low",
         state_class=SensorStateClass.MEASUREMENT,
-        value_fn=_st("pressure_l"),
+        value_fn=lambda state: state.low_pressure,
     ),
     ILetComfortSensorDescription(
         key="error_code",
         name="Error Code",
         icon="mdi:alert-circle-outline",
-        value_fn=_st("error_code"),
+        value_fn=lambda state: state.error_code,
     ),
     ILetComfortSensorDescription(
         key="odu_voltage",
@@ -201,7 +156,7 @@ SENSOR_DESCRIPTIONS: tuple[ILetComfortSensorDescription, ...] = (
         native_unit_of_measurement=UnitOfElectricPotential.VOLT,
         device_class=SensorDeviceClass.VOLTAGE,
         state_class=SensorStateClass.MEASUREMENT,
-        value_fn=_s("odu_voltage"),
+        value_fn=lambda state: state.odu_voltage,
     ),
     # odu_current is decoded as fixed-point Amperes (raw 16-bit value / 256).
     # The ÷256 scale was confirmed against the official app for the MSC-70D2N8-A
@@ -213,7 +168,7 @@ SENSOR_DESCRIPTIONS: tuple[ILetComfortSensorDescription, ...] = (
         device_class=SensorDeviceClass.CURRENT,
         state_class=SensorStateClass.MEASUREMENT,
         suggested_display_precision=1,
-        value_fn=_s("odu_current"),
+        value_fn=lambda state: state.odu_current,
     ),
     # Extended telemetry populated by ATW subtype 0x10 (verified on NØRDIS #120
     # and Airwell #139). Disabled by default so models without 0x10 do not gain
@@ -226,13 +181,7 @@ SENSOR_DESCRIPTIONS: tuple[ILetComfortSensorDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         suggested_display_precision=2,
         entity_registry_enabled_default=False,
-        value_fn=lambda state: (
-            round(flow / 100.0, 2)
-            if state.has_atw_0x10
-            and state.sensors is not None
-            and (flow := state.sensors.water_flow) is not None
-            else None
-        ),
+        value_fn=lambda state: state.water_flow_m3h,
     ),
     ILetComfortSensorDescription(
         key="dc_voltage",
@@ -242,7 +191,7 @@ SENSOR_DESCRIPTIONS: tuple[ILetComfortSensorDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         entity_category=EntityCategory.DIAGNOSTIC,
         entity_registry_enabled_default=False,
-        value_fn=_atw_0x10_s("dc_voltage"),
+        value_fn=lambda state: state.dc_bus_voltage,
     ),
     ILetComfortSensorDescription(
         key="dc_current",
@@ -252,7 +201,7 @@ SENSOR_DESCRIPTIONS: tuple[ILetComfortSensorDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         entity_category=EntityCategory.DIAGNOSTIC,
         entity_registry_enabled_default=False,
-        value_fn=_atw_0x10_s("dc_current"),
+        value_fn=lambda state: state.dc_current,
     ),
     ILetComfortSensorDescription(
         key="exv_steps",
@@ -261,7 +210,7 @@ SENSOR_DESCRIPTIONS: tuple[ILetComfortSensorDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         entity_category=EntityCategory.DIAGNOSTIC,
         entity_registry_enabled_default=False,
-        value_fn=_atw_0x10_st("exv_drg"),
+        value_fn=lambda state: state.exv_opening,
     ),
     ILetComfortSensorDescription(
         key="total_thermal_energy",
@@ -270,7 +219,7 @@ SENSOR_DESCRIPTIONS: tuple[ILetComfortSensorDescription, ...] = (
         device_class=SensorDeviceClass.ENERGY,
         state_class=SensorStateClass.TOTAL_INCREASING,
         entity_registry_enabled_default=False,
-        value_fn=_atw_energy_st("total_thermal_kwh"),
+        value_fn=lambda state: state.total_thermal_energy_kwh,
     ),
 )
 
