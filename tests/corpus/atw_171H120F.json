@@ -1,0 +1,146 @@
+[
+  {
+    "id": "atw_italtherm_25byte_issue22",
+    "source_issue": "#22",
+    "hardware": "Italtherm ATW (25-byte status)",
+    "sn8": "171H120F",
+    "expected_profile": "atw",
+    "expected_variant": "atw_25_byte",
+    "frames": {
+      "0x01": "01,0d,07,68,03,03,1e,28,32,3a,37,19,19,05,41,23,19,05,3c,22,3c,14,2e,00,80"
+    },
+    "expected_status": {
+      "set_temperature": 50,
+      "t5s_def": 29.0,
+      "box_bottom_temp": 46.0,
+      "pump_system": true,
+      "error_code": 0,
+      "comp_running": false
+    }
+  },
+  {
+    "id": "atw_galmet_27byte_placeholder_issue38",
+    "source_issue": "#38",
+    "hardware": "Galmet Prima 8GT (27-byte status + 75-byte 0x02 placeholder)",
+    "sn8": "171H120F",
+    "expected_profile": "atw",
+    "expected_variant": "atw_27_byte",
+    "expected_atw_0x02_placeholder": true,
+    "frames": {
+      "0x01": "01,05,15,a0,03,03,1c,1e,2c,30,37,19,19,05,37,19,19,05,3c,22,3c,14,28,00,e0,03,03",
+      "0x02": "02,00,03,1e,00,00,00,00,03,1e,00,00,00,00,03,1e,00,00,00,00,03,1e,00,00,00,00,03,1e,00,00,00,00,03,1e,00,00,00,00,00,03,1e,00,00,00,00,03,1e,00,00,00,00,03,1e,00,00,00,00,03,1e,00,00,00,00,03,1e,00,00,00,00,03,1e,00,00,00,00"
+    },
+    "expected_status": {
+      "mode": 1,
+      "mode_name": "Heat",
+      "set_temperature": 44,
+      "t5s_def": 28.0,
+      "box_bottom_temp": 40.0,
+      "error_code": 0,
+      "comp_running": null,
+      "comp_frq": null
+    },
+    "expected_sensors": {
+      "th_temp": 40.0,
+      "twin_temp": null,
+      "twout_temp": null,
+      "t4_temp": null,
+      "odu_voltage": null
+    }
+  },
+  {
+    "id": "atw_nordis_27byte_with_0x10_and_0x0a_issue120_132",
+    "source_issue": "#120/#132",
+    "hardware": "NØRDIS Optimus Pro (27-byte status + 0x10 telemetry + 0x0A run hours)",
+    "sn8": "171H120F",
+    "expected_profile": "atw",
+    "expected_variant": "atw_27_byte",
+    "expected_atw_0x02_placeholder": true,
+    "frames": {
+      "0x01": "01,0d,15,a0,03,03,21,1e,32,30,37,19,19,05,37,19,19,05,3c,22,3c,14,2e,00,60,04,03",
+      "0x02": "02,00,03,1e,04,00,0a,00,03,1e,16,00,02,00,03,1e,0f,00,14,00,03,1e,05,00,14,00,03,1e,00,00,00,00,03,1e,00,00,00,00,00,03,1e,00,00,00,00,03,1e,00,00,00,00,03,1e,00,00,00,00,03,1e,00,00,00,00,03,1e,00,00,00,00,03,1e,00,00,00,00",
+      "0x10": "10,00,03,00,02,00,00,0e,0e,19,18,18,7f,00,00,00,00,00,00,ed,01,e0,08,01,00,00,00,00,04,00,07,40,00,68,18,19,18,18,23,19,7f,7f,1e,04,c4,08,34,13,02,00,00,20,15,1c,ff,00,3d,00,00,00,00,00,00,00,00,00,3d,00,00,19,3f,00,00,5e,f8,00,00,19,3f,00,00,5e,e9,00,05,00,00,00,00,4b,70,00,00,00,10,41",
+      "0x0a": "0a,38,00,22,1c,8f,1c,47,3f,e1,00,94,00,20,00,00"
+    },
+    "expected_status": {
+      "mode": 1,
+      "mode_name": "Heat",
+      "set_temperature": 50,
+      "t5s_def": 33.0,
+      "comp_frq": 0,
+      "comp_running": false,
+      "exv_drg": 480,
+      "pressure_h": 1220,
+      "total_kwh": 6463,
+      "comp_total_run_hours": 7311,
+      "error_code": 0
+    },
+    "expected_sensors": {
+      "th_temp": 46.0,
+      "t3_temp": 14.0,
+      "t4_temp": 14.0,
+      "tp_temp": 25.0,
+      "twin_temp": 24.0,
+      "twout_temp": 24.0,
+      "odu_voltage": 237,
+      "t1_temp": 24.0,
+      "t2_temp": 24.0,
+      "t2b_temp": 24.0,
+      "dc_current": 0,
+      "dc_voltage": 320,
+      "tf_temp": 21.0,
+      "water_flow": 61
+    }
+  },
+  {
+    "id": "atw_rotenso_25byte_issue124",
+    "source_issue": "#124",
+    "hardware": "Rotenso Aquami (25-byte body[2]=0x15 + 38-byte 0x02 placeholder)",
+    "sn8": "171H120F",
+    "expected_profile": "atw",
+    "expected_variant": "atw_rotenso_25_byte",
+    "expected_atw_0x02_placeholder": true,
+    "frames": {
+      "0x01": "01,0d,15,90,03,03,28,1e,32,30,41,23,19,05,37,19,19,05,3c,22,3c,14,32,00,80",
+      "0x02": "02,00,03,28,00,00,00,00,03,28,00,00,00,00,03,28,00,00,00,00,03,28,00,00,00,00,03,28,00,00,00,00,03,28,00,00,00,00"
+    },
+    "expected_status": {
+      "mode": 1,
+      "mode_name": "Heat",
+      "set_temperature": 50,
+      "t5s_def": 24.0,
+      "box_bottom_temp": 50.0,
+      "comp_running": null,
+      "comp_frq": null,
+      "error_code": 0
+    },
+    "expected_sensors": {
+      "th_temp": 50.0,
+      "t4_temp": null,
+      "twin_temp": null
+    }
+  },
+  {
+    "id": "atw_airwell_active_schedule_issue128",
+    "source_issue": "#128",
+    "hardware": "Airwell Wellea M (active 38-byte 0x02 schedule template)",
+    "sn8": "171H120F",
+    "expected_profile": "atw",
+    "expected_variant": "atw_25_byte",
+    "expected_atw_0x02_placeholder": true,
+    "frames": {
+      "0x01": "01,08,11,50,03,03,23,28,32,30,41,23,19,05,41,23,19,05,3c,22,3c,14,19,00,80",
+      "0x02": "02,0a,03,28,05,00,0c,00,05,36,16,00,06,00,03,28,0c,00,10,00,05,34,11,00,14,00,03,28,16,00,05,00,03,28,00,00,00,00"
+    },
+    "expected_status": {
+      "set_temperature": 50,
+      "box_bottom_temp": 25.0,
+      "error_code": 0
+    },
+    "expected_sensors": {
+      "th_temp": 25.0,
+      "t4_temp": null,
+      "twin_temp": null
+    }
+  }
+]

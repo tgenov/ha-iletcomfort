@@ -1,0 +1,22 @@
+[
+  {
+    "id": "aquapura_issue12_tank_temp_in_box_bottom",
+    "source_issue": "#12",
+    "hardware": "AQS Energie AQUAPURA split HPWH",
+    "sn8": "171000AU",
+    "expected_profile": "aquapura",
+    "expected_variant": "aquapura",
+    "frames": {
+      "0x01": "01,23,23,23,23,23,23,23,23,23,23,23,23,23,23,23,23,4b,23,23,23,23,23,23,23,23,23,23,23,23,23,23,23,23,23,23,23,23,23,23,23,23,23,23,23,23,23,23,23,23",
+      "0x02": "02,23,23,23,23,23,23,23,23,23,23,23,23,23,23,23,23,23,23,23,23,23,36,23,23,23,23,23,23,23,23,23,23,23,23,23,23,23,23,23,23,23,23,23,23,23,23,23,23,23"
+    },
+    "expected_status": {
+      "box_bottom_temp": 40.0
+    },
+    "expected_sensors": {
+      "th_temp": 40.0,
+      "twin_temp": 0.0,
+      "t4_temp": 19.0
+    }
+  }
+]
