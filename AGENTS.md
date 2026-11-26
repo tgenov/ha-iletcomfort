@@ -169,6 +169,20 @@ Status `raw_body` (0-indexed; STANDARD misreads this 25-byte frame):
   `room_target` climate attributes so reporters can compare them with the app.
 - The DHW water-heater entity (`water_heater.py`) is added only after a status frame for an ATW unit
   matched the layout (re-evaluated on coordinator updates, since `sn8` can be unknown at setup).
+- **Subtype `0x10` live telemetry (`v0.21.0`, #120 / #139 / #142):** `171H120F` firmware splits on
+  whether the Dollin cloud accepts a `0x10` query. Confirmed working on NØRDIS (#120) and Airwell
+  Wellea Split (#139: outdoor, water inlet/outlet, compressor frequency, ODU voltage, total energy,
+  condenser/evaporator/plate-HX/refrigerant temps, and high pressure in kPa). Rejected/unsupported
+  on Rotenso (#143) and Midea M-Thermal 16 kW (#142 `@blahavl`, 25-byte `[2]=0x11` with 38-byte
+  schedule template). `coordinator.py` probes `0x10` only when `0x02` is a placeholder and disables
+  it for the session after the first `ApiError` or invalid frame. Compressor total run hours are not
+  in `0x10`; they sit in subtype `0x0A` (`body[4..5]`, verified on NØRDIS #120), not yet polled.
+- **Airwell Wellea Split (`sn8 171H120F`, #139) controlled Silent/ECO test:** 27-byte status with
+  `body[2]=0x73`, `body[3]=0x90`, tail `e0,05,00` (does not match the `body[3:6] == a0,03,03`
+  Galmet/NØRDIS signature). Both Silent Level 1 and Super Silent (Level 2) set `body[3] & 0x02`
+  (`0x90 → 0x92`), confirming `0x01` only carries binary Silent ON/OFF (`super_silent_level` lives
+  in `0x05`). Enabling ECO left `body[3]=0x90` unchanged (do not assume `body[3] & 0x08` carries ECO
+  on all `171H120F` units).
 
 ### KJRH-120L dual variant (`sn8 17100003`, #5 / #69) — hardware-validated reads & Zone-1 writes
 - The same `sn8` covers pure-DHW and Zone-1 + DHW controllers. Gate the dual layout only when status
@@ -189,6 +203,12 @@ Status `raw_body` (0-indexed; STANDARD misreads this 25-byte frame):
   hardware lacks a zone is not known. See `docs/KJRH120L_SYSTEM_DECODE.md`.
 - DHW uses a separate Number entity and the confirmed short field `0x07` write. Pure-DHW keeps its
   existing climate behavior.
+- Outdoor ambient temperature (`t4_temp`) is decoded from `body[57] - 196` (v0.20.0, #156), live-
+  verified on v0.22.0 (#142 `@keramys`: `0xca` → 6.0 °C matching app 6 °C). In `@keramys`'s Normal vs
+  Silent Level 2 capture diff, `body[21]` and `body[31]` both flipped `0x00 → 0x01` (candidates
+  only; not decoded yet) while `body[49]` remained `0xdd` (tank temp remains unmapped). `@keramys`'s
+  working unit also reports `authStatus=0, activeStatus=0` in `appliance` metadata, so those zero
+  flags alone do not explain `code=1214` (relevant to #121).
 
 ### AQUAPURA profile (`sn8 171000AU`, AQS Energie split HPWH, #12; discriminator collision under audit)
 - The real water/tank temp is in `status.box_bottom_temp` (status byte[17], offset-decoded → e.g. 40 °C).

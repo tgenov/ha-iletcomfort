@@ -56,11 +56,13 @@ hardware lacks a zone or had it switched off is not known.
 ### Tank and outdoor temperature
 
 - **`body[57]` = `t4` + 196 (confirmed across four independent units):** Snapshot A (`0xd0` = 208 →
-  12 °C), Snapshot B (`0xcc` = 204 → 8 °C), #142 Inventor MX290-10S (`0xce` = 206 → 10 °C), and
-  #136 Mundoclima MUAMR-H14 (`0xce` = 206 → 10 °C), plus diurnal warming in #119 (`0xcd` → 9 °C to
-  `0xd9` → 21 °C). Decoded into `t4_temp` (Outdoor Ambient Temperature) by the integration.
+  12 °C), Snapshot B (`0xcc` = 204 → 8 °C), #142 Inventor MX290-10S (`0xce` = 206 → 10 °C, and
+  live-verified on v0.22.0 at `0xca` = 202 → 6 °C matching the app), and #136 Mundoclima MUAMR-H14
+  (`0xce` = 206 → 10 °C), plus diurnal warming in #119 (`0xcd` → 9 °C to `0xd9` → 21 °C). Decoded
+  into `t4_temp` (Outdoor Ambient Temperature) by the integration.
 - **`body[49]` = `tank_actual_temp` + 196 (candidate only):** matches Snapshots A/B (238 → 42 °C,
-  240 → 44 °C), but issue #5's frame carries `0x13` (19) at `body[49]`, so it is not decoded yet.
+  240 → 44 °C), but issue #5's frame carries `0x13` (19) at `body[49]` and #142 stayed at `0xdd`
+  across captures, so it is not decoded yet.
 
 The older note that the tank temperature sits at `body[233]` of subtype 0x10 is retracted. That byte
 was 78 in both snapshots while the tank went from 42 to 44.
@@ -96,7 +98,9 @@ Bytes that differ between A and B: `body[8]`, `body[9]`, `body[12]`, `body[15]`,
 `body[49]`, `body[57]` and the clock bytes `body[86]` to `body[88]`.
 
 Other boolean state flags sit around `body[21]`, `body[31]`, `body[34]` and `body[35]`. They did not
-change between A and B. Their meaning is not decoded.
+change between A and B. In #142 (Inventor MX290-10S), enabling Silent Level 2 flipped both `body[21]`
+and `body[31]` from `0x00` to `0x01` (with `body[53]` changing `0x06 → 0x09`), making them candidates
+for silent/super-silent state; they are not decoded yet.
 
 ## Other subtypes
 
