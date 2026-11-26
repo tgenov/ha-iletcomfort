@@ -21,7 +21,9 @@ from custom_components.iletcomfort.model_profiles import (
     apply_profile_to_status,
     resolve_profile,
 )
+from custom_components.iletcomfort.entity import async_remove_unsupported
 from custom_components.iletcomfort.protocols import (
+    REMOVABLE_CAPABILITIES,
     EntityCapabilities,
     EntitySupport,
     ViewContext,
@@ -154,6 +156,31 @@ def test_unknown_sn8_uses_standard_now_and_keeps_every_dialect_possible(control)
 
 
 # -- registry cleanup through a real config entry --------------------------------
+
+
+@pytest.mark.parametrize("capability", sorted(REMOVABLE_CAPABILITIES))
+def test_removable_capabilities_do_not_depend_on_options(capability):
+    """Cleanup may only use support that no owner option can change."""
+    for sn8 in (None, "UNKNOWN8", AQUAPURA_SN8, ATW_SN8, KJRH_SN8):
+        seen = {
+            getattr(_caps(sn8, state, control=control, latched=latched), capability)
+            for state in (None,)
+            for control in (False, True)
+            for latched in (False, True)
+        }
+        assert len({support.possible for support in seen}) == 1, sn8
+
+
+@pytest.mark.parametrize(
+    "capability", ["c3_controls", "zone2_curve", "fast_dhw", "kjrh120l_zone1", "nope"]
+)
+def test_cleanup_rejects_options_dependent_capability(capability):
+    """Removing e.g. the C3 switches when the opt-in is off would wipe user
+    customisations, so the helper refuses anything outside the allowlist."""
+    coordinator = MagicMock()
+    with pytest.raises(ValueError, match="options-independent"):
+        async_remove_unsupported(coordinator, MagicMock(), "switch", ["x"], capability)
+    coordinator.async_add_listener.assert_not_called()
 
 
 @pytest.fixture

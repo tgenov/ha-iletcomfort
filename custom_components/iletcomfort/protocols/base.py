@@ -369,10 +369,9 @@ class HeatPumpState:
     @property
     def dhw_target_range(self) -> tuple[float, float] | None:
         """Device-reported DHW ``(min, max)``, ignoring zeroed or inverted limits."""
-        basic = self.atw_c3_basic
-        if basic is None or not 0 < basic.dhw_min < basic.dhw_max:
-            return None
-        return float(basic.dhw_min), float(basic.dhw_max)
+        from .atw import atw_dhw_target_range
+
+        return atw_dhw_target_range(self.atw_c3_basic)
 
     # -- dialect helpers (climate regime logic, #192) ---------------------------
 

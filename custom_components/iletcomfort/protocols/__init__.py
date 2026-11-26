@@ -12,6 +12,7 @@ from .profile import ModelProfile, resolve_profile
 from .snapshot import build_snapshot, merge_atw_energy_notify
 from .standard import StandardAdapter
 from .views import (
+    REMOVABLE_CAPABILITIES,
     UNSUPPORTED,
     ClimateView,
     EntityCapabilities,
@@ -94,6 +95,7 @@ __all__ = [
     "ClimateView",
     "EntityCapabilities",
     "EntitySupport",
+    "REMOVABLE_CAPABILITIES",
     "UNSUPPORTED",
     "ViewContext",
     "FreshRead",

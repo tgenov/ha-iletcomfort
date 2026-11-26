@@ -15,7 +15,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN
 from .coordinator import ILetComfortCoordinator
-from .protocols import EntityCapabilities, EntitySupport
+from .protocols import REMOVABLE_CAPABILITIES, EntityCapabilities, EntitySupport
 
 SupportSelector = Callable[[EntityCapabilities], EntitySupport]
 _CommandT = TypeVar("_CommandT")
@@ -129,9 +129,16 @@ def async_remove_unsupported(
     entry: ConfigEntry,
     domain: str,
     unique_ids: Iterable[str],
-    support: SupportSelector,
+    capability: str,
 ) -> None:
     """Remove registry entries for entities the resolved dialect never exposes (#192).
+
+    ``capability`` names an ``EntityCapabilities`` field and must be in
+    ``REMOVABLE_CAPABILITIES``. Warning: only options-independent support is
+    allowed. A capability whose ``possible`` follows an owner option (e.g. the
+    ATW C3 switches and the C3 opt-in) would delete the registry entries, and
+    the user's customisations, whenever that option is turned off; such names
+    raise ``ValueError``.
 
     Entities that used to be created for every model (Boost, Silent Mode) stay
     in the entity registry of upgrading users once the platform stops creating
@@ -141,12 +148,18 @@ def async_remove_unsupported(
     check re-runs on coordinator updates until the profile settles, so a unit
     that resolves to such a model only after setup is cleaned up too.
     """
+    if capability not in REMOVABLE_CAPABILITIES:
+        raise ValueError(
+            f"{capability!r} is not an options-independent capability; "
+            f"registry cleanup is limited to {sorted(REMOVABLE_CAPABILITIES)}"
+        )
     ids = tuple(unique_ids)
 
     def _check() -> bool:
         """Remove stale entries if unsupported; return True once nothing can change."""
         caps = coordinator.entity_capabilities
-        if support(caps).possible:
+        support: EntitySupport = getattr(caps, capability)
+        if support.possible:
             return caps.profile_settled
         registry = er.async_get(coordinator.hass)
         for unique_id in ids:

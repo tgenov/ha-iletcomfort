@@ -470,6 +470,18 @@ def atw_climate_temp_bounds(
     return default_climate_temp_bounds(set_mode)
 
 
+# The water heater's displayed range when the unit reports no valid DHW
+# limits: Home Assistant's WaterHeaterEntity default of 110-140 °F in °C.
+ATW_DHW_FALLBACK_RANGE = ((110 - 32) / 1.8, (140 - 32) / 1.8)
+
+
+def atw_dhw_target_range(basic: C3BasicStatus | None) -> tuple[float, float] | None:
+    """Device-reported DHW ``(min, max)``, ignoring zeroed or inverted limits."""
+    if basic is None or not 0 < basic.dhw_min < basic.dhw_max:
+        return None
+    return float(basic.dhw_min), float(basic.dhw_max)
+
+
 def _c3_zone_range(low: float, high: float) -> tuple[float, float]:
     """A C3 basic zone's reported range, or the fallback when zeroed/inverted."""
     if not 0 < low < high:
@@ -680,7 +692,10 @@ def plan_atw_write(command: HeatPumpCommand, ctx: WriteContext) -> WritePlan:
     if isinstance(command, SetDhwPowerCommand):
         return _c3_basic_plan(dhw_power=command.on)
     if isinstance(command, SetDhwTargetCommand):
-        return _c3_basic_plan(dhw_target=command.temperature)
+        # Clamp to the range the water heater shows; apply_basic_changes
+        # still refuses a value outside the fresh read's limits.
+        low, high = atw_dhw_target_range(basic) or ATW_DHW_FALLBACK_RANGE
+        return _c3_basic_plan(dhw_target=max(low, min(command.temperature, high)))
     if isinstance(command, SetFastDhwCommand):
         return _c3_basic_plan(fast_dhw=command.enabled)
     if isinstance(command, SetZonePowerCommand):

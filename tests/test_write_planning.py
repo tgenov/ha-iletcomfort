@@ -62,6 +62,7 @@ from custom_components.iletcomfort.protocols import (
 from tests.kjrh120l_snapshots import KJRH120L_SNAPSHOT_A
 from tests.test_api import ISSUE_11_STATUS_BODY
 from tests.test_c3_basic import (
+    _rotenso_set,
     KAISAI_DUAL_ZONE,
     ROTENSO_BASELINE,
     ROTENSO_COOLING_REPLY,
@@ -80,6 +81,7 @@ from tests.test_c3_basic import (
 )
 
 Q01 = build_c3_query(0x01)
+ROTENSO_SET_DHW_60 = _rotenso_set(dhw=60)
 Q05 = build_c3_query(0x05)
 Q07 = build_c3_query(0x07)
 ACK = "aa0bc300000000000002012d"
@@ -100,6 +102,7 @@ def _with(body: bytes, **index_values: int) -> bytes:
 ROTENSO_BODY = _body(ROTENSO_BASELINE)
 ROTENSO_ROOM_BODY = _with(ROTENSO_BODY, b2=ROTENSO_BODY[2] & ~0x10)
 ROTENSO_NO_DHW_BODY = _with(ROTENSO_BODY, b2=ROTENSO_BODY[2] & ~0x04)
+ROTENSO_NO_DHW_RANGE_BODY = _with(ROTENSO_BODY, b20=0, b21=0)
 ECO_REPLY = _reply(ROTENSO_ECO_QUERY)
 # Airwell #139 C8: Super Silent bit 3 retained while Silent is OFF.
 AIRWELL_SILENCE_OFF_SUPER = bytes.fromhex("05 08 06 1e 09 1e 16 00 07 00")
@@ -121,6 +124,8 @@ LEGACY_BOOST = _LEGACY + "01422d3f3700233700000000000002003f" + "00" * 32 + "7b"
 LEGACY_MUTE_1 = _LEGACY + "01422d3f3700233700000000000001003f" + "00" * 32 + "7c"
 LEGACY_MUTE_2 = _LEGACY + "01422d3f3700233700000000000101003f" + "00" * 32 + "7b"
 ISSUE_11_REPLY = _reply(ISSUE_11_STATUS_BODY)
+# The #11 frame switched to Cool (status mode byte body[2] = 2) since the last poll.
+ISSUE_11_COOL_REPLY = _reply(_with(ISSUE_11_STATUS_BODY, b2=2))
 # #47 reporter's diagnostics: a layout whose mode byte is not recognised.
 ISSUE_47_REPLY = _reply(
     bytes.fromhex(
@@ -278,9 +283,16 @@ ROWS: dict[str, Row] = {
         ATW_SN8, _atw_ctx(ROTENSO_NO_DHW_BODY), SetFastDhwCommand(True), (Q01,),
         {Q01: _reply(ROTENSO_NO_DHW_BODY)}, error=(UnsupportedC3Write, "DHW"),
     ),
+    # The DHW target is clamped to the reported 20-60 °C range (#192; this
+    # moved from the water heater into the dialect)...
+    "atw_dhw_target_clamped_to_reported_range": Row(
+        ATW_SN8, _atw_ctx(), SetDhwTargetCommand(61),
+        (Q01, ROTENSO_SET_DHW_60), {Q01: ROTENSO_BASELINE},
+    ),
+    # ...and a unit without a valid DHW range is still refused after the read.
     "atw_dhw_target_out_of_range_refused_after_read": Row(
-        ATW_SN8, _atw_ctx(), SetDhwTargetCommand(61), (Q01,),
-        {Q01: ROTENSO_BASELINE}, error=(ValueError, "outside"),
+        ATW_SN8, _atw_ctx(ROTENSO_NO_DHW_RANGE_BODY), SetDhwTargetCommand(61), (Q01,),
+        {Q01: _reply(ROTENSO_NO_DHW_RANGE_BODY)}, error=(ValueError, "outside 0-0"),
     ),
     "atw_unknown_status_layout_refused_after_read": Row(
         ATW_SN8, _atw_ctx(), SetDhwTargetCommand(54), (Q01,),
@@ -436,7 +448,14 @@ ROWS: dict[str, Row] = {
         None, STANDARD_CTX, SetTargetTemperatureCommand(50), (Q01, LEGACY_TEMP_40),
         {Q01: ISSUE_11_REPLY},
     ),
-    # ...while the encode step still validates the range against the fresh read.
+    # A target valid for the cached Heat mode is still validated against the
+    # fresh read: the unit switched to Cool (12-40 °C), so 11 °C is refused.
+    "standard_temperature_refused_when_fresh_mode_differs": Row(
+        None, STANDARD_CTX, SetTargetTemperatureCommand(11), (Q01,),
+        {Q01: ISSUE_11_COOL_REPLY},
+        error=(ValueError, "Temperature 11C out of range for cool mode"),
+    ),
+    # ...and the encode step validates the DHW target the same way.
     "standard_temperature_out_of_range_refused_after_read": Row(
         None, STANDARD_CTX, SetDhwTargetCommand(50), (Q01,),
         {Q01: ISSUE_11_REPLY}, error=(ValueError, "out of range"),

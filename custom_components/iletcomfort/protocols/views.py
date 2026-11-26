@@ -87,6 +87,12 @@ class EntityCapabilities:
         return replace(self, **changes)
 
 
+# Capabilities whose ``possible`` depends only on the dialect (never on an owner
+# option such as the C3 opt-in), so a stale registry entry can safely be
+# removed when they are not possible. Do not add option-dependent entries:
+# toggling the option would delete the entities and the user's customisations.
+REMOVABLE_CAPABILITIES = frozenset({"boost", "mute"})
+
 # Boost and Silent Mode on dialects that write them with the legacy ITS SET.
 LEGACY_BOOST_MUTE = EntitySupport(exists=True, possible=True, available=True, writable=True)
 
@@ -248,6 +254,7 @@ __all__ = [
     "LEGACY_BOOST_MUTE",
     "LEGACY_HVAC_MODES",
     "NO_ZONE2_VIEW",
+    "REMOVABLE_CAPABILITIES",
     "UNSUPPORTED",
     "ViewContext",
     "legacy_climate_view",

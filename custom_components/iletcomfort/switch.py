@@ -53,7 +53,7 @@ async def async_setup_entry(
         entry,
         "switch",
         [boost_unique_id(coordinator.appliance_code)],
-        lambda caps: caps.boost,
+        "boost",
     )
     async_add_kjrh120l_zone1_entities(
         coordinator,

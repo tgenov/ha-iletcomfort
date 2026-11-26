@@ -19,7 +19,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from .commands import SetDhwPowerCommand, SetDhwTargetCommand
 from .const import DOMAIN
 from .coordinator import ILetComfortCoordinator
-from .entity import async_add_supported, build_device_info
+from .entity import async_add_supported, build_device_info, target_command
 from .protocols import HeatPumpState
 
 
@@ -119,8 +119,10 @@ class ILetComfortDhw(CoordinatorEntity[ILetComfortCoordinator], WaterHeaterEntit
         temp = kwargs.get(ATTR_TEMPERATURE)
         if temp is None:
             return
-        clamped = max(self.min_temp, min(float(temp), self.max_temp))
-        await self.coordinator.async_send_command(SetDhwTargetCommand(clamped))
+        # The dialect clamps to the DHW range shown here (#192).
+        await self.coordinator.async_send_command(
+            target_command(SetDhwTargetCommand, temp)
+        )
 
     async def async_set_operation_mode(self, operation_mode: str) -> None:
         if operation_mode not in self._attr_operation_list:

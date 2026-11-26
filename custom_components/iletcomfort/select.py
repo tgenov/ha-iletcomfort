@@ -55,7 +55,7 @@ async def async_setup_entry(
         entry,
         "select",
         [mute_unique_id(coordinator.appliance_code)],
-        lambda caps: caps.mute,
+        "mute",
     )
     async_add_kjrh120l_zone1_entities(
         coordinator,

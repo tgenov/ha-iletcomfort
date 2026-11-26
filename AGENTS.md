@@ -294,11 +294,12 @@ Status `raw_body` (0-indexed; STANDARD misreads this 25-byte frame):
   the requested value.
 - **Clamping and range refusals are dialect-owned (#113/#192):** `plan_write` clamps
   `SetTargetTemperatureCommand` to the climate view's bounds (STANDARD/AQUAPURA by mode, KJRH-120L
-  20–70 °C, ATW C3 range), ATW `SetZoneTargetCommand(2)` to the Zone-2 view, and KJRH-120L
-  `SetDhwTargetCommand` to 35–60 °C; `kjrh120l_zone1_target` refuses a Zone-1 target that is not a
-  whole degree or outside the reported range. Entities never clamp. Non-finite service values are
-  refused when the command is built (`entity.target_command`); the water heater still clamps to its
-  own displayed DHW range.
+  20–70 °C, ATW C3 range), ATW `SetZoneTargetCommand(2)` to the Zone-2 view, ATW
+  `SetDhwTargetCommand` to the reported DHW range (`atw_dhw_target_range`, else HA's 110–140 °F
+  water-heater default the entity shows), and KJRH-120L `SetDhwTargetCommand` to 35–60 °C;
+  `kjrh120l_zone1_target` refuses a Zone-1 target that is not a whole degree or outside the reported
+  range. Entities never clamp. Non-finite service values are refused when the command is built
+  (`entity.target_command`).
 - **Which optional entities exist is dialect-owned (#192):** `ProtocolAdapter.entity_capabilities(status,
   ViewContext)` returns an `EntityCapabilities` (`protocols/views.py`): one `EntitySupport(exists,
   possible, available, writable)` each for Boost, Silent Mode (mute), Zone-2 climate, DHW water heater,
@@ -312,7 +313,9 @@ Status `raw_body` (0-indexed; STANDARD misreads this 25-byte frame):
   `entity.async_remove_unsupported` removes exactly the `<code>_boost` / `<code>_mute` registry entries
   owned by the config entry when the dialect says they are not `possible`, at setup and, while `sn8`
   is unknown, on coordinator updates until the profile settles (so a late KJRH resolution also removes
-  the live entities). Every other model keeps them with unchanged unique_ids.
+  the live entities). Every other model keeps them with unchanged unique_ids. The helper only accepts
+  names in `REMOVABLE_CAPABILITIES` (options-independent support); an option-dependent capability such
+  as the C3 switches would delete entities and user customisations whenever the opt-in is turned off.
 - `sensor.py`: **"Water Inlet Temperature"** ← `water_inlet_temp` (`twin_temp`); **"DHW Tank
   Temperature"** ← `dhw_tank_temp` (`th_temp`).
 - **Unknown vs zero:** telemetry fields (`comp_frq`, `exv_drg`, `pressure_h/l`, `total_kwh`,
