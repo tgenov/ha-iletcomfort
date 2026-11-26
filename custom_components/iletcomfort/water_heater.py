@@ -16,18 +16,11 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .c3_basic import C3BasicStatus
 from .commands import SetDhwPowerCommand, SetDhwTargetCommand
 from .const import DOMAIN
 from .coordinator import ILetComfortCoordinator
-from .entity import async_add_when_capable, build_device_info
-from .model_profiles import ModelProfile
-from .protocols import HeatPumpState, get_adapter
-
-
-def _coordinator_c3_basic(coordinator: ILetComfortCoordinator) -> C3BasicStatus | None:
-    state = coordinator.data
-    return state.atw_c3_basic if state is not None else None
+from .entity import async_add_supported, build_device_info
+from .protocols import HeatPumpState
 
 
 async def async_setup_entry(
@@ -38,20 +31,12 @@ async def async_setup_entry(
     """Add the DHW entity once a C3 basic-layout DHW unit has been seen."""
     coordinator: ILetComfortCoordinator = hass.data[DOMAIN][entry.entry_id]
 
-    def _has_dhw() -> bool:
-        basic = _coordinator_c3_basic(coordinator)
-        return basic is not None and basic.cap_dhw
-
-    async_add_when_capable(
+    async_add_supported(
         coordinator,
         entry,
         async_add_entities,
-        is_capable=_has_dhw,
-        can_become_capable=lambda: (
-            coordinator.sn8 is None
-            or get_adapter(coordinator.sn8).profile is ModelProfile.ATW
-        ),
-        build=lambda: [ILetComfortDhw(coordinator)],
+        lambda caps: caps.dhw_water_heater,
+        lambda: [ILetComfortDhw(coordinator)],
     )
 
 
@@ -74,16 +59,17 @@ class ILetComfortDhw(CoordinatorEntity[ILetComfortCoordinator], WaterHeaterEntit
         self._attr_device_info = build_device_info(coordinator)
 
     @property
-    def _basic(self) -> C3BasicStatus | None:
-        return _coordinator_c3_basic(self.coordinator)
+    def _backed(self) -> bool:
+        """Whether the current status carries the DHW layout this entity reads."""
+        return self.coordinator.entity_capabilities.dhw_water_heater.available
 
     @property
     def available(self) -> bool:
-        return super().available and self._basic is not None
+        return super().available and self._backed
 
     @property
     def supported_features(self) -> WaterHeaterEntityFeature:
-        if not isinstance(self.coordinator.c3_basic_controllable, C3BasicStatus):
+        if not self.coordinator.entity_capabilities.dhw_water_heater.writable:
             return WaterHeaterEntityFeature(0)
         return (
             WaterHeaterEntityFeature.TARGET_TEMPERATURE
@@ -95,7 +81,7 @@ class ILetComfortDhw(CoordinatorEntity[ILetComfortCoordinator], WaterHeaterEntit
     def _state(self) -> HeatPumpState | None:
         """The snapshot, only while it carries the C3 basic DHW layout."""
         state = self.coordinator.data
-        return state if state is not None and self._basic is not None else None
+        return state if state is not None and self._backed else None
 
     @property
     def current_operation(self) -> str | None:

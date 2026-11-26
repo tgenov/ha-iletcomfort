@@ -37,6 +37,7 @@ from ..commands import (
 )
 from .kjrh120l import zone1_run_mode_setpoint
 from .profile import ModelProfile
+from .views import LEGACY_BOOST_MUTE, EntityCapabilities, ViewContext
 from .write import (
     C3_CONTROL_DISABLED,
     KJRH120L_ONLY_ZONE1,
@@ -230,6 +231,11 @@ class StandardAdapter:
     def dhw_target_temp(self, status: ITSStatus) -> float | None:
         # No DHW-target entity reads the legacy layout; not exposed.
         return None
+
+    def entity_capabilities(
+        self, status: ITSStatus | None, ctx: ViewContext
+    ) -> EntityCapabilities:
+        return EntityCapabilities(boost=LEGACY_BOOST_MUTE, mute=LEGACY_BOOST_MUTE)
 
     def plan_write(self, command: HeatPumpCommand, ctx: WriteContext) -> WritePlan:
         return plan_legacy_its_write(command, ctx)

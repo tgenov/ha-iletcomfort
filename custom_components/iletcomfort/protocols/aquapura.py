@@ -10,6 +10,7 @@ from ..c3_frame import build_c3_query
 from .profile import ModelProfile
 from ..commands import HeatPumpCommand
 from .standard import default_climate_temp_bounds, plan_legacy_its_write
+from .views import LEGACY_BOOST_MUTE, EntityCapabilities, ViewContext
 from .write import WriteContext, WritePlan
 
 
@@ -68,6 +69,11 @@ class AquapuraAdapter:
 
     def dhw_target_temp(self, status: ITSStatus) -> float | None:
         return None
+
+    def entity_capabilities(
+        self, status: ITSStatus | None, ctx: ViewContext
+    ) -> EntityCapabilities:
+        return EntityCapabilities(boost=LEGACY_BOOST_MUTE, mute=LEGACY_BOOST_MUTE)
 
     def plan_write(self, command: HeatPumpCommand, ctx: WriteContext) -> WritePlan:
         return plan_legacy_its_write(command, ctx)

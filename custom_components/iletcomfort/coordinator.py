@@ -65,10 +65,13 @@ from .model_profiles import (
 )
 from .mqtt import ILetComfortPushClient
 from .protocols import (
+    EntityCapabilities,
     HeatPumpState,
+    ViewContext,
     build_snapshot,
     get_adapter,
     merge_atw_energy_notify,
+    project_entity_capabilities,
     run_write_plan,
     WriteContext,
     WritePlan,
@@ -236,6 +239,19 @@ class ILetComfortCoordinator(DataUpdateCoordinator[HeatPumpState]):
             resolve_profile(self.sn8) is ModelProfile.KJRH120L
             and self.entry.data.get(CONF_KJRH120L_ZONE1_CAPABLE) is True
         )
+
+    @property
+    def view_context(self) -> ViewContext:
+        """Owner options and latched observations for dialect projections (#192)."""
+        return ViewContext(
+            c3_basic_control=self._c3_basic_control,
+            kjrh120l_zone1_latched=self.kjrh120l_zone1_capable,
+        )
+
+    @property
+    def entity_capabilities(self) -> EntityCapabilities:
+        """Which optional entities the selected dialect exposes now (#192)."""
+        return project_entity_capabilities(self.sn8, self.data, self.view_context)
 
     @callback
     def _observe_kjrh120l_zone1(self, status: ITSStatus) -> None:

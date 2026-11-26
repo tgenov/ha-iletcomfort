@@ -12,7 +12,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .c3_basic import FEATURE_ECO, FEATURE_SILENT, C3BasicStatus
+from .c3_basic import FEATURE_ECO, FEATURE_SILENT
 from .commands import (
     SetBoostCommand,
     SetDhwPowerCommand,
@@ -26,11 +26,11 @@ from .const import DOMAIN
 from .coordinator import ILetComfortCoordinator
 from .entity import (
     async_add_kjrh120l_zone1_entities,
-    async_add_when_capable,
+    async_add_supported,
+    async_remove_unsupported,
     build_device_info,
 )
-from .model_profiles import ModelProfile
-from .protocols import HeatPumpState, get_adapter
+from .protocols import HeatPumpState
 
 
 async def async_setup_entry(
@@ -40,7 +40,21 @@ async def async_setup_entry(
 ) -> None:
     """Set up switch entities."""
     coordinator: ILetComfortCoordinator = hass.data[DOMAIN][entry.entry_id]
-    async_add_entities([ILetComfortBoostSwitch(coordinator)])
+    async_add_supported(
+        coordinator,
+        entry,
+        async_add_entities,
+        lambda caps: caps.boost,
+        lambda: [ILetComfortBoostSwitch(coordinator)],
+    )
+    # Boost used to be created for every model; drop it where unsupported.
+    async_remove_unsupported(
+        coordinator,
+        entry,
+        "switch",
+        [boost_unique_id(coordinator.appliance_code)],
+        lambda caps: caps.boost,
+    )
     async_add_kjrh120l_zone1_entities(
         coordinator,
         entry,
@@ -50,20 +64,18 @@ async def async_setup_entry(
             ILetComfortKjrh120lDhwPowerSwitch(coordinator),
         ],
     )
-    async_add_when_capable(
+    async_add_supported(
         coordinator,
         entry,
         async_add_entities,
-        is_capable=lambda: isinstance(coordinator.c3_basic_controllable, C3BasicStatus),
-        can_become_capable=lambda: (
-            coordinator.c3_basic_control_enabled
-            and (
-                coordinator.sn8 is None
-                or get_adapter(coordinator.sn8).profile is ModelProfile.ATW
-            )
-        ),
-        build=lambda: _build_c3_switches(coordinator),
+        lambda caps: caps.c3_controls,
+        lambda: _build_c3_switches(coordinator),
     )
+
+
+def boost_unique_id(appliance_code: str) -> str:
+    """Return the Boost switch unique_id (pinned; see test_hardware_corpus)."""
+    return f"{appliance_code}_boost"
 
 
 def _build_c3_switches(coordinator: ILetComfortCoordinator) -> list[SwitchEntity]:
@@ -85,10 +97,10 @@ def _build_c3_switches(coordinator: ILetComfortCoordinator) -> list[SwitchEntity
             lambda state: state.eco_enabled,
         ),
     ]
-    basic = coordinator.c3_basic_controllable
-    if isinstance(basic, C3BasicStatus) and basic.double_zone:
+    caps = coordinator.entity_capabilities
+    if caps.zone2_curve.exists:
         switches.append(ILetComfortC3Zone2CurveSwitch(coordinator))
-    if isinstance(basic, C3BasicStatus) and basic.cap_dhw:
+    if caps.fast_dhw.exists:
         switches.append(ILetComfortC3FastDhwSwitch(coordinator))
     return switches
 
@@ -102,7 +114,7 @@ class ILetComfortBoostSwitch(CoordinatorEntity[ILetComfortCoordinator], SwitchEn
 
     def __init__(self, coordinator: ILetComfortCoordinator) -> None:
         super().__init__(coordinator)
-        self._attr_unique_id = f"{coordinator.appliance_code}_boost"
+        self._attr_unique_id = boost_unique_id(coordinator.appliance_code)
         self._attr_device_info = build_device_info(coordinator)
 
     @property
@@ -194,18 +206,18 @@ class _ILetComfortC3Switch(CoordinatorEntity[ILetComfortCoordinator], SwitchEnti
         self._attr_device_info = build_device_info(coordinator)
 
     @property
-    def _basic(self) -> C3BasicStatus | None:
-        basic = self.coordinator.c3_basic_controllable
-        return basic if isinstance(basic, C3BasicStatus) else None
+    def _controlled(self) -> bool:
+        """Whether C3 basic control is active for the current status."""
+        return self.coordinator.entity_capabilities.c3_controls.available
 
     @property
     def available(self) -> bool:
-        return super().available and self._basic is not None
+        return super().available and self._controlled
 
     def _controlled_value(self, read: Callable[[HeatPumpState], bool | None]) -> bool | None:
         """Read a domain value only while C3 basic control is active."""
         state = self.coordinator.data
-        if self._basic is None or state is None:
+        if not self._controlled or state is None:
             return None
         return read(state)
 
@@ -245,8 +257,10 @@ class ILetComfortC3Zone2CurveSwitch(_ILetComfortC3Switch):
 
     @property
     def available(self) -> bool:
-        basic = self._basic
-        return super().available and basic is not None and basic.double_zone
+        return (
+            super().available
+            and self.coordinator.entity_capabilities.zone2_curve.available
+        )
 
     @property
     def is_on(self) -> bool | None:

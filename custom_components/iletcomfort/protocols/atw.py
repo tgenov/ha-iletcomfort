@@ -59,6 +59,7 @@ from ..commands import (
 from .kjrh120l import zone1_run_mode_setpoint
 from .profile import ModelProfile, resolve_profile
 from .standard import default_climate_temp_bounds
+from .views import EntityCapabilities, EntitySupport, ViewContext
 from .write import (
     C3_CONTROL_DISABLED,
     KJRH120L_ONLY_ZONE1,
@@ -625,6 +626,48 @@ class AtwAdapter:
     def dhw_target_temp(self, status: ITSStatus) -> float | None:
         basic = status.c3_basic
         return float(basic.dhw_target) if isinstance(basic, C3BasicStatus) else None
+
+    def entity_capabilities(
+        self, status: ITSStatus | None, ctx: ViewContext
+    ) -> EntityCapabilities:
+        basic = self.c3_basic(status)
+        controllable = basic if ctx.c3_basic_control else None
+        control = controllable is not None
+        double_zone = basic is not None and basic.double_zone
+        c3_possible = ctx.c3_basic_control
+        zone2_curve = control and double_zone
+        fast_dhw = controllable is not None and controllable.cap_dhw
+        return EntityCapabilities(
+            # Boost has no C3 write; Silent writes need the C3 opt-in.
+            boost=EntitySupport(exists=True, possible=True, available=True),
+            mute=EntitySupport(
+                exists=True, possible=True, available=True, writable=control
+            ),
+            zone2_climate=EntitySupport(
+                exists=double_zone,
+                possible=True,
+                available=double_zone,
+                writable=control and double_zone,
+            ),
+            dhw_water_heater=EntitySupport(
+                exists=basic is not None and basic.cap_dhw,
+                possible=True,
+                available=basic is not None,
+                writable=control,
+            ),
+            c3_controls=EntitySupport(
+                exists=control, possible=c3_possible, available=control, writable=control
+            ),
+            zone2_curve=EntitySupport(
+                exists=zone2_curve,
+                possible=c3_possible,
+                available=zone2_curve,
+                writable=zone2_curve,
+            ),
+            fast_dhw=EntitySupport(
+                exists=fast_dhw, possible=c3_possible, available=control, writable=fast_dhw
+            ),
+        )
 
     def plan_write(self, command: HeatPumpCommand, ctx: WriteContext) -> WritePlan:
         return plan_atw_write(command, ctx)

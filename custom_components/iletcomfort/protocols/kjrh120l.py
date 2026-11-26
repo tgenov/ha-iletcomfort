@@ -26,6 +26,7 @@ from ..commands import (
     ZoneRunModeIntent,
 )
 from .profile import ModelProfile
+from .views import EntityCapabilities, EntitySupport, ViewContext
 from .write import (
     C3_CONTROL_DISABLED,
     STATUS_NOT_REPORTED,
@@ -360,6 +361,18 @@ class Kjrh120lAdapter:
         # leaves body[15] (the DHW setpoint) in t5s_def so pure-DHW units
         # keep their existing single-setpoint behavior.
         return status.t5s_def
+
+    def entity_capabilities(
+        self, status: ITSStatus | None, ctx: ViewContext
+    ) -> EntityCapabilities:
+        # No Boost or Silent write has been captured for this controller, so
+        # those entities are not exposed (#192; the writes refuse since #229).
+        latched = ctx.kjrh120l_zone1_latched
+        return EntityCapabilities(
+            kjrh120l_zone1=EntitySupport(
+                exists=latched, possible=True, available=latched, writable=True
+            ),
+        )
 
     def plan_write(self, command: HeatPumpCommand, ctx: WriteContext) -> WritePlan:
         return plan_kjrh120l_write(command, ctx)

@@ -284,6 +284,20 @@ Status `raw_body` (0-indexed; STANDARD misreads this 25-byte frame):
   (data-driven) or in a `ProtocolAdapter` method (e.g. `dhw_target_temp`). Add a property before an
   entity needs a new value. Climate's per-regime mode/target/bounds logic still reads `C3BasicStatus`
   (#192).
+- **Which optional entities exist is dialect-owned (#192):** `ProtocolAdapter.entity_capabilities(status,
+  ViewContext)` returns an `EntityCapabilities` (`protocols/views.py`): one `EntitySupport(exists,
+  possible, available, writable)` each for Boost, Silent Mode (mute), Zone-2 climate, DHW water heater,
+  the opt-in C3 switches, Zone-2 curve, Fast DHW and the KJRH-120L Zone-1 group. Read it as
+  `coordinator.entity_capabilities` (`protocols.project_entity_capabilities(sn8, state, ctx)`); while
+  `sn8` is unknown, `exists` comes from the STANDARD default and anything any dialect could expose stays
+  `possible` (`profile_settled=False`). Platforms add entities with `entity.async_add_supported` and
+  must not import `ModelProfile` or call `resolve_profile` / `get_adapter(...).profile`.
+- **Boost and Silent Mode are hidden on the KJRH-120L (#192):** no write was ever captured for them
+  (they sent DHW-OFF before #229 and refuse since). Because they used to be created for every model,
+  `entity.async_remove_unsupported` removes exactly the `<code>_boost` / `<code>_mute` registry entries
+  owned by the config entry when the dialect says they are not `possible`, at setup and, while `sn8`
+  is unknown, on coordinator updates until the profile settles (so a late KJRH resolution also removes
+  the live entities). Every other model keeps them with unchanged unique_ids.
 - `sensor.py`: **"Water Inlet Temperature"** ← `water_inlet_temp` (`twin_temp`); **"DHW Tank
   Temperature"** ← `dhw_tank_temp` (`th_temp`).
 - **Unknown vs zero:** telemetry fields (`comp_frq`, `exv_drg`, `pressure_h/l`, `total_kwh`,
@@ -408,7 +422,9 @@ does not enforce per-appliance topic ACLs.
 | `diagnostics.py` | Redacted snapshot: raw frames, decoded status/sensors, `sensors_temperature_scan` (per-byte `_temp_offset` map — use it to find a model's misplaced temp byte), and the `appliance` metadata block. `APPLIANCE_TO_REDACT = {owner, sn, name}` (keeps `applianceType`/`modelNumber`/`sn8`). |
 | `climate.py` / `number.py` / `sensor.py` / `binary_sensor.py` / `switch.py` / `select.py` / `water_heater.py` | HA entities; they read domain-named `HeatPumpState` properties only. See §4 entity routing. |
 | `protocols/base.py` | `HeatPumpState` (`coordinator.data`, domain-named read properties, unknown = `None`) and the `ProtocolAdapter` contract. |
-| `config_flow.py` / `__init__.py` / `const.py` / `entity.py` | Setup, entry, constants, base entity. |
+| `protocols/views.py` | Pure, dialect-owned entity projections (#192): `ViewContext` (C3 opt-in, latched KJRH Zone 1) and `EntityCapabilities` / `EntitySupport` (which optional entities exist, may appear, are available and writable). |
+| `entity.py` | `build_device_info`; `async_add_when_capable` / `async_add_supported` (add from the capability projection, keep listening while `possible`); `async_remove_unsupported` (remove stale registry entries the dialect never exposes). |
+| `config_flow.py` / `__init__.py` / `const.py` | Setup, entry, constants. |
 | `tests/` | pytest suite; real captured frames are pinned as fixtures (e.g. issue-#11 frames for STANDARD regression). Build a test `coordinator.data` with `tests/snapshot_helpers.py::make_state(status, sensors, raw_frames, sn8=...)`, which runs the production `build_snapshot`. |
 
 ---

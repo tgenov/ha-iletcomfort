@@ -33,13 +33,11 @@ from .commands import (
 )
 from .const import DOMAIN
 from .coordinator import ILetComfortCoordinator
-from .entity import async_add_when_capable, build_device_info
-from .model_profiles import ModelProfile
+from .entity import async_add_supported, build_device_info
 from .protocols import (
     HeatPumpState,
     get_adapter,
     is_kjrh120l_dual_state,
-    profile_climate_temp_bounds,
 )
 
 # Query response mode (from device) → HA HVAC mode
@@ -81,20 +79,12 @@ async def async_setup_entry(
     coordinator: ILetComfortCoordinator = hass.data[DOMAIN][entry.entry_id]
     async_add_entities([ILetComfortClimate(coordinator)])
 
-    def _has_zone2() -> bool:
-        basic = _coordinator_c3_basic(coordinator)
-        return basic is not None and basic.double_zone
-
-    async_add_when_capable(
+    async_add_supported(
         coordinator,
         entry,
         async_add_entities,
-        is_capable=_has_zone2,
-        can_become_capable=lambda: (
-            coordinator.sn8 is None
-            or get_adapter(coordinator.sn8).profile is ModelProfile.ATW
-        ),
-        build=lambda: [ILetComfortC3Zone2Climate(coordinator)],
+        lambda caps: caps.zone2_climate,
+        lambda: [ILetComfortC3Zone2Climate(coordinator)],
     )
 
 
@@ -283,8 +273,8 @@ class ILetComfortClimate(CoordinatorEntity[ILetComfortCoordinator], ClimateEntit
         state = self._state
         if state is not None:
             return state.climate_temp_bounds(set_mode)[0]
-        return profile_climate_temp_bounds(
-            get_adapter(self.coordinator.sn8).profile, set_mode
+        return get_adapter(self.coordinator.sn8).climate_temp_bounds(
+            None, set_mode
         )[0]
 
     @property
@@ -296,8 +286,8 @@ class ILetComfortClimate(CoordinatorEntity[ILetComfortCoordinator], ClimateEntit
         state = self._state
         if state is not None:
             return state.climate_temp_bounds(set_mode)[1]
-        return profile_climate_temp_bounds(
-            get_adapter(self.coordinator.sn8).profile, set_mode
+        return get_adapter(self.coordinator.sn8).climate_temp_bounds(
+            None, set_mode
         )[1]
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:

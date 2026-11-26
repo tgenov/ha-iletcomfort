@@ -14,6 +14,7 @@ from .kjrh120l import (
     kjrh120l_zone1_range,
 )
 from .profile import ModelProfile
+from .views import EntityCapabilities, ViewContext
 from .write import WriteContext, WritePlan
 
 
@@ -411,6 +412,11 @@ class ProtocolAdapter(Protocol):
 
     def dhw_target_temp(self, status: ITSStatus) -> float | None:
         """Return the DHW target in °C as this dialect reports it, else None."""
+
+    def entity_capabilities(
+        self, status: ITSStatus | None, ctx: ViewContext
+    ) -> EntityCapabilities:
+        """Project which optional entities exist / may appear (pure, #192)."""
 
     def plan_write(self, command: HeatPumpCommand, ctx: WriteContext) -> WritePlan:
         """Plan ``command`` as a wire write for this dialect (pure, no I/O, #113).

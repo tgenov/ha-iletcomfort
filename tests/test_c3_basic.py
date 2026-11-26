@@ -1076,8 +1076,9 @@ async def test_c3_switches_added_only_with_opt_in(hass: HomeAssistant):
     added_opt_in: list = []
     await switch.async_setup_entry(hass, opt_in.entry, added_opt_in.extend)
     assert [e.unique_id for e in added_opt_in] == ["APPL1_boost"]
-    # Two listeners while sn8 is unknown: KJRH-120L Zone-1 and C3 switches.
-    assert len(opt_in._listeners) == 2
+    # Three listeners while sn8 is unknown: KJRH-120L Zone-1, C3 switches and
+    # the Boost registry cleanup (#192), which waits for the profile to settle.
+    assert len(opt_in._listeners) == 3
 
     opt_in.appliance_meta = {"sn8": ATW_SN8}
     opt_in.data = make_state(decode_atw_status(_body(ROTENSO_BASELINE)), ITSSensors(), sn8=ATW_SN8)
