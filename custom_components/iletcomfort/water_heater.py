@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
-
 from homeassistant.components.water_heater import (
     STATE_HEAT_PUMP,
     WaterHeaterEntity,
@@ -11,14 +9,14 @@ from homeassistant.components.water_heater import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import STATE_OFF, UnitOfTemperature
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .c3_basic import C3BasicStatus
 from .const import DOMAIN
 from .coordinator import ILetComfortCoordinator
-from .entity import build_device_info
+from .entity import async_add_when_capable, build_device_info
 from .model_profiles import ModelProfile, atw_c3_basic, resolve_profile
 
 
@@ -31,47 +29,24 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Add the DHW entity once a C3 basic-layout DHW unit has been seen.
-
-    The model code (sn8) and the first status frame may not be known at setup
-    (e.g. the cloud metadata lookup failed on first start), so the decision is
-    re-evaluated on every coordinator update until the entity is added. Other
-    models never get this entity.
-    """
+    """Add the DHW entity once a C3 basic-layout DHW unit has been seen."""
     coordinator: ILetComfortCoordinator = hass.data[DOMAIN][entry.entry_id]
-    unsubscribe: Callable[[], None] | None = None
 
-    @callback
-    def _maybe_add() -> bool:
-        nonlocal unsubscribe
+    def _has_dhw() -> bool:
         basic = _coordinator_c3_basic(coordinator)
-        if basic is None or not basic.cap_dhw:
-            return False
-        if unsubscribe is not None:
-            unsubscribe()
-            unsubscribe = None
-        async_add_entities([ILetComfortDhw(coordinator)])
-        return True
+        return basic is not None and basic.cap_dhw
 
-    if _maybe_add():
-        return
-    if (
-        coordinator.sn8 is not None
-        and resolve_profile(coordinator.sn8) is not ModelProfile.ATW
-    ):
-        return
-    @callback
-    def _on_update() -> None:
-        _maybe_add()
-
-    unsubscribe = coordinator.async_add_listener(_on_update)
-
-    @callback
-    def _unload() -> None:
-        if unsubscribe is not None:
-            unsubscribe()
-
-    entry.async_on_unload(_unload)
+    async_add_when_capable(
+        coordinator,
+        entry,
+        async_add_entities,
+        is_capable=_has_dhw,
+        can_become_capable=lambda: (
+            coordinator.sn8 is None
+            or resolve_profile(coordinator.sn8) is ModelProfile.ATW
+        ),
+        build=lambda: [ILetComfortDhw(coordinator)],
+    )
 
 
 class ILetComfortDhw(CoordinatorEntity[ILetComfortCoordinator], WaterHeaterEntity):

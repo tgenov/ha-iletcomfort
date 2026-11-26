@@ -29,6 +29,7 @@ from .api import (
     QUERY_TO_SET_MODE,
     mask_identifier,
 )
+from .capabilities import DeviceCapabilities
 from .const import (
     CONF_APPLIANCE_CODE,
     CONF_ENABLE_MQTT_PUSH,
@@ -133,12 +134,24 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._repair_issued = False
         self._last_push_status_at: float | None = None
         self._push_status_watchdog: Callable[[], None] | None = None
-        # ATW subtype 0x10 / 0x0A live-telemetry probe state (#120 / #139):
-        # None=untested, True=supported, False=rejected/unsupported for session.
-        self._atw_unit_params_supported: bool | None = None
-        self._atw_unit_params_error: str | None = None
-        self._atw_hmi_params_supported: bool | None = None
-        self._atw_hmi_params_error: str | None = None
+        # Centralized runtime probe / capability state (#171).
+        self.capabilities = DeviceCapabilities()
+
+    @property
+    def _atw_unit_params_supported(self) -> bool | None:
+        return self.capabilities.atw_unit_params.supported
+
+    @_atw_unit_params_supported.setter
+    def _atw_unit_params_supported(self, value: bool | None) -> None:
+        self.capabilities.atw_unit_params.supported = value
+
+    @property
+    def _atw_hmi_params_supported(self) -> bool | None:
+        return self.capabilities.atw_hmi_params.supported
+
+    @_atw_hmi_params_supported.setter
+    def _atw_hmi_params_supported(self, value: bool | None) -> None:
+        self.capabilities.atw_hmi_params.supported = value
 
     @property
     def last_on_state(self) -> tuple[int, int] | None:
@@ -253,10 +266,7 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # They cannot be used as fallback for the newly discovered model.
             self.data = None  # type: ignore[assignment]
             self._last_on_state = None
-            self._atw_unit_params_supported = None
-            self._atw_unit_params_error = None
-            self._atw_hmi_params_supported = None
-            self._atw_hmi_params_error = None
+            self.capabilities.reset_probes()
         cached = self.data or {}
         sn8 = self.sn8
 
@@ -363,7 +373,7 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if (
             profile is ModelProfile.ATW
             and atw_sensors_are_placeholder(sensors.raw_body)
-            and self._atw_unit_params_supported is not False
+            and self.capabilities.atw_unit_params.should_probe
         ):
             try:
                 unit_body = await self.hass.async_add_executor_job(
@@ -372,8 +382,7 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             except AuthError:
                 raise
             except ApiError as err:
-                self._atw_unit_params_supported = False
-                self._atw_unit_params_error = str(err)
+                self.capabilities.atw_unit_params.mark_unsupported(str(err))
                 _LOGGER.info(
                     "ATW subtype 0x10 unit parameters not supported (%s); "
                     "disabling 0x10 telemetry polling for this session",
@@ -386,13 +395,12 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     isinstance(unit_body, (bytes, bytearray))
                     and len(unit_body) >= ATW_UNIT_PARAMS_MIN_LEN
                 ):
-                    self._atw_unit_params_supported = True
-                    self._atw_unit_params_error = None
+                    self.capabilities.atw_unit_params.mark_supported()
                     raw_frames[0x10] = bytes(unit_body)
                     status, sensors = apply_atw_unit_params(
                         unit_body, status, sensors
                     )
-                    if self._atw_hmi_params_supported is not False:
+                    if self.capabilities.atw_hmi_params.should_probe:
                         try:
                             hmi_body = await self.hass.async_add_executor_job(
                                 self.client.query_atw_hmi_params,
@@ -401,8 +409,7 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         except AuthError:
                             raise
                         except ApiError as err:
-                            self._atw_hmi_params_supported = False
-                            self._atw_hmi_params_error = str(err)
+                            self.capabilities.atw_hmi_params.mark_unsupported(str(err))
                             _LOGGER.info(
                                 "ATW subtype 0x0A HMI parameters not supported "
                                 "(%s); disabling 0x0A polling for this session",
@@ -415,8 +422,7 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                                 isinstance(hmi_body, (bytes, bytearray))
                                 and len(hmi_body) >= ATW_HMI_PARAMS_MIN_LEN
                             ):
-                                self._atw_hmi_params_supported = True
-                                self._atw_hmi_params_error = None
+                                self.capabilities.atw_hmi_params.mark_supported()
                                 raw_frames[0x0A] = bytes(hmi_body)
                                 status = apply_atw_hmi_params(hmi_body, status)
 
