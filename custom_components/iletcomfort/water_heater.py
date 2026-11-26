@@ -17,6 +17,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .c3_basic import C3BasicStatus
+from .commands import SetDhwPowerCommand, SetDhwTargetCommand
 from .const import DOMAIN
 from .coordinator import ILetComfortCoordinator
 from .entity import async_add_when_capable, build_device_info
@@ -129,17 +130,17 @@ class ILetComfortDhw(CoordinatorEntity[ILetComfortCoordinator], WaterHeaterEntit
         if temp is None:
             return
         clamped = max(self.min_temp, min(float(temp), self.max_temp))
-        await self.coordinator.async_set_c3_basic(dhw_target=clamped)
+        await self.coordinator.async_send_command(SetDhwTargetCommand(clamped))
 
     async def async_set_operation_mode(self, operation_mode: str) -> None:
         if operation_mode not in self._attr_operation_list:
             raise HomeAssistantError(f"Unsupported operation mode {operation_mode}")
-        await self.coordinator.async_set_c3_basic(
-            dhw_power=operation_mode == STATE_HEAT_PUMP,
+        await self.coordinator.async_send_command(
+            SetDhwPowerCommand(on=operation_mode == STATE_HEAT_PUMP)
         )
 
     async def async_turn_on(self, **kwargs: Any) -> None:
-        await self.coordinator.async_set_c3_basic(dhw_power=True)
+        await self.coordinator.async_send_command(SetDhwPowerCommand(on=True))
 
     async def async_turn_off(self, **kwargs: Any) -> None:
-        await self.coordinator.async_set_c3_basic(dhw_power=False)
+        await self.coordinator.async_send_command(SetDhwPowerCommand(on=False))

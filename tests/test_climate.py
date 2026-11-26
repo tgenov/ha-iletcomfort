@@ -17,6 +17,7 @@ import pytest
 
 from custom_components.iletcomfort.api import ITSSensors, ITSStatus
 from custom_components.iletcomfort.climate import ILetComfortClimate
+from custom_components.iletcomfort.coordinator import ILetComfortCoordinator
 from homeassistant.const import ATTR_TEMPERATURE
 from homeassistant.components.climate import ClimateEntityFeature, HVACMode
 from homeassistant.exceptions import HomeAssistantError
@@ -38,6 +39,10 @@ def _climate(sn8: str | None, sensors: ITSSensors, status: ITSStatus | None = No
     coordinator.appliance_meta = {"sn8": sn8} if sn8 else None
     coordinator.data = {"status": status, "sensors": sensors}
     coordinator.async_set_device = AsyncMock()
+    coordinator.c3_basic_controllable = None
+    coordinator.async_send_command = ILetComfortCoordinator.async_send_command.__get__(
+        coordinator
+    )
     return ILetComfortClimate(coordinator)
 
 

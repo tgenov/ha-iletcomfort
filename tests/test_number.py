@@ -3,6 +3,7 @@
 from unittest.mock import AsyncMock, MagicMock
 
 from custom_components.iletcomfort.api import ITSSensors
+from custom_components.iletcomfort.coordinator import ILetComfortCoordinator
 from custom_components.iletcomfort.model_profiles import (
     KJRH120L_SN8,
     decode_kjrh120l_status,
@@ -28,6 +29,10 @@ def _entity() -> ILetComfortKjrh120lDhwSetpoint:
         "sensors": ITSSensors(),
     }
     coordinator.async_set_device = AsyncMock()
+    coordinator.c3_basic_controllable = None
+    coordinator.async_send_command = ILetComfortCoordinator.async_send_command.__get__(
+        coordinator
+    )
     return ILetComfortKjrh120lDhwSetpoint(coordinator)
 
 
