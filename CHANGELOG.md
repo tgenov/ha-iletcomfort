@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.32.0](https://github.com/tgenov/ha-iletcomfort/compare/v0.31.0...v0.32.0) (2026-11-26)
+
+
+### Features
+
+* add dual-zone ATW (171H120F) Zone 2 climate and curve support ([#208](https://github.com/tgenov/ha-iletcomfort/issues/208)) ([3462494](https://github.com/tgenov/ha-iletcomfort/commit/34624945b4478859572046b9663d5c25246b467f))
+
 ## [0.31.0](https://github.com/tgenov/ha-iletcomfort/compare/v0.30.0...v0.31.0) (2026-11-26)
 
 
