@@ -277,7 +277,10 @@ def valid_energy_counter(value: int) -> bool:
     Shared by ATW 0x10 and MQTT 0x04 (#129, #232): ``0`` (uninitialised) and
     ``0xFFFFFFFF`` (absent) are sentinels. Publishing either to a
     TOTAL_INCREASING sensor would record a meter reset or a ~4.29e9 kWh spike,
-    so callers keep the previous value instead.
+    so callers skip the field: it keeps whatever the base status carries
+    (``None``/unknown after a fresh poll or 0x01 push decode, the last valid
+    value when overlaying an existing snapshot). Unknown is safe: HA
+    statistics ignore it and the next valid reading is not a reset.
     """
     return 0 < value < _ENERGY_COUNTER_SENTINEL
 
