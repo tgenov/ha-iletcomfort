@@ -943,6 +943,35 @@ async def test_phone_app_mode_atw_connected_push_never_expires_on_silence(
     assert coordinator.last_update_success is False
 
 
+async def test_phone_app_mode_watchdog_armed_before_sn8_skips_once_atw_resolves(
+    hass: HomeAssistant,
+):
+    """A heartbeat armed while sn8 was unknown must not expire an ATW unit (#129)."""
+    from custom_components.iletcomfort.const import OPERATION_MODE_PHONE_APP
+
+    entry = _entry_operation_mode(OPERATION_MODE_PHONE_APP)
+    entry.add_to_hass(hass)
+    coordinator = ILetComfortCoordinator(hass, entry)
+    coordinator.async_set_updated_data(
+        {"status": ITSStatus(mode=1), "sensors": ITSSensors()}
+    )
+
+    with patch(
+        "custom_components.iletcomfort.coordinator.async_call_later",
+        return_value=lambda: None,
+    ) as call_later:
+        coordinator._apply_push_connected(True)
+        assert call_later.call_count == 1
+
+        coordinator.appliance_meta = {"sn8": "171H120F"}
+        coordinator._check_push_status_freshness()
+
+        assert call_later.call_count == 1
+
+    assert coordinator.last_update_success is True
+    assert coordinator._push_status_watchdog is None
+
+
 async def test_phone_app_mode_status_watchdog_schedules_callback_job(
     hass: HomeAssistant,
 ):

@@ -980,9 +980,10 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def _apply_push_energy(self, energy_body: bytes) -> None:
         """Handle an unsolicited MQTT 0x04 (C3EnergyBody) push frame (#129).
 
-        Always refreshes the push liveness watchdog so ATW units that emit 0x04
-        energy pushes between 0x01 status frames do not expire as stale. On ATW
-        units with an existing snapshot, also overlays outdoor temp and energy.
+        Always records push activity and re-arms the status heartbeat where the
+        dialect has one (ATW units do not; their availability follows the MQTT
+        link). On ATW units with an existing snapshot, also overlays outdoor
+        temp and energy.
         """
         self._last_push_status_at = time.monotonic()
         self._schedule_push_status_watchdog()
