@@ -9,14 +9,13 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .c3_basic import FEATURE_SILENT, C3BasicStatus
+from .commands import SetSilentModeCommand, SetZoneRunModeCommand
 from .const import DOMAIN
 from .coordinator import ILetComfortCoordinator
 from .entity import async_add_kjrh120l_zone1_entities, build_device_info
 from .model_profiles import (
     KJRH120L_RUN_MODE_COOL,
     KJRH120L_RUN_MODE_HEAT,
-    kjrh120l_mode_change_setpoint,
 )
 from .protocols import resolve_state
 
@@ -82,12 +81,7 @@ class ILetComfortMuteSelect(CoordinatorEntity[ILetComfortCoordinator], SelectEnt
 
     async def async_select_option(self, option: str) -> None:
         level = _MUTE_TO_API[option]
-        if isinstance(self.coordinator.c3_basic_controllable, C3BasicStatus):
-            await self.coordinator.async_set_c3_feature(
-                FEATURE_SILENT, level > 0, silent_level=level
-            )
-            return
-        await self.coordinator.async_set_device(mute=level)
+        await self.coordinator.async_send_command(SetSilentModeCommand(level=level))
 
 
 class ILetComfortKjrh120lModeSelect(
@@ -121,16 +115,9 @@ class ILetComfortKjrh120lModeSelect(
         return None
 
     async def async_select_option(self, option: str) -> None:
-        run_mode = _KJRH120L_RUN_MODE_OPTIONS.get(option)
-        if run_mode is None:
+        if option not in _KJRH120L_RUN_MODE_OPTIONS:
             raise HomeAssistantError(f"Unsupported KJRH-120L mode {option!r}")
-        status = (self.coordinator.data or {}).get("status")
-        if status is None:
-            raise HomeAssistantError("The heat pump has not reported its status yet")
-        try:
-            zone1_temperature = kjrh120l_mode_change_setpoint(status, run_mode)
-        except ValueError as err:
-            raise HomeAssistantError(f"Cannot switch to {option}: {err}") from err
-        await self.coordinator.async_set_device(
-            zone1_run_mode=run_mode, zone1_temperature=zone1_temperature
+        mode_intent: str = option
+        await self.coordinator.async_send_command(
+            SetZoneRunModeCommand(zone=1, mode=mode_intent)  # type: ignore[arg-type]
         )

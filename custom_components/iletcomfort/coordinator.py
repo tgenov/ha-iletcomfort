@@ -20,17 +20,37 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 import requests
 
 from .api import (
-    AppCert,
+    MODE_COOL,
+    MODE_HEAT,
+    MODE_OFF,
+    MODE_WATERPUMP,
+    QUERY_TO_SET_MODE,
     ApiError,
+    AppCert,
     AuthError,
     ILetComfortClient,
     ITSSensors,
     ITSStatus,
-    QUERY_TO_SET_MODE,
     mask_identifier,
 )
-from .c3_basic import C3BasicStatus
+from .c3_basic import FEATURE_ECO, FEATURE_SILENT, C3BasicStatus
 from .capabilities import DeviceCapabilities, ProbeState
+from .commands import (
+    HeatPumpCommand,
+    SetBoostCommand,
+    SetDhwPowerCommand,
+    SetDhwTargetCommand,
+    SetEcoModeCommand,
+    SetFastDhwCommand,
+    SetHvacModeCommand,
+    SetPowerCommand,
+    SetSilentModeCommand,
+    SetTargetTemperatureCommand,
+    SetZoneCurveCommand,
+    SetZonePowerCommand,
+    SetZoneRunModeCommand,
+    SetZoneTargetCommand,
+)
 from .const import (
     CONF_APPLIANCE_CODE,
     CONF_C3_BASIC_CONTROL,
@@ -57,6 +77,8 @@ from .model_profiles import (
     ATW_SILENT_SUBTYPE,
     ATW_UNIT_PARAMS_MIN_LEN,
     ATW_UNIT_PARAMS_SUBTYPE,
+    KJRH120L_RUN_MODE_COOL,
+    KJRH120L_RUN_MODE_HEAT,
     ModelProfile,
     apply_atw_eco,
     apply_atw_energy_notify,
@@ -65,6 +87,7 @@ from .model_profiles import (
     apply_atw_unit_params,
     atw_sensors_are_placeholder,
     kjrh120l_has_zone1,
+    kjrh120l_mode_change_setpoint,
     resolve_profile,
 )
 from .mqtt import ILetComfortPushClient
@@ -741,6 +764,148 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 silent_level=silent_level,
             )
         )
+
+    async def async_send_command(self, command: HeatPumpCommand) -> None:
+        """Dispatch a single typed semantic command intent to the device dialect (#113)."""
+        basic = self.c3_basic_controllable
+        is_c3_basic = isinstance(basic, C3BasicStatus)
+
+        if isinstance(command, SetPowerCommand):
+            if is_c3_basic:
+                await self.async_set_c3_basic(zone1_power=command.on)
+            elif command.on:
+                await self.async_set_device(power_on=True)
+            else:
+                await self.async_set_device(mode=MODE_OFF)
+            return
+
+        if isinstance(command, SetHvacModeCommand):
+            if is_c3_basic:
+                if command.mode not in ("off", "heat"):
+                    raise HomeAssistantError(
+                        f"{command.mode} is not supported; only Heat and Off can be set"
+                    )
+                await self.async_set_c3_basic(zone1_power=command.mode == "heat")
+                return
+            mode_map = {
+                "off": MODE_OFF,
+                "heat": MODE_HEAT,
+                "cool": MODE_COOL,
+                "fan_only": MODE_WATERPUMP,
+            }
+            await self.async_set_device(mode=mode_map[command.mode])
+            return
+
+        if isinstance(command, SetTargetTemperatureCommand):
+            if is_c3_basic and isinstance(basic, C3BasicStatus):
+                if basic.zone1_water_temp:
+                    await self.async_set_c3_basic(
+                        zone1_water_target=command.temperature
+                    )
+                else:
+                    await self.async_set_c3_basic(room_target=command.temperature)
+                return
+            await self.async_set_device(temperature=int(command.temperature))
+            return
+
+        if isinstance(command, SetBoostCommand):
+            await self.async_set_device(boost=command.enabled)
+            return
+
+        if isinstance(command, SetSilentModeCommand):
+            if is_c3_basic or command.enabled is not None:
+                if command.level is not None:
+                    await self.async_set_c3_feature(
+                        FEATURE_SILENT,
+                        command.level > 0,
+                        silent_level=command.level,
+                    )
+                else:
+                    await self.async_set_c3_feature(
+                        FEATURE_SILENT, bool(command.enabled)
+                    )
+                return
+            await self.async_set_device(mute=command.level)
+            return
+
+        if isinstance(command, SetEcoModeCommand):
+            await self.async_set_c3_feature(FEATURE_ECO, command.enabled)
+            return
+
+        if isinstance(command, SetDhwPowerCommand):
+            if is_c3_basic or resolve_profile(self.sn8) is ModelProfile.ATW:
+                await self.async_set_c3_basic(dhw_power=command.on)
+            else:
+                await self.async_set_device(
+                    mode=MODE_HEAT if command.on else MODE_OFF
+                )
+            return
+
+        if isinstance(command, SetDhwTargetCommand):
+            if is_c3_basic or resolve_profile(self.sn8) is ModelProfile.ATW:
+                await self.async_set_c3_basic(dhw_target=command.temperature)
+            else:
+                await self.async_set_device(temperature=int(command.temperature))
+            return
+
+        if isinstance(command, SetFastDhwCommand):
+            await self.async_set_c3_basic(fast_dhw=command.enabled)
+            return
+
+        if isinstance(command, SetZonePowerCommand):
+            if command.zone == 2:
+                await self.async_set_c3_basic(zone2_power=command.on)
+            elif is_c3_basic or resolve_profile(self.sn8) is ModelProfile.ATW:
+                await self.async_set_c3_basic(zone1_power=command.on)
+            else:
+                await self.async_set_device(zone1_power=command.on)
+            return
+
+        if isinstance(command, SetZoneTargetCommand):
+            if command.zone == 2:
+                await self.async_set_c3_basic(
+                    zone2_water_target=command.temperature
+                )
+            elif is_c3_basic or resolve_profile(self.sn8) is ModelProfile.ATW:
+                await self.async_set_c3_basic(
+                    zone1_water_target=command.temperature
+                )
+            else:
+                await self.async_set_device(
+                    zone1_temperature=int(command.temperature)
+                )
+            return
+
+        if isinstance(command, SetZoneRunModeCommand):
+            status = (self.data or {}).get("status")
+            if status is None:
+                raise HomeAssistantError(
+                    "The heat pump has not reported its status yet"
+                )
+            run_mode = (
+                KJRH120L_RUN_MODE_HEAT
+                if command.mode == "heat"
+                else KJRH120L_RUN_MODE_COOL
+            )
+            try:
+                zone1_temperature = kjrh120l_mode_change_setpoint(status, run_mode)
+            except ValueError as err:
+                raise HomeAssistantError(
+                    f"Cannot switch to {command.mode}: {err}"
+                ) from err
+            await self.async_set_device(
+                zone1_run_mode=run_mode, zone1_temperature=zone1_temperature
+            )
+            return
+
+        if isinstance(command, SetZoneCurveCommand):
+            if command.zone == 2:
+                await self.async_set_c3_basic(zone2_curve=command.enabled)
+            else:
+                await self.async_set_c3_basic(zone1_curve=command.enabled)
+            return
+
+        raise HomeAssistantError(f"Unsupported command intent: {command!r}")
 
     # -- MQTT real-time push (issue #55, phone-app coexistence mode) --
 
