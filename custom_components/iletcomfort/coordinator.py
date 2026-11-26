@@ -182,6 +182,9 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # retained as transient-error fallback so a single cloud blip never
         # drops telemetry to unknown or resets TOTAL_INCREASING energy (#118).
         self._last_atw_subtypes: dict[int, bytes] = {}
+        # Sentinel-filtered ATW 0x04 energy state from MQTT pushes (latest
+        # valid value of each field). raw_frames[0x04] keeps the literal frame.
+        self._atw_energy_notify: bytes | None = None
 
     @property
     def _atw_unit_params_supported(self) -> bool | None:
@@ -487,6 +490,9 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._update_offline_repair()
         self._observe_kjrh120l_zone1(status)
 
+        # A poll's freshly queried 0x10 counters supersede any pushed 0x04
+        # energy state (raw_frames is rebuilt without 0x04 too).
+        self._atw_energy_notify = None
         # Decode + overlay every successfully probed subtype in one pure step,
         # shared with the MQTT push paths so push and poll stay in parity (#225).
         return self._snapshot_data(
@@ -991,12 +997,20 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
         sensors = self.data.get("sensors")
         raw_frames = dict(self.data.get("raw_frames") or {})
-        # Keep the last valid value of each 0x04 field: the snapshot is
-        # re-derived from frames, so a sentinel field must not clobber it.
-        raw_frames[0x04] = merge_atw_energy_notify(
-            raw_frames.get(0x04), bytes(energy_body)
+        raw_frames[0x04] = bytes(energy_body)
+        # Keep the last valid value of each 0x04 field separately: the
+        # snapshot is re-derived, so a sentinel field must not clobber it.
+        self._atw_energy_notify = merge_atw_energy_notify(
+            self._atw_energy_notify, bytes(energy_body)
         )
-        state = build_snapshot(adapter, status, sensors, raw_frames)
+        state = build_snapshot(
+            adapter,
+            status,
+            sensors,
+            raw_frames,
+            retained_subtypes=True,
+            energy_notify=self._atw_energy_notify,
+        )
         self.async_set_updated_data(self._snapshot_data(state, raw_frames))
 
     def _apply_push_status(self, status: ITSStatus) -> None:
@@ -1022,7 +1036,16 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raw_frames[0x01] = bytes(status.raw_body)
         # Re-apply every retained subtype overlay (0x10/0x0A/0x05/0x07/0x04)
         # exactly as the poll does; the push carries only the 0x01 frame (#225).
-        state = build_snapshot(adapter, status, self.data.get("sensors"), raw_frames)
+        # Optional subtype frames date from the last poll: re-apply counters,
+        # run hours and ECO, reconcile Silent with this 0x01 frame.
+        state = build_snapshot(
+            adapter,
+            status,
+            self.data.get("sensors"),
+            raw_frames,
+            retained_subtypes=True,
+            energy_notify=self._atw_energy_notify,
+        )
         self.async_set_updated_data(self._snapshot_data(state, raw_frames))
 
     def _cancel_push_status_watchdog(self) -> None:

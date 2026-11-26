@@ -100,7 +100,9 @@ def test_hardware_corpus_decode_contract(case: dict[str, Any]) -> None:
         assert sensors is not None
 
     # Run the production snapshot builder (poll + MQTT push share it, #225)
-    # rather than a hand-written copy of the overlay chain.
+    # rather than a hand-written copy of the overlay chain. This covers
+    # decoding in poll mode only, not the coordinator's probe gating (e.g.
+    # 0x0A is only queried after 0x10 succeeds, but #139 pins 0x0a alone).
     raw_frames = {int(key, 16): _hex_csv(value) for key, value in frames.items()}
     state = build_snapshot(get_adapter(sn8), status, sensors, raw_frames)
     assert state.profile is profile
