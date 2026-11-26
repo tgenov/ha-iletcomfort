@@ -12,7 +12,7 @@ from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
-from homeassistant.core import HassJob, HomeAssistant, callback
+from homeassistant.core import HassJob, HassJobType, HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.event import async_call_later
@@ -730,15 +730,21 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._push_status_watchdog()
             self._push_status_watchdog = None
 
+    @callback
+    def _on_push_status_watchdog(self, _now: Any) -> None:
+        """Run the MQTT status freshness check on the Home Assistant event loop."""
+        self._check_push_status_freshness()
+
     def _schedule_push_status_watchdog(self) -> None:
         self._cancel_push_status_watchdog()
         self._push_status_watchdog = async_call_later(
             self.hass,
             MQTT_STATUS_STALE_AFTER,
             HassJob(
-                lambda _: self._check_push_status_freshness(),
+                self._on_push_status_watchdog,
                 "iLetComfort MQTT status freshness",
                 cancel_on_shutdown=True,
+                job_type=HassJobType.Callback,
             ),
         )
 
