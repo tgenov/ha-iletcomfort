@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.33.0](https://github.com/tgenov/ha-iletcomfort/compare/v0.32.1...v0.33.0) (2026-11-26)
+
+
+### Features
+
+* handle ATW MQTT 0x04 energy pushes and suppress fake pressure zeros ([#217](https://github.com/tgenov/ha-iletcomfort/issues/217)) ([a7442c0](https://github.com/tgenov/ha-iletcomfort/commit/a7442c090c57c3cbe212e8b022e8fe64bac16d90))
+
 ## [0.32.1](https://github.com/tgenov/ha-iletcomfort/compare/v0.32.0...v0.32.1) (2026-11-26)
 
 
