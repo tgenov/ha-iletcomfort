@@ -20,10 +20,6 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 import requests
 
 from .api import (
-    MODE_COOL,
-    MODE_HEAT,
-    MODE_OFF,
-    MODE_WATERPUMP,
     QUERY_TO_SET_MODE,
     ApiError,
     AppCert,
@@ -33,24 +29,9 @@ from .api import (
     ITSStatus,
     mask_identifier,
 )
-from .c3_basic import FEATURE_ECO, FEATURE_SILENT, C3BasicStatus
+from .c3_basic import C3BasicStatus
 from .capabilities import DeviceCapabilities, ProbeState
-from .commands import (
-    HeatPumpCommand,
-    SetBoostCommand,
-    SetDhwPowerCommand,
-    SetDhwTargetCommand,
-    SetEcoModeCommand,
-    SetFastDhwCommand,
-    SetHvacModeCommand,
-    SetPowerCommand,
-    SetSilentModeCommand,
-    SetTargetTemperatureCommand,
-    SetZoneCurveCommand,
-    SetZonePowerCommand,
-    SetZoneRunModeCommand,
-    SetZoneTargetCommand,
-)
+from .commands import HeatPumpCommand
 from .const import (
     CONF_APPLIANCE_CODE,
     CONF_C3_BASIC_CONTROL,
@@ -77,12 +58,9 @@ from .model_profiles import (
     ATW_SILENT_SUBTYPE,
     ATW_UNIT_PARAMS_MIN_LEN,
     ATW_UNIT_PARAMS_SUBTYPE,
-    KJRH120L_RUN_MODE_COOL,
-    KJRH120L_RUN_MODE_HEAT,
     ModelProfile,
     atw_sensors_are_placeholder,
     kjrh120l_has_zone1,
-    kjrh120l_mode_change_setpoint,
     resolve_profile,
 )
 from .mqtt import ILetComfortPushClient
@@ -92,6 +70,10 @@ from .protocols import (
     get_adapter,
     merge_atw_energy_notify,
     resolve_state,
+    run_write_plan,
+    WriteContext,
+    WritePlan,
+    WriteRefused,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -688,11 +670,7 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
            without triggering a spurious refresh.
         5. Requests a coordinator refresh on success.
         """
-        if self._operation_mode == OPERATION_MODE_PHONE_APP:
-            raise HomeAssistantError(
-                "Control is disabled in phone app coexistence mode; "
-                "switch to HA primary mode to send commands"
-            )
+        self._require_writable()
 
         try:
             async with self._write_lock:
@@ -712,200 +690,53 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self.async_request_refresh()
         return result
 
-    async def async_set_device(self, **kwargs: Any) -> None:
-        """Send a SET command with auto re-auth, then refresh data.
-
-        The appliance ``sn8`` is forwarded so the client can branch the write
-        encoding per model (e.g. the KJRH-120L's short commands vs the legacy
-        C3 SET frame); see ``model_profiles`` and ``ILetComfortClient.set_device``.
-        """
-        sn8 = self.sn8
-
-        def _send() -> Any:
-            return self.client.set_device(
-                self.appliance_code,
-                sn8=sn8,
-                last_on_state=self._last_on_state,
-                **kwargs,
-            )
-
-        await self.async_execute_command(_send)
-
-    def _require_c3_basic_control(self) -> None:
-        if self.c3_basic_controllable is None:
+    def _require_writable(self) -> None:
+        """Reject writes in read-only phone-app coexistence mode."""
+        if self._operation_mode == OPERATION_MODE_PHONE_APP:
             raise HomeAssistantError(
-                "C3 basic control is not enabled or not supported for this unit"
+                "Control is disabled in phone app coexistence mode; "
+                "switch to HA primary mode to send commands"
             )
 
-    async def async_set_c3_basic(self, **changes: Any) -> None:
-        """Change C3 basic fields (Zone-1/DHW power, setpoints, curve)."""
-        self._require_c3_basic_control()
-        sn8 = self.sn8
-        await self.async_execute_command(
-            lambda: self.client.set_c3_basic(self.appliance_code, sn8=sn8, **changes)
-        )
-
-    async def async_set_c3_feature(
-        self,
-        feature: str,
-        on: bool,
-        *,
-        silent_level: int | None = None,
-    ) -> None:
-        """Switch the C3 silent (with optional level 0/1/2) or ECO mode."""
-        self._require_c3_basic_control()
-        sn8 = self.sn8
-        await self.async_execute_command(
-            lambda: self.client.set_c3_feature(
-                self.appliance_code,
-                sn8=sn8,
-                feature=feature,
-                on=on,
-                silent_level=silent_level,
-            )
+    def _write_context(self) -> WriteContext:
+        """Snapshot the state a dialect needs to plan a write (#113)."""
+        return WriteContext(
+            status=(self.data or {}).get("status"),
+            last_on_state=self._last_on_state,
+            c3_basic_control=self._c3_basic_control,
+            kjrh120l_zone1_latched=self.kjrh120l_zone1_capable,
         )
 
     async def async_send_command(self, command: HeatPumpCommand) -> None:
-        """Dispatch a single typed semantic command intent to the device dialect (#113)."""
-        basic = self.c3_basic_controllable
-        is_c3_basic = isinstance(basic, C3BasicStatus)
+        """Plan ``command`` in the selected device dialect and execute it (#113).
 
-        if isinstance(command, SetPowerCommand):
-            if is_c3_basic:
-                await self.async_set_c3_basic(zone1_power=command.on)
-            elif command.on:
-                await self.async_set_device(power_on=True)
-            else:
-                await self.async_set_device(mode=MODE_OFF)
-            return
+        Capability checks, ranges, refusal rules and frame encoding live in the
+        dialect's pure ``plan_write``; this method only adds the transaction:
+        phone-app guard, write lock, fresh read → SET, re-auth and refresh.
+        """
+        self._require_writable()
+        try:
+            plan = get_adapter(self.sn8).plan_write(command, self._write_context())
+        except WriteRefused as err:
+            raise HomeAssistantError(str(err)) from err
+        except (ApiError, ValueError) as err:
+            raise HomeAssistantError(f"Heat pump command failed: {err}") from err
+        await self.async_execute_plan(plan)
 
-        if isinstance(command, SetHvacModeCommand):
-            if is_c3_basic:
-                if command.mode not in ("off", "heat"):
-                    raise HomeAssistantError(
-                        f"{command.mode} is not supported; only Heat and Off can be set"
-                    )
-                await self.async_set_c3_basic(zone1_power=command.mode == "heat")
-                return
-            mode_map = {
-                "off": MODE_OFF,
-                "heat": MODE_HEAT,
-                "cool": MODE_COOL,
-                "fan_only": MODE_WATERPUMP,
-            }
-            await self.async_set_device(mode=mode_map[command.mode])
-            return
+    async def async_execute_plan(self, plan: WritePlan) -> dict[str, Any]:
+        """Run a dialect ``WritePlan`` (fresh read → encode → SET) in one transaction."""
+        appliance_code = self.appliance_code
 
-        if isinstance(command, SetTargetTemperatureCommand):
-            if is_c3_basic and isinstance(basic, C3BasicStatus):
-                if basic.zone1_water_temp:
-                    await self.async_set_c3_basic(
-                        zone1_water_target=command.temperature
-                    )
-                else:
-                    await self.async_set_c3_basic(room_target=command.temperature)
-                return
-            await self.async_set_device(temperature=int(command.temperature))
-            return
+        def _send(command_hex: str) -> str:
+            return self.client.send_hex_command(appliance_code, command_hex)
 
-        if isinstance(command, SetBoostCommand):
-            await self.async_set_device(boost=command.enabled)
-            return
+        def _run() -> dict[str, Any]:
+            result = run_write_plan(plan, _send)
+            _LOGGER.debug("write %s -> %s", plan.description, result["sent"])
+            return result
 
-        if isinstance(command, SetSilentModeCommand):
-            if is_c3_basic or command.enabled is not None:
-                if command.level is not None:
-                    await self.async_set_c3_feature(
-                        FEATURE_SILENT,
-                        command.level > 0,
-                        silent_level=command.level,
-                    )
-                else:
-                    await self.async_set_c3_feature(
-                        FEATURE_SILENT, bool(command.enabled)
-                    )
-                return
-            await self.async_set_device(mute=command.level)
-            return
-
-        if isinstance(command, SetEcoModeCommand):
-            await self.async_set_c3_feature(FEATURE_ECO, command.enabled)
-            return
-
-        if isinstance(command, SetDhwPowerCommand):
-            if is_c3_basic or resolve_profile(self.sn8) is ModelProfile.ATW:
-                await self.async_set_c3_basic(dhw_power=command.on)
-            else:
-                await self.async_set_device(
-                    mode=MODE_HEAT if command.on else MODE_OFF
-                )
-            return
-
-        if isinstance(command, SetDhwTargetCommand):
-            if is_c3_basic or resolve_profile(self.sn8) is ModelProfile.ATW:
-                await self.async_set_c3_basic(dhw_target=command.temperature)
-            else:
-                await self.async_set_device(temperature=int(command.temperature))
-            return
-
-        if isinstance(command, SetFastDhwCommand):
-            await self.async_set_c3_basic(fast_dhw=command.enabled)
-            return
-
-        if isinstance(command, SetZonePowerCommand):
-            if command.zone == 2:
-                await self.async_set_c3_basic(zone2_power=command.on)
-            elif is_c3_basic or resolve_profile(self.sn8) is ModelProfile.ATW:
-                await self.async_set_c3_basic(zone1_power=command.on)
-            else:
-                await self.async_set_device(zone1_power=command.on)
-            return
-
-        if isinstance(command, SetZoneTargetCommand):
-            if command.zone == 2:
-                await self.async_set_c3_basic(
-                    zone2_water_target=command.temperature
-                )
-            elif is_c3_basic or resolve_profile(self.sn8) is ModelProfile.ATW:
-                await self.async_set_c3_basic(
-                    zone1_water_target=command.temperature
-                )
-            else:
-                await self.async_set_device(
-                    zone1_temperature=int(command.temperature)
-                )
-            return
-
-        if isinstance(command, SetZoneRunModeCommand):
-            status = (self.data or {}).get("status")
-            if status is None:
-                raise HomeAssistantError(
-                    "The heat pump has not reported its status yet"
-                )
-            run_mode = (
-                KJRH120L_RUN_MODE_HEAT
-                if command.mode == "heat"
-                else KJRH120L_RUN_MODE_COOL
-            )
-            try:
-                zone1_temperature = kjrh120l_mode_change_setpoint(status, run_mode)
-            except ValueError as err:
-                raise HomeAssistantError(
-                    f"Cannot switch to {command.mode}: {err}"
-                ) from err
-            await self.async_set_device(
-                zone1_run_mode=run_mode, zone1_temperature=zone1_temperature
-            )
-            return
-
-        if isinstance(command, SetZoneCurveCommand):
-            if command.zone == 2:
-                await self.async_set_c3_basic(zone2_curve=command.enabled)
-            else:
-                await self.async_set_c3_basic(zone1_curve=command.enabled)
-            return
-
-        raise HomeAssistantError(f"Unsupported command intent: {command!r}")
+        result: dict[str, Any] = await self.async_execute_command(_run)
+        return result
 
     # -- MQTT real-time push (issue #55, phone-app coexistence mode) --
 

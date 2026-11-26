@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
@@ -17,6 +17,13 @@ from custom_components.iletcomfort.api import (
     ITSSensors,
     ITSStatus,
 )
+from custom_components.iletcomfort.commands import (
+    SetDhwTargetCommand,
+    SetTargetTemperatureCommand,
+    SetZonePowerCommand,
+    SetZoneRunModeCommand,
+    SetZoneTargetCommand,
+)
 from custom_components.iletcomfort.const import (
     CONF_APPLIANCE_CODE,
     CONF_REGION,
@@ -30,6 +37,10 @@ from custom_components.iletcomfort.coordinator import (
     SUSTAINED_FAILURE_THRESHOLD,
     ILetComfortCoordinator,
 )
+from custom_components.iletcomfort.model_profiles import (
+    decode_kjrh120l_status as _decode_kjrh120l_status,
+)
+from tests.kjrh120l_snapshots import KJRH120L_SNAPSHOT_A as _KJRH120L_SNAPSHOT_A
 
 
 def _entry(region: str | None) -> MockConfigEntry:
@@ -442,9 +453,9 @@ async def test_poll_standard_leaves_sensors_untouched(hass: HomeAssistant):
     assert result["sensors"].twin_temp == 12.0  # unchanged by STANDARD
 
 
-async def test_async_set_device_threads_sn8_to_client(hass: HomeAssistant):
-    """The SET path must forward the appliance sn8 so the client can branch the
-    write encoding per model (KJRH-120L short commands vs the legacy C3 frame)."""
+async def test_async_send_command_plans_in_the_sn8_dialect(hass: HomeAssistant):
+    """The write path selects the dialect from the appliance sn8, so a KJRH-120L
+    gets its short command and not the legacy C3 frame (#113)."""
     entry = _entry(REGION_US)
     entry.add_to_hass(hass)
     with patch(
@@ -456,11 +467,10 @@ async def test_async_set_device_threads_sn8_to_client(hass: HomeAssistant):
     client = mock_cls.return_value
     coord.async_request_refresh = AsyncMock()
 
-    await coord.async_set_device(temperature=60)
+    await coord.async_send_command(SetDhwTargetCommand(60))
 
-    assert client.set_device.call_args.args == ("APPL1",)
-    assert client.set_device.call_args.kwargs["sn8"] == "17100003"
-    assert client.set_device.call_args.kwargs["temperature"] == 60
+    assert client.send_hex_command.call_args_list == [call("APPL1", "0007013cff")]
+    coord.async_request_refresh.assert_awaited_once()
 
 
 async def test_phone_app_mode_rejects_account_control(hass: HomeAssistant):
@@ -475,9 +485,9 @@ async def test_phone_app_mode_rejects_account_control(hass: HomeAssistant):
         coordinator = ILetComfortCoordinator(hass, entry)
 
     with pytest.raises(HomeAssistantError, match="HA primary"):
-        await coordinator.async_set_device(temperature=42)
+        await coordinator.async_send_command(SetTargetTemperatureCommand(42))
 
-    cls.return_value.set_device.assert_not_called()
+    cls.return_value.send_hex_command.assert_not_called()
 
 
 def _degraded_coordinator(hass: HomeAssistant) -> tuple[ILetComfortCoordinator, MagicMock]:
@@ -1209,15 +1219,15 @@ async def test_kjrh120l_push_status_latches_zone1_capability(hass: HomeAssistant
 
 
 @pytest.mark.parametrize(
-    "kwargs",
+    "command",
     [
-        {"zone1_temperature": 50},
-        {"zone1_run_mode": 2, "zone1_temperature": 25},
-        {"zone1_power": True},
+        SetZoneTargetCommand(zone=1, temperature=50),
+        SetZoneRunModeCommand(zone=1, mode="cool"),
+        SetZonePowerCommand(zone=1, on=True),
     ],
 )
 async def test_phone_app_mode_rejects_kjrh120l_zone1_writes(
-    hass: HomeAssistant, kwargs
+    hass: HomeAssistant, command
 ):
     from homeassistant.exceptions import HomeAssistantError
 
@@ -1230,13 +1240,14 @@ async def test_phone_app_mode_rejects_kjrh120l_zone1_writes(
     coordinator.appliance_meta = {"sn8": "17100003"}
 
     with pytest.raises(HomeAssistantError, match="HA primary"):
-        await coordinator.async_set_device(**kwargs)
+        await coordinator.async_send_command(command)
 
-    cls.return_value.set_device.assert_not_called()
     cls.return_value.send_hex_command.assert_not_called()
 
 
-async def test_async_set_device_threads_zone1_kwargs_to_client(hass: HomeAssistant):
+async def test_async_send_command_sends_kjrh120l_run_mode_with_clamped_setpoint(
+    hass: HomeAssistant,
+):
     entry = _entry(REGION_US)
     entry.add_to_hass(hass)
     with patch(
@@ -1244,19 +1255,20 @@ async def test_async_set_device_threads_zone1_kwargs_to_client(hass: HomeAssista
     ) as mock_cls:
         coord = ILetComfortCoordinator(hass, entry)
     coord.appliance_meta = {"sn8": "17100003"}
+    coord.data = {"status": _decode_kjrh120l_status(_KJRH120L_SNAPSHOT_A)}
     coord.async_request_refresh = AsyncMock()
 
-    await coord.async_set_device(zone1_run_mode=2, zone1_temperature=25)
+    await coord.async_send_command(SetZoneRunModeCommand(zone=1, mode="cool"))
 
-    kwargs = mock_cls.return_value.set_device.call_args.kwargs
-    assert kwargs["sn8"] == "17100003"
-    assert kwargs["zone1_run_mode"] == 2
-    assert kwargs["zone1_temperature"] == 25
+    # Snapshot A's 50 C heating target is clamped into the 5-25 C Cool range.
+    assert mock_cls.return_value.send_hex_command.call_args_list == [
+        call("APPL1", "00030102ff00040119ff")
+    ]
     coord.async_request_refresh.assert_awaited_once()
 
 
 @pytest.mark.parametrize("error", [ApiError("code=1214"), ValueError("bad byte")])
-async def test_async_set_device_wraps_write_errors(hass: HomeAssistant, error):
+async def test_async_send_command_wraps_write_errors(hass: HomeAssistant, error):
     from homeassistant.exceptions import HomeAssistantError
 
     entry = _entry(REGION_US)
@@ -1267,16 +1279,16 @@ async def test_async_set_device_wraps_write_errors(hass: HomeAssistant, error):
         coord = ILetComfortCoordinator(hass, entry)
     coord.appliance_meta = {"sn8": "17100003"}
     coord.async_request_refresh = AsyncMock()
-    mock_cls.return_value.set_device.side_effect = error
+    mock_cls.return_value.send_hex_command.side_effect = error
 
-    with pytest.raises(HomeAssistantError) as exc_info:
-        await coord.async_set_device(zone1_temperature=50)
+    with pytest.raises(HomeAssistantError, match="Heat pump command failed") as exc_info:
+        await coord.async_send_command(SetZoneTargetCommand(zone=1, temperature=50))
 
     assert exc_info.value.__cause__ is error
     coord.async_request_refresh.assert_not_awaited()
 
 
-async def test_async_set_device_reauths_then_retries_zone1_write(hass: HomeAssistant):
+async def test_async_send_command_reauths_then_retries_zone1_write(hass: HomeAssistant):
     entry = _entry(REGION_US)
     entry.add_to_hass(hass)
     with patch(
@@ -1287,10 +1299,12 @@ async def test_async_set_device_reauths_then_retries_zone1_write(hass: HomeAssis
     coord.async_request_refresh = AsyncMock()
     coord._async_login = AsyncMock()
     client = mock_cls.return_value
-    client.set_device.side_effect = [AuthError("expired"), {"sent": "00000101ff"}]
+    client.send_hex_command.side_effect = [AuthError("expired"), "ok"]
 
-    await coord.async_set_device(zone1_power=True)
+    await coord.async_send_command(SetZonePowerCommand(zone=1, on=True))
 
     coord._async_login.assert_awaited_once()
-    assert client.set_device.call_count == 2
-    assert client.set_device.call_args.kwargs["zone1_power"] is True
+    assert client.send_hex_command.call_args_list == [
+        call("APPL1", "00000101ff"),
+        call("APPL1", "00000101ff"),
+    ]

@@ -8,7 +8,9 @@ from ..api import ITSSensors, ITSStatus
 from ..c3_basic import C3BasicStatus
 from ..c3_frame import build_c3_query
 from .profile import ModelProfile
-from .standard import default_climate_temp_bounds
+from ..commands import HeatPumpCommand
+from .standard import default_climate_temp_bounds, plan_legacy_its_write
+from .write import WriteContext, WritePlan
 
 
 class AquapuraAdapter:
@@ -63,3 +65,6 @@ class AquapuraAdapter:
 
     def c3_basic(self, status: ITSStatus | None) -> C3BasicStatus | None:
         return None
+
+    def plan_write(self, command: HeatPumpCommand, ctx: WriteContext) -> WritePlan:
+        return plan_legacy_its_write(command, ctx)

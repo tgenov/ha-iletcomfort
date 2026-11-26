@@ -8,7 +8,31 @@ from typing import Any
 
 from ..api import ITSSensors, ITSStatus
 from ..c3_basic import C3BasicStatus
+from ..commands import (
+    HeatPumpCommand,
+    SetBoostCommand,
+    SetDhwPowerCommand,
+    SetDhwTargetCommand,
+    SetEcoModeCommand,
+    SetFastDhwCommand,
+    SetHvacModeCommand,
+    SetPowerCommand,
+    SetSilentModeCommand,
+    SetTargetTemperatureCommand,
+    SetZoneCurveCommand,
+    SetZonePowerCommand,
+    SetZoneRunModeCommand,
+    SetZoneTargetCommand,
+    ZoneRunModeIntent,
+)
 from .profile import ModelProfile
+from .write import (
+    C3_CONTROL_DISABLED,
+    STATUS_NOT_REPORTED,
+    WriteContext,
+    WritePlan,
+    WriteRefused,
+)
 
 KJRH120L_POWER_INDEX = 10
 KJRH120L_MODE_OFF = 0
@@ -203,6 +227,90 @@ def kjrh120l_mode_change_setpoint(status: ITSStatus, run_mode: int) -> int:
     return max(low, min(int(current), high))
 
 
+_RUN_MODE_INTENTS: dict[str, int] = {
+    "heat": KJRH120L_RUN_MODE_HEAT,
+    "cool": KJRH120L_RUN_MODE_COOL,
+}
+
+
+def zone1_run_mode_setpoint(
+    ctx: WriteContext, mode: ZoneRunModeIntent
+) -> tuple[int, int]:
+    """Return ``(run_mode, clamped Zone 1 setpoint)`` for a run mode switch.
+
+    The app always pairs field 0x03 with the Zone 1 setpoint clamped into the
+    destination mode's device-reported range. Raises ``WriteRefused`` when the
+    status needed to clamp is missing or invalid.
+    """
+    if ctx.status is None:
+        raise WriteRefused(STATUS_NOT_REPORTED)
+    run_mode = _RUN_MODE_INTENTS[mode]
+    try:
+        setpoint = kjrh120l_mode_change_setpoint(ctx.status, run_mode)
+    except ValueError as err:
+        raise WriteRefused(f"Cannot switch to {mode}: {err}") from err
+    return run_mode, setpoint
+
+
+def plan_kjrh120l_write(command: HeatPumpCommand, ctx: WriteContext) -> WritePlan:
+    """Plan a KJRH-120L write as one captured short command (no status read).
+
+    Fields (``00 <field> 01 <value> ff``): 0x00 Zone 1 power, 0x02 DHW power,
+    0x03 run mode (paired with the clamped 0x04 setpoint), 0x04 Zone 1
+    setpoint (never 0x08, which always forced 23 °C), 0x07 DHW setpoint. The
+    climate/number entities clamp DHW temperatures before sending.
+    """
+    if isinstance(command, (SetPowerCommand, SetDhwPowerCommand)):
+        on = command.on
+        return WritePlan.static(
+            KJRH120L_DHW_ON if on else KJRH120L_DHW_OFF, f"kjrh120l dhw_power={on}"
+        )
+    if isinstance(command, SetHvacModeCommand):
+        on = command.mode != "off"
+        return WritePlan.static(
+            KJRH120L_DHW_ON if on else KJRH120L_DHW_OFF, f"kjrh120l dhw_power={on}"
+        )
+    if isinstance(command, (SetTargetTemperatureCommand, SetDhwTargetCommand)):
+        temp = int(command.temperature)
+        return WritePlan.static(
+            build_kjrh120l_set_temperature(temp), f"kjrh120l dhw_target={temp}"
+        )
+    if isinstance(command, SetZonePowerCommand) and command.zone == 1:
+        return WritePlan.static(
+            build_kjrh120l_zone1_power(command.on), f"kjrh120l zone1_power={command.on}"
+        )
+    if isinstance(command, SetZoneTargetCommand) and command.zone == 1:
+        temp = int(command.temperature)
+        return WritePlan.static(
+            build_kjrh120l_zone1_setpoint(temp), f"kjrh120l zone1_target={temp}"
+        )
+    if isinstance(command, SetZoneRunModeCommand):
+        run_mode, setpoint = zone1_run_mode_setpoint(ctx, command.mode)
+        return WritePlan.static(
+            build_kjrh120l_run_mode(run_mode, setpoint),
+            f"kjrh120l run_mode={run_mode} zone1_target={setpoint}",
+        )
+    if isinstance(command, SetBoostCommand) or (
+        isinstance(command, SetSilentModeCommand) and command.level is not None
+    ):
+        # No boost/silent write has been captured for this controller. Before
+        # #113 these fell through to the DHW-OFF frame; refuse them instead.
+        raise WriteRefused("Boost and silent mode are not supported on the KJRH-120L")
+    if isinstance(
+        command,
+        (
+            SetSilentModeCommand,
+            SetEcoModeCommand,
+            SetFastDhwCommand,
+            SetZoneCurveCommand,
+            SetZonePowerCommand,
+            SetZoneTargetCommand,
+        ),
+    ):
+        raise WriteRefused(C3_CONTROL_DISABLED)
+    raise WriteRefused(f"Unsupported command intent: {command!r}")
+
+
 class Kjrh120lAdapter:
     """Dialect adapter for KJRH-120L controllers (pure-DHW and dual Zone-1 + DHW)."""
 
@@ -246,3 +354,6 @@ class Kjrh120lAdapter:
 
     def c3_basic(self, status: ITSStatus | None) -> C3BasicStatus | None:
         return None
+
+    def plan_write(self, command: HeatPumpCommand, ctx: WriteContext) -> WritePlan:
+        return plan_kjrh120l_write(command, ctx)

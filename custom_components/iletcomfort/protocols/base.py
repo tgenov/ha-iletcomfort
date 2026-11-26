@@ -7,7 +7,9 @@ from typing import Protocol
 
 from ..api import ITSSensors, ITSStatus
 from ..c3_basic import C3BasicStatus
+from ..commands import HeatPumpCommand
 from .profile import ModelProfile
+from .write import WriteContext, WritePlan
 
 
 def profile_climate_temp_bounds(
@@ -133,3 +135,13 @@ class ProtocolAdapter(Protocol):
 
     def c3_basic(self, status: ITSStatus | None) -> C3BasicStatus | None:
         """Return the C3 basic status when supported by this dialect, else None."""
+
+    def plan_write(self, command: HeatPumpCommand, ctx: WriteContext) -> WritePlan:
+        """Plan ``command`` as a wire write for this dialect (pure, no I/O, #113).
+
+        Returns a static ``WritePlan`` or a read-modify-write plan naming the
+        fresh query to run immediately before encoding. Raises ``WriteRefused``
+        (surfaced verbatim) for HA-side gating refusals, and ``ApiError`` /
+        ``ValueError`` when the command is outside this dialect's validated
+        write envelope.
+        """
