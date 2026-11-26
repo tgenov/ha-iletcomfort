@@ -98,3 +98,32 @@ def test_async_add_when_capable_unsubscribes_after_late_discovery() -> None:
     # Subsequent calls are no-ops.
     listener()
     assert added == ["entity"]
+
+
+def test_async_add_when_capable_unsubscribes_when_profile_becomes_incompatible() -> None:
+    coord = MagicMock()
+    unsub = MagicMock()
+    coord.async_add_listener.return_value = unsub
+    entry = MagicMock()
+    added: list[object] = []
+    compatible = True
+
+    async_add_when_capable(
+        coord,
+        entry,
+        added.extend,
+        is_capable=lambda: False,
+        can_become_capable=lambda: compatible,
+        build=lambda: ["entity"],
+    )
+
+    listener = coord.async_add_listener.call_args.args[0]
+    compatible = False
+    listener()
+
+    assert added == []
+    unsub.assert_called_once()
+    # Unload callback is idempotent after listener already unsubscribed.
+    unload_cb = entry.async_on_unload.call_args.args[0]
+    unload_cb()
+    unsub.assert_called_once()

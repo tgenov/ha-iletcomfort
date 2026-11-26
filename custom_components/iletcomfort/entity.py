@@ -49,7 +49,12 @@ def async_add_when_capable(
 
     @callback
     def _on_update() -> None:
-        if unsubscribe is None or not is_capable():
+        if unsubscribe is None:
+            return
+        if not can_become_capable():
+            _remove_listener()
+            return
+        if not is_capable():
             return
         _remove_listener()
         async_add_entities(build())

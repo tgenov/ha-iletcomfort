@@ -270,6 +270,8 @@ async def test_diagnostics_preserves_raw_frames_and_probe_state_for_atw(
     assert proto["raw_frames"]["0x02"].startswith("02,00,03,1e")
     assert proto["raw_frames"]["0x10"].startswith("10,00,03")
     assert proto["raw_frames"]["0x0a"].startswith("0a,38,00,22,1c,8f")
+    # sensors_temperature_scan must scan the original 0x02 frame, not 0x10.
+    assert result["sensors_temperature_scan"][0] == 0x02 - 35
     json.dumps(result)
 
     # Verify probe error is surfaced when 0x10 is rejected with code=1214.

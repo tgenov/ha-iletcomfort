@@ -26,6 +26,7 @@ from homeassistant.const import (
     UnitOfFrequency,
     UnitOfTemperature,
     UnitOfTime,
+    UnitOfVolumeFlowRate,
 )
 
 from custom_components.iletcomfort.api import decode_its_sensors, decode_its_status
@@ -193,6 +194,22 @@ _PINNED_SENSORS: dict[str, tuple[Any, Any, Any]] = {
         SensorStateClass.MEASUREMENT,
         UnitOfElectricCurrent.AMPERE,
     ),
+    "water_flow": (
+        SensorDeviceClass.VOLUME_FLOW_RATE,
+        SensorStateClass.MEASUREMENT,
+        UnitOfVolumeFlowRate.CUBIC_METERS_PER_HOUR,
+    ),
+    "dc_voltage": (
+        SensorDeviceClass.VOLTAGE,
+        SensorStateClass.MEASUREMENT,
+        UnitOfElectricPotential.VOLT,
+    ),
+    "dc_current": (
+        SensorDeviceClass.CURRENT,
+        SensorStateClass.MEASUREMENT,
+        UnitOfElectricCurrent.AMPERE,
+    ),
+    "exv_steps": (None, SensorStateClass.MEASUREMENT, None),
 }
 
 _PINNED_BINARY_SENSORS: dict[str, Any] = {

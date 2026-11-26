@@ -365,8 +365,13 @@ does not enforce per-appliance topic ACLs.
   then merge. Repo **auto-merge is disabled**.
 - **Conventional Commits** required (PR title is checked). Squash-merge keeps the conventional message on
   `main`.
-- **TDD**: write failing tests first; run `pip install -r requirements_test.txt` then `python -m pytest -q`.
-  Never break the STANDARD-decode regression tests.
+- **TDD & local quality gates**: write failing tests first; run `pytest`, `ruff check .`, and
+  `mypy custom_components/iletcomfort/` locally before pushing. Never break the STANDARD-decode
+  regression tests or the entity-stability contract in `tests/test_hardware_corpus.py`.
+- **Mandatory clean-context self-review before PR**: before opening any PR, run an independent
+  code review of the full `git diff main...HEAD` in a **new subagent / clear context** to catch
+  edge cases, push/poll parity gaps, redaction leaks, and test gaps before they burn a human
+  review cycle.
 - Tooling preference: `rg` / `fd` / `bat` over `grep` / `find` / `cat`.
 - Distributed via **HACS**.
 

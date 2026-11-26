@@ -51,7 +51,6 @@ from .model_profiles import (
     ModelProfile,
     apply_atw_hmi_params,
     apply_atw_unit_params,
-    apply_profile_to_status,
     atw_sensors_are_placeholder,
     kjrh120l_has_zone1,
     resolve_profile,
@@ -364,16 +363,21 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         raw_frames: dict[int, bytes] = {}
         if status.raw_body:
             raw_frames[0x01] = bytes(status.raw_body)
-        if sensors.raw_body:
+        if self._sensors_degraded:
+            cached_0x02 = (cached.get("raw_frames") or {}).get(0x02)
+            if cached_0x02:
+                raw_frames[0x02] = bytes(cached_0x02)
+        elif sensors.raw_body and sensors.raw_body[:1] == b"\x02":
             raw_frames[0x02] = bytes(sensors.raw_body)
 
         # On ATW (171H120F) units whose 0x02 frame is a non-telemetry schedule
         # template, probe subtype 0x10 once for live telemetry (#120). Units
-        # that reject 0x10 (e.g. code=1214 on Rotenso) latch unsupported and
-        # keep the placeholder-suppressed sensors without extra cloud traffic.
+        # that reject 0x10 on the initial probe (e.g. code=1214 on Rotenso)
+        # latch unsupported; transient errors after 0x10 is already confirmed
+        # retry on the next poll without permanently disabling telemetry.
         if (
             profile is ModelProfile.ATW
-            and atw_sensors_are_placeholder(sensors.raw_body)
+            and atw_sensors_are_placeholder(raw_frames.get(0x02, b""))
             and self.capabilities.atw_unit_params.should_probe
         ):
             try:
@@ -383,12 +387,18 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             except AuthError:
                 raise
             except ApiError as err:
-                self.capabilities.atw_unit_params.mark_unsupported(str(err))
-                _LOGGER.info(
-                    "ATW subtype 0x10 unit parameters not supported (%s); "
-                    "disabling 0x10 telemetry polling for this session",
-                    err,
-                )
+                if self.capabilities.atw_unit_params.supported is None:
+                    self.capabilities.atw_unit_params.mark_unsupported(str(err))
+                    _LOGGER.info(
+                        "ATW subtype 0x10 unit parameters not supported (%s); "
+                        "disabling 0x10 telemetry polling for this session",
+                        err,
+                    )
+                else:
+                    _LOGGER.debug(
+                        "Transient ATW subtype 0x10 ApiError (retrying next poll): %s",
+                        err,
+                    )
             except Exception as err:  # noqa: BLE001 — transient error, retry later
                 _LOGGER.debug("ATW subtype 0x10 query failed: %s", err)
             else:
@@ -410,12 +420,21 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         except AuthError:
                             raise
                         except ApiError as err:
-                            self.capabilities.atw_hmi_params.mark_unsupported(str(err))
-                            _LOGGER.info(
-                                "ATW subtype 0x0A HMI parameters not supported "
-                                "(%s); disabling 0x0A polling for this session",
-                                err,
-                            )
+                            if self.capabilities.atw_hmi_params.supported is None:
+                                self.capabilities.atw_hmi_params.mark_unsupported(
+                                    str(err)
+                                )
+                                _LOGGER.info(
+                                    "ATW subtype 0x0A HMI parameters not supported "
+                                    "(%s); disabling 0x0A polling for this session",
+                                    err,
+                                )
+                            else:
+                                _LOGGER.debug(
+                                    "Transient ATW subtype 0x0A ApiError "
+                                    "(retrying next poll): %s",
+                                    err,
+                                )
                         except Exception as err:  # noqa: BLE001 — transient error
                             _LOGGER.debug("ATW subtype 0x0A query failed: %s", err)
                         else:
@@ -435,7 +454,7 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             variant=adapter.describe_variant(status),
             status=status,
             sensors=sensors,
-            raw_frames=raw_frames,
+            raw_frames=dict(raw_frames),
         )
         return {
             "status": status,
@@ -681,16 +700,26 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # with no sensors (entities read coordinator.data["sensors"]); the
             # imminent first poll delivers a complete snapshot.
             return
-        status = apply_profile_to_status(resolve_profile(self.sn8), status)
+        adapter = get_adapter(self.sn8)
+        status = adapter.decode_status(status)
         self._observe_kjrh120l_zone1(status)
         raw_frames = dict(self.data.get("raw_frames") or {})
         if status.raw_body:
             raw_frames[0x01] = bytes(status.raw_body)
+        sensors = self.data.get("sensors")
+        state = HeatPumpState(
+            profile=adapter.profile,
+            variant=adapter.describe_variant(status),
+            status=status,
+            sensors=sensors,
+            raw_frames=dict(raw_frames),
+        )
         self.async_set_updated_data(
             {
                 "status": status,
-                "sensors": self.data.get("sensors"),
+                "sensors": sensors,
                 "raw_frames": raw_frames,
+                "state": state,
             }
         )
 
