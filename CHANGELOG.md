@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.29.0](https://github.com/tgenov/ha-iletcomfort/compare/v0.28.0...v0.29.0) (2026-11-26)
+
+
+### Features
+
+* **atw:** probe and decode 0x05 Silent/Super-Silent and 0x07 ECO ([#201](https://github.com/tgenov/ha-iletcomfort/issues/201)) ([49665c4](https://github.com/tgenov/ha-iletcomfort/commit/49665c4150b9b584a196b39cc87ffdd28b9e5296))
+
 ## [0.28.0](https://github.com/tgenov/ha-iletcomfort/compare/v0.27.1...v0.28.0) (2026-11-26)
 
 
