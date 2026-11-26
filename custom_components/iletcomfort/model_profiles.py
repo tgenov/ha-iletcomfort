@@ -562,6 +562,70 @@ def apply_atw_hmi_params(
     return dataclasses.replace(status, comp_total_run_hours=comp_total_run_hours)
 
 
+# ---------------------------------------------------------------------------
+# ATW subtypes 0x05 (Silent/Super-Silent) & 0x07 (ECO) (issues #139 / #188)
+# ---------------------------------------------------------------------------
+#
+# Airwell Wellea Split (#139 C8) confirmed separate subtypes:
+#   - 0x05 (10 bytes): bit 0 = ON/OFF, bit 1 = Timer 1, bit 3 = Super Silent
+#     level (retained even when Silent is OFF).
+#   - 0x07 (7 bytes): bit 0 = ECO ON/OFF, bit 1 = ECO Timer.
+# Some firmwares (midea-local #300) also share 0x05 for ECO replies (<= 6 bytes)
+# vs Silence replies (> 6 bytes), so apply_atw_silent / apply_atw_eco support both.
+ATW_SILENT_SUBTYPE = 0x05
+ATW_ECO_SUBTYPE = 0x07
+ATW_SILENT_MIN_LEN = 2
+ATW_ECO_MIN_LEN = 2
+ATW_SILENT_FULL_LEN = 7
+
+
+def apply_atw_silent(
+    silent_body: bytes | bytearray,
+    status: ITSStatus,
+) -> ITSStatus:
+    """Overlay ATW subtype 0x05 Silent/Super-Silent (or short ECO fallback) onto status."""
+    body = bytes(silent_body)
+    if len(body) < ATW_SILENT_MIN_LEN or body[0] != ATW_SILENT_SUBTYPE:
+        return status
+    flags = body[1]
+    if len(body) < ATW_SILENT_FULL_LEN:
+        return dataclasses.replace(
+            status,
+            atw_eco_mode=bool(flags & 0x01),
+            atw_eco_timer=bool(flags & 0x02),
+        )
+    silent_on = bool(flags & 0x01)
+    super_selected = bool(flags & 0x08)
+    silent_level = 0 if not silent_on else (2 if super_selected else 1)
+    return dataclasses.replace(
+        status,
+        atw_silent_mode=silent_on,
+        atw_silent_level=silent_level,
+        atw_silent_super_selected=super_selected,
+    )
+
+
+def apply_atw_eco(
+    eco_body: bytes | bytearray,
+    status: ITSStatus,
+) -> ITSStatus:
+    """Overlay ATW subtype 0x07 (or <=6-byte 0x05) ECO state onto status."""
+    body = bytes(eco_body)
+    if len(body) < ATW_ECO_MIN_LEN or body[0] not in (
+        ATW_ECO_SUBTYPE,
+        ATW_SILENT_SUBTYPE,
+    ):
+        return status
+    if body[0] == ATW_SILENT_SUBTYPE and len(body) >= ATW_SILENT_FULL_LEN:
+        return status
+    flags = body[1]
+    return dataclasses.replace(
+        status,
+        atw_eco_mode=bool(flags & 0x01),
+        atw_eco_timer=bool(flags & 0x02),
+    )
+
+
 def atw_c3_basic(sn8: str | None, status: ITSStatus | None) -> C3BasicStatus | None:
     """Return the decoded C3 basic status for an ATW unit, else None.
 
@@ -880,8 +944,13 @@ def describe_profile_variant(
 
 __all__ = [
     "AQUAPURA_SN8",
+    "ATW_ECO_MIN_LEN",
+    "ATW_ECO_SUBTYPE",
     "ATW_HMI_PARAMS_MIN_LEN",
     "ATW_HMI_PARAMS_SUBTYPE",
+    "ATW_SILENT_FULL_LEN",
+    "ATW_SILENT_MIN_LEN",
+    "ATW_SILENT_SUBTYPE",
     "ATW_SN8",
     "ATW_UNIT_PARAMS_MIN_LEN",
     "ATW_UNIT_PARAMS_SUBTYPE",
@@ -897,7 +966,9 @@ __all__ = [
     "KJRH120L_ZONE1_POWER_OFF",
     "KJRH120L_ZONE1_POWER_ON",
     "ModelProfile",
+    "apply_atw_eco",
     "apply_atw_hmi_params",
+    "apply_atw_silent",
     "apply_atw_unit_params",
     "apply_profile_to_sensors",
     "apply_profile_to_status",

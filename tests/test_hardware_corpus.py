@@ -33,7 +33,9 @@ from custom_components.iletcomfort.api import decode_its_sensors, decode_its_sta
 from custom_components.iletcomfort.binary_sensor import BINARY_SENSOR_DESCRIPTIONS
 from custom_components.iletcomfort.climate import ILetComfortClimate
 from custom_components.iletcomfort.model_profiles import (
+    apply_atw_eco,
     apply_atw_hmi_params,
+    apply_atw_silent,
     apply_atw_unit_params,
     apply_profile_to_sensors,
     apply_profile_to_status,
@@ -108,6 +110,12 @@ def test_hardware_corpus_decode_contract(case: dict[str, Any]) -> None:
 
     if "0x0a" in frames:
         status = apply_atw_hmi_params(_hex_csv(frames["0x0a"]), status)
+
+    if "0x05" in frames:
+        status = apply_atw_silent(_hex_csv(frames["0x05"]), status)
+
+    if "0x07" in frames:
+        status = apply_atw_eco(_hex_csv(frames["0x07"]), status)
 
     for field, expected in case.get("expected_status", {}).items():
         assert getattr(status, field) == expected, (

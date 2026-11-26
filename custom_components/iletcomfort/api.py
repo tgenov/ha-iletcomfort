@@ -202,6 +202,12 @@ class ITSStatus:
     kjrh120l_zone1_cool_min: int | None = None  # body[40]
     # KJRH-120L outdoor ambient temp (status body[57] - 196; #148/#142/#136/#119).
     kjrh120l_outdoor_temp: float | None = None
+    # ATW subtype 0x05 (Silent/Super-Silent) and 0x07/0x05 (ECO) decoded state (#139/#188).
+    atw_silent_mode: bool | None = None
+    atw_silent_level: int | None = None  # 0=Off, 1=Level 1, 2=Level 2 (Super Silent)
+    atw_silent_super_selected: bool | None = None  # raw bit 3 (retained even when OFF)
+    atw_eco_mode: bool | None = None
+    atw_eco_timer: bool | None = None
     # Standard Midea C3 basic status (``c3_basic.C3BasicStatus``) when an ATW
     # (sn8 171H120F) status frame matches that layout; None otherwise.
     c3_basic: Any = None
@@ -471,37 +477,79 @@ class ILetComfortClient(DollinCloudClient):
             )
         return decode_its_sensors(body)
 
+    def _query_c3_subtype(
+        self,
+        appliance_code: str,
+        subtype: int,
+        *,
+        expected_types: tuple[int, ...],
+        min_len: int,
+        label: str,
+    ) -> bytes:
+        """Query a C3 extended subtype and validate its response header and length."""
+        command = build_c3_query(subtype)
+        response_hex = self.send_hex_command(appliance_code, command)
+        _LOGGER.debug("%s raw response: %s", label, response_hex)
+        raw = parse_hex_response(response_hex)
+        body_type, body = extract_c3_body(raw)
+        if body_type not in expected_types or len(body) < min_len:
+            raise ApiError(
+                f"{label} returned unexpected or truncated frame "
+                f"(type=0x{body_type:02x}, {len(body)} body bytes)"
+            )
+        return bytes(body)
+
     def query_atw_unit_params(self, appliance_code: str) -> bytes:
         """Query ATW subtype 0x10 unit parameters for live telemetry (#120)."""
         from .model_profiles import ATW_UNIT_PARAMS_MIN_LEN, ATW_UNIT_PARAMS_SUBTYPE
 
-        command = build_c3_query(ATW_UNIT_PARAMS_SUBTYPE)
-        response_hex = self.send_hex_command(appliance_code, command)
-        _LOGGER.debug("query_atw_unit_params raw response: %s", response_hex)
-        raw = parse_hex_response(response_hex)
-        body_type, body = extract_c3_body(raw)
-        if body_type != ATW_UNIT_PARAMS_SUBTYPE or len(body) < ATW_UNIT_PARAMS_MIN_LEN:
-            raise ApiError(
-                f"ATW unit_params (0x10) returned unexpected or truncated frame "
-                f"(type=0x{body_type:02x}, {len(body)} body bytes)"
-            )
-        return bytes(body)
+        return self._query_c3_subtype(
+            appliance_code,
+            ATW_UNIT_PARAMS_SUBTYPE,
+            expected_types=(ATW_UNIT_PARAMS_SUBTYPE,),
+            min_len=ATW_UNIT_PARAMS_MIN_LEN,
+            label="ATW unit_params (0x10)",
+        )
 
     def query_atw_hmi_params(self, appliance_code: str) -> bytes:
         """Query ATW subtype 0x0A HMI parameters for compressor run hours (#120)."""
         from .model_profiles import ATW_HMI_PARAMS_MIN_LEN, ATW_HMI_PARAMS_SUBTYPE
 
-        command = build_c3_query(ATW_HMI_PARAMS_SUBTYPE)
-        response_hex = self.send_hex_command(appliance_code, command)
-        _LOGGER.debug("query_atw_hmi_params raw response: %s", response_hex)
-        raw = parse_hex_response(response_hex)
-        body_type, body = extract_c3_body(raw)
-        if body_type != ATW_HMI_PARAMS_SUBTYPE or len(body) < ATW_HMI_PARAMS_MIN_LEN:
-            raise ApiError(
-                f"ATW hmi_params (0x0A) returned unexpected or truncated frame "
-                f"(type=0x{body_type:02x}, {len(body)} body bytes)"
-            )
-        return bytes(body)
+        return self._query_c3_subtype(
+            appliance_code,
+            ATW_HMI_PARAMS_SUBTYPE,
+            expected_types=(ATW_HMI_PARAMS_SUBTYPE,),
+            min_len=ATW_HMI_PARAMS_MIN_LEN,
+            label="ATW hmi_params (0x0A)",
+        )
+
+    def query_atw_silent(self, appliance_code: str) -> bytes:
+        """Query ATW subtype 0x05 Silent / Super-Silent state (#139/#188)."""
+        from .model_profiles import ATW_SILENT_MIN_LEN, ATW_SILENT_SUBTYPE
+
+        return self._query_c3_subtype(
+            appliance_code,
+            ATW_SILENT_SUBTYPE,
+            expected_types=(ATW_SILENT_SUBTYPE,),
+            min_len=ATW_SILENT_MIN_LEN,
+            label="ATW silent (0x05)",
+        )
+
+    def query_atw_eco(self, appliance_code: str) -> bytes:
+        """Query ATW subtype 0x07 (or shared 0x05) ECO state (#139/#188)."""
+        from .model_profiles import (
+            ATW_ECO_MIN_LEN,
+            ATW_ECO_SUBTYPE,
+            ATW_SILENT_SUBTYPE,
+        )
+
+        return self._query_c3_subtype(
+            appliance_code,
+            ATW_ECO_SUBTYPE,
+            expected_types=(ATW_ECO_SUBTYPE, ATW_SILENT_SUBTYPE),
+            min_len=ATW_ECO_MIN_LEN,
+            label="ATW eco (0x07)",
+        )
 
     def set_device(
         self,

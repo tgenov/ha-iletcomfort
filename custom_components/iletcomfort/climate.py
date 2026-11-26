@@ -174,6 +174,18 @@ class ILetComfortClimate(CoordinatorEntity[ILetComfortCoordinator], ClimateEntit
             attrs["zone1_water_target"] = float(basic.zone1_target)
             attrs["room_target"] = basic.room_target
             attrs["weather_curve"] = basic.zone1_curve
+            status = state.status if state is not None else None
+            attrs["eco_mode"] = (
+                status.atw_eco_mode
+                if status is not None and status.atw_eco_mode is not None
+                else basic.eco_mode
+            )
+            if status is not None and status.atw_silent_level is not None:
+                attrs["silent_level"] = {
+                    0: "off",
+                    1: "level_1",
+                    2: "level_2",
+                }[status.atw_silent_level]
         return attrs
 
     @property
