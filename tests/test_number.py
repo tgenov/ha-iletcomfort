@@ -12,6 +12,7 @@ from custom_components.iletcomfort.number import (
     _is_kjrh120l_dual,
 )
 from tests.write_helpers import bind_write_path, sent_commands
+from tests.snapshot_helpers import make_state
 
 
 def _entity() -> ILetComfortKjrh120lDhwSetpoint:
@@ -24,10 +25,7 @@ def _entity() -> ILetComfortKjrh120lDhwSetpoint:
     coordinator.appliance_code = "APPL1"
     coordinator.sn8 = KJRH120L_SN8
     coordinator.appliance_meta = {"sn8": KJRH120L_SN8}
-    coordinator.data = {
-        "status": decode_kjrh120l_status(body),
-        "sensors": ITSSensors(),
-    }
+    coordinator.data = make_state(decode_kjrh120l_status(body), ITSSensors(), sn8=KJRH120L_SN8)
     coordinator.c3_basic_controllable = None
     return ILetComfortKjrh120lDhwSetpoint(bind_write_path(coordinator))
 
@@ -51,8 +49,8 @@ async def test_dhw_number_clamps_to_validated_range():
 
 def test_pure_dhw_kjrh_does_not_create_separate_number():
     entity = _entity()
-    body = bytearray(entity.coordinator.data["status"].raw_body)
+    body = bytearray(entity.coordinator.data.status.raw_body)
     body[8] = body[9] = 0
-    entity.coordinator.data["status"] = decode_kjrh120l_status(body)
+    entity.coordinator.data = make_state(decode_kjrh120l_status(body), entity.coordinator.data.sensors, sn8=KJRH120L_SN8)
 
     assert not _is_kjrh120l_dual(entity.coordinator)

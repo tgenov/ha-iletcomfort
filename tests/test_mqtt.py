@@ -19,6 +19,8 @@ from custom_components.iletcomfort.mqtt import (
     push_topics,
     ILetComfortPushClient,
 )
+from custom_components.iletcomfort.protocols import HeatPumpState
+from tests.snapshot_helpers import make_state
 
 # A real C3 subtype-0x01 status push captured on hardware (issue #55). The
 # device publishes on us/midea/dev/<code>; the payload wraps the C3 frame hex
@@ -490,11 +492,7 @@ async def test_coordinator_apply_push_energy_records_push_and_overlays_atw(
             "01 0d 15 90 03 03 28 1e 32 30 41 23 19 05 37 19 19 05 3c 22 3c 14 32 00 80"
         )
     )
-    coord.data = {
-        "status": initial_status,
-        "sensors": ITSSensors(),
-        "raw_frames": {0x01: initial_status.raw_body},
-    }
+    coord.data = make_state(initial_status, ITSSensors(), {0x01: initial_status.raw_body}, sn8=coord.sn8)
 
     energy_body = decode_push_energy_payload(
         json.dumps({"messageType": "status", "data": {"commandHex": HYUNDAI_MQTT_0X04_HEX}})
@@ -505,10 +503,10 @@ async def test_coordinator_apply_push_energy_records_push_and_overlays_atw(
     assert coord._last_push_status_at is not None
     # ATW has no periodic status cadence, so no heartbeat watchdog is armed (#129).
     assert coord._push_status_watchdog is None
-    assert coord.data["status"].total_kwh == 14126
-    assert coord.data["status"].total_thermal_kwh == 32181
-    assert coord.data["sensors"].t4_temp == 0.0
-    assert 0x04 in coord.data["raw_frames"]
+    assert coord.data.status.total_kwh == 14126
+    assert coord.data.status.total_thermal_kwh == 32181
+    assert coord.data.sensors.t4_temp == 0.0
+    assert 0x04 in coord.data.raw_frames
 
     by_key = {desc.key: desc for desc in SENSOR_DESCRIPTIONS}
     assert by_key["total_thermal_energy"].value_fn(coord.data) == 32181
@@ -520,24 +518,24 @@ async def test_coordinator_apply_push_energy_records_push_and_overlays_atw(
         )
     )
     coord._apply_push_status(next_0x01)
-    assert coord.data["status"].total_kwh == 14126
-    assert coord.data["status"].total_thermal_kwh == 32181
-    assert coord.data["sensors"].t4_temp == 0.0
+    assert coord.data.status.total_kwh == 14126
+    assert coord.data.status.total_thermal_kwh == 32181
+    assert coord.data.sensors.t4_temp == 0.0
 
     # Negative outdoor temp (0xFB -> -5.0 °C) and 0x7F disconnected sentinel / 0xFFFFFFFF guard.
     neg_body = bytearray(energy_body)
     neg_body[10] = 0xFB
     coord._apply_push_energy(bytes(neg_body))
-    assert coord.data["sensors"].t4_temp == -5.0
+    assert coord.data.sensors.t4_temp == -5.0
 
     sentinel_body = bytearray(energy_body)
     sentinel_body[2:6] = b"\xff\xff\xff\xff"
     sentinel_body[6:10] = b"\x00\x00\x00\x00"
     sentinel_body[10] = 0x7F
     coord._apply_push_energy(bytes(sentinel_body))
-    assert coord.data["status"].total_kwh == 14126
-    assert coord.data["status"].total_thermal_kwh == 32181
-    assert coord.data["sensors"].t4_temp == -5.0
+    assert coord.data.status.total_kwh == 14126
+    assert coord.data.status.total_thermal_kwh == 32181
+    assert coord.data.sensors.t4_temp == -5.0
 
     coord._cancel_push_status_watchdog()
     await coord.async_shutdown()
@@ -596,7 +594,7 @@ def _atw_phone_app_coordinator(hass, sn8: str | None = "171H120F"):
 
 def _polled_atw_snapshot(
     status_frame: bytes | None = None, silent_frame: bytes | None = None
-) -> dict:
+) -> HeatPumpState:
     """Return coordinator data as an ATW poll with 0x10/0x0A/0x05/0x07 leaves it.
 
     Built by hand (not via the production builder) so the regression tests
@@ -634,7 +632,13 @@ def _polled_atw_snapshot(
     status = apply_atw_hmi_params(frames[0x0A], status)
     status = apply_atw_silent(frames[0x05], status)
     status = apply_atw_eco(frames[0x07], status)
-    return {"status": status, "sensors": sensors, "raw_frames": dict(frames)}
+    return HeatPumpState(
+        profile=adapter.profile,
+        variant=adapter.describe_variant(status),
+        status=status,
+        sensors=sensors,
+        raw_frames=dict(frames),
+    )
 
 
 def _with_silent_bit(frame: bytes, on: bool) -> bytes:
@@ -674,8 +678,8 @@ async def test_atw_status_push_keeps_subtype_overlays_issue225(hass):
 
     coord = _atw_phone_app_coordinator(hass)
     coord.data = _polled_atw_snapshot()
-    before_status = coord.data["status"]
-    before_sensors = coord.data["sensors"]
+    before_status = coord.data.status
+    before_sensors = coord.data.sensors
     for field in _RETAINED_STATUS_FIELDS + _INSTANT_0X10_STATUS_FIELDS:
         assert getattr(before_status, field) is not None, field
     assert before_status.atw_silent_level == 1
@@ -684,14 +688,13 @@ async def test_atw_status_push_keeps_subtype_overlays_issue225(hass):
 
     after = coord.data
     for field in _RETAINED_STATUS_FIELDS:
-        assert getattr(after["status"], field) == getattr(before_status, field), field
-    assert after["status"].atw_silent_mode is True
-    assert after["status"].atw_silent_level == 1
-    assert after["status"].atw_silent_super_selected is False
+        assert getattr(after.status, field) == getattr(before_status, field), field
+    assert after.status.atw_silent_mode is True
+    assert after.status.atw_silent_level == 1
+    assert after.status.atw_silent_super_selected is False
     for field in _OVERLAY_SENSOR_FIELDS:
-        assert getattr(after["sensors"], field) == getattr(before_sensors, field), field
-    assert after["state"].status is after["status"]
-    assert after["state"].has_atw_0x10 is True
+        assert getattr(after.sensors, field) == getattr(before_sensors, field), field
+    assert after.has_atw_0x10 is True
 
     coord._cancel_push_status_watchdog()
     await coord.async_shutdown()
@@ -704,19 +707,19 @@ async def test_atw_status_push_does_not_freeze_instant_0x10_values_issue225(hass
     coord = _atw_phone_app_coordinator(hass)
     coord.data = _polled_atw_snapshot()
 
-    polled = coord.data["status"]
+    polled = coord.data.status
     pushed = decode_atw_status(_ATW_STATUS_SILENT_ON)
     coord._apply_push_status(pushed)
 
     # Instantaneous fields are exactly what the pushed 0x01 decode produces
     # (None, or ITSStatus's int default for exv_drg), never the poll's value.
     for field in _INSTANT_0X10_STATUS_FIELDS:
-        assert getattr(coord.data["status"], field) == getattr(pushed, field), field
-        assert getattr(coord.data["status"], field) != getattr(polled, field), field
-    assert coord.data["status"].comp_frq is None
-    assert coord.data["status"].comp_running is None
-    assert coord.data["status"].pressure_h is None
-    assert coord.data["state"].compressor_freq is None
+        assert getattr(coord.data.status, field) == getattr(pushed, field), field
+        assert getattr(coord.data.status, field) != getattr(polled, field), field
+    assert coord.data.status.comp_frq is None
+    assert coord.data.status.comp_running is None
+    assert coord.data.status.pressure_h is None
+    assert coord.data.compressor_freq is None
 
     coord._cancel_push_status_watchdog()
     await coord.async_shutdown()
@@ -730,15 +733,15 @@ async def test_atw_status_push_updates_status_fields_and_keeps_overlays_issue225
 
     coord = _atw_phone_app_coordinator(hass)
     coord.data = _polled_atw_snapshot()
-    before = coord.data["status"]
+    before = coord.data.status
 
     pushed = bytearray(_ATW_STATUS_SILENT_ON)
     pushed[1] = 0x0C  # Zone-1 power off
     coord._apply_push_status(decode_atw_status(bytes(pushed)))
 
-    after = coord.data["status"]
+    after = coord.data.status
     assert after.raw_body == bytes(pushed)
-    assert coord.data["raw_frames"][0x01] == bytes(pushed)
+    assert coord.data.raw_frames[0x01] == bytes(pushed)
     assert after.mode != before.mode
     assert after.total_kwh == before.total_kwh
     assert after.comp_total_run_hours == before.comp_total_run_hours
@@ -755,11 +758,11 @@ async def test_atw_status_push_silent_off_overrides_retained_0x05_issue225(hass)
 
     coord = _atw_phone_app_coordinator(hass)
     coord.data = _polled_atw_snapshot()
-    assert coord.data["status"].atw_silent_level == 1
+    assert coord.data.status.atw_silent_level == 1
 
     off = _with_silent_bit(_ATW_STATUS_SILENT_ON, False)
     coord._apply_push_status(decode_atw_status(off))
-    status = coord.data["status"]
+    status = coord.data.status
     assert status.c3_basic.silent_mode is False
     assert status.atw_silent_mode is False
     assert status.atw_silent_level == 0
@@ -767,8 +770,8 @@ async def test_atw_status_push_silent_off_overrides_retained_0x05_issue225(hass)
 
     # Turned back on in the app: the retained 0x05 level applies again.
     coord._apply_push_status(decode_atw_status(_ATW_STATUS_SILENT_ON))
-    assert coord.data["status"].atw_silent_mode is True
-    assert coord.data["status"].atw_silent_level == 1
+    assert coord.data.status.atw_silent_mode is True
+    assert coord.data.status.atw_silent_level == 1
 
     coord._cancel_push_status_watchdog()
     await coord.async_shutdown()
@@ -782,12 +785,12 @@ async def test_atw_status_push_silent_off_keeps_super_selected_issue225(hass):
     super_on[1] = 0x09  # on + Super Silent
     coord = _atw_phone_app_coordinator(hass)
     coord.data = _polled_atw_snapshot(silent_frame=bytes(super_on))
-    assert coord.data["status"].atw_silent_level == 2
+    assert coord.data.status.atw_silent_level == 2
 
     coord._apply_push_status(
         decode_atw_status(_with_silent_bit(_ATW_STATUS_SILENT_ON, False))
     )
-    status = coord.data["status"]
+    status = coord.data.status
     assert status.atw_silent_mode is False
     assert status.atw_silent_level == 0
     assert status.atw_silent_super_selected is True
@@ -812,10 +815,10 @@ async def test_atw_status_push_silent_on_with_stale_off_0x05_falls_back_issue225
     coord.data = _polled_atw_snapshot(
         status_frame=off_status, silent_frame=bytes(silent_off)
     )
-    assert coord.data["status"].atw_silent_level == 0
+    assert coord.data.status.atw_silent_level == 0
 
     coord._apply_push_status(decode_atw_status(_ATW_STATUS_SILENT_ON))
-    status = coord.data["status"]
+    status = coord.data.status
     assert status.atw_silent_mode is None
     assert status.atw_silent_level is None
     assert status.atw_silent_super_selected is None
@@ -834,7 +837,7 @@ async def test_atw_energy_push_keeps_subtype_overlays_issue225(hass):
 
     coord = _atw_phone_app_coordinator(hass)
     coord.data = _polled_atw_snapshot()
-    before = coord.data["status"]
+    before = coord.data.status
 
     energy_body = decode_push_energy_payload(
         json.dumps(
@@ -844,10 +847,10 @@ async def test_atw_energy_push_keeps_subtype_overlays_issue225(hass):
     assert energy_body is not None
     coord._apply_push_energy(energy_body)
 
-    after = coord.data["status"]
+    after = coord.data.status
     assert after.total_kwh == 14126
     assert after.total_thermal_kwh == 32181
-    assert coord.data["sensors"].t4_temp == 0.0
+    assert coord.data.sensors.t4_temp == 0.0
     for field in ("comp_total_run_hours", "atw_silent_level", "atw_eco_mode"):
         assert getattr(after, field) == getattr(before, field), field
 
@@ -856,10 +859,10 @@ async def test_atw_energy_push_keeps_subtype_overlays_issue225(hass):
     from custom_components.iletcomfort.model_profiles import decode_atw_status
 
     coord._apply_push_status(decode_atw_status(_ATW_STATUS_SILENT_ON))
-    after = coord.data["status"]
+    after = coord.data.status
     assert after.total_kwh == 14126
     assert after.total_thermal_kwh == 32181
-    assert coord.data["sensors"].t4_temp == 0.0
+    assert coord.data.sensors.t4_temp == 0.0
     assert after.comp_total_run_hours == before.comp_total_run_hours
     assert after.atw_eco_mode == before.atw_eco_mode
 
@@ -891,11 +894,10 @@ async def test_atw_energy_push_keeps_literal_0x04_in_raw_frames_issue225(hass):
     sentinel[10] = 0x7F
     coord._apply_push_energy(bytes(sentinel))
 
-    assert coord.data["raw_frames"][0x04] == bytes(sentinel)
-    assert coord.data["state"].raw_frames[0x04] == bytes(sentinel)
-    assert coord.data["status"].total_kwh == 14126
-    assert coord.data["status"].total_thermal_kwh == 32181
-    assert coord.data["sensors"].t4_temp == 0.0
+    assert coord.data.raw_frames[0x04] == bytes(sentinel)
+    assert coord.data.status.total_kwh == 14126
+    assert coord.data.status.total_thermal_kwh == 32181
+    assert coord.data.sensors.t4_temp == 0.0
 
     hass.data.setdefault(DOMAIN, {})[coord.entry.entry_id] = coord
     diag = await async_get_config_entry_diagnostics(hass, coord.entry)
@@ -915,12 +917,12 @@ async def test_atw_status_push_th_temp_follows_pushed_tank_temp_issue225(hass):
 
     coord = _atw_phone_app_coordinator(hass)
     coord.data = _polled_atw_snapshot()
-    assert coord.data["sensors"].th_temp == 50.0
+    assert coord.data.sensors.th_temp == 50.0
 
     pushed = bytearray(_ATW_STATUS_SILENT_ON)
     pushed[22] = 47  # DHW tank °C
     coord._apply_push_status(decode_atw_status(bytes(pushed)))
-    assert coord.data["sensors"].th_temp == 47.0
+    assert coord.data.sensors.th_temp == 47.0
 
     coord._cancel_push_status_watchdog()
     await coord.async_shutdown()
@@ -934,17 +936,13 @@ async def test_aquapura_status_push_th_temp_follows_box_bottom_issue225(hass):
         "0123232323232323232323232323232323" "4b" + "23" * 32
     ))
     coord = _atw_phone_app_coordinator(hass, AQUAPURA_SN8)
-    coord.data = {
-        "status": decode_its_status(bytes(frame)),
-        "sensors": ITSSensors(th_temp=40.0, twin_temp=0.0),
-        "raw_frames": {0x01: bytes(frame)},
-    }
+    coord.data = make_state(decode_its_status(bytes(frame)), ITSSensors(th_temp=40.0, twin_temp=0.0), {0x01: bytes(frame)}, sn8=coord.sn8)
 
     frame[17] = 0x50  # 80 - 35 = 45 °C
     coord._apply_push_status(decode_its_status(bytes(frame)))
-    assert coord.data["status"].box_bottom_temp == 45.0
-    assert coord.data["sensors"].th_temp == 45.0
-    assert coord.data["sensors"].twin_temp == 0.0
+    assert coord.data.status.box_bottom_temp == 45.0
+    assert coord.data.sensors.th_temp == 45.0
+    assert coord.data.sensors.twin_temp == 0.0
 
     coord._cancel_push_status_watchdog()
     await coord.async_shutdown()
@@ -956,24 +954,20 @@ async def test_kjrh120l_status_push_t4_follows_pushed_outdoor_issue225(hass):
     from tests.kjrh120l_snapshots import KJRH120L_SNAPSHOT_A
 
     coord = _atw_phone_app_coordinator(hass, KJRH120L_SN8)
-    coord.data = {
-        "status": decode_its_status(KJRH120L_SNAPSHOT_A),
-        "sensors": ITSSensors(t4_temp=12.0),
-        "raw_frames": {0x01: KJRH120L_SNAPSHOT_A},
-    }
+    coord.data = make_state(decode_its_status(KJRH120L_SNAPSHOT_A), ITSSensors(t4_temp=12.0), {0x01: KJRH120L_SNAPSHOT_A}, sn8=coord.sn8)
 
     pushed = bytearray(KJRH120L_SNAPSHOT_A)
     pushed[57] = 0xCA  # 202 - 196 = 6 °C
     coord._apply_push_status(decode_its_status(bytes(pushed)))
-    assert coord.data["sensors"].t4_temp == 6.0
+    assert coord.data.sensors.t4_temp == 6.0
 
     pushed[57] = 0xFF  # missing
     coord._apply_push_status(decode_its_status(bytes(pushed)))
-    assert coord.data["sensors"].t4_temp is None
+    assert coord.data.sensors.t4_temp is None
 
     pushed[57] = 0x00  # far out of the valid range
     coord._apply_push_status(decode_its_status(bytes(pushed)))
-    assert coord.data["sensors"].t4_temp is None
+    assert coord.data.sensors.t4_temp is None
 
     coord._cancel_push_status_watchdog()
     await coord.async_shutdown()
@@ -984,11 +978,11 @@ async def test_standard_status_push_leaves_sensors_unchanged_issue225(hass):
 
     coord = _atw_phone_app_coordinator(hass, None)
     sensors = ITSSensors(twin_temp=21.0, th_temp=48.0, t4_temp=3.0)
-    coord.data = {"status": ITSStatus(mode=0), "sensors": sensors, "raw_frames": {}}
+    coord.data = make_state(ITSStatus(mode=0), sensors, {}, sn8=coord.sn8)
 
     coord._apply_push_status(ITSStatus(mode=1, box_bottom_temp=99.0))
-    assert coord.data["sensors"] is sensors
-    assert coord.data["status"].mode == 1
+    assert coord.data.sensors is sensors
+    assert coord.data.status.mode == 1
 
     coord._cancel_push_status_watchdog()
     await coord.async_shutdown()

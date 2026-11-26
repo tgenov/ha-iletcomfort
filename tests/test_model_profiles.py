@@ -43,6 +43,7 @@ from custom_components.iletcomfort.model_profiles import (
     decode_kjrh120l_status,
     resolve_profile,
 )
+from tests.snapshot_helpers import make_state
 
 
 def _make_client() -> ILetComfortClient:
@@ -528,11 +529,12 @@ def test_atw_dhw_tank_sensor_value_fn_returns_tank_temp(name):
     status = decode_atw_status(ATW_FRAMES[name])
     out = apply_profile_to_sensors(ModelProfile.ATW, sensors, status)
 
+    state = make_state(status, out, sn8=ATW_SN8)
     dhw = next(d for d in SENSOR_DESCRIPTIONS if d.key == "dhw_tank")
-    assert dhw.value_fn({"sensors": out, "status": status}) == tank
+    assert dhw.value_fn(state) == tank
     # The Water Inlet sensor must not carry the tank value.
     water_inlet = next(d for d in SENSOR_DESCRIPTIONS if d.key == "water_inlet")
-    assert water_inlet.value_fn({"sensors": out, "status": status}) != tank
+    assert water_inlet.value_fn(state) != tank
 
 
 # ---------------------------------------------------------------------------

@@ -21,6 +21,8 @@ from .api import (
     MODE_HEAT,
     MODE_OFF,
     MODE_WATERPUMP,
+    ITSSensors,
+    ITSStatus,
 )
 from .c3_basic import C3BasicStatus
 from .commands import (
@@ -40,7 +42,6 @@ from .protocols import (
     get_adapter,
     is_kjrh120l_dual_state,
     profile_climate_temp_bounds,
-    resolve_state,
 )
 
 # Query response mode (from device) → HA HVAC mode
@@ -69,7 +70,7 @@ _HVAC_TO_INTENT: dict[HVACMode, HvacModeIntent] = {
 
 
 def _coordinator_c3_basic(coordinator: ILetComfortCoordinator) -> C3BasicStatus | None:
-    state = resolve_state(coordinator.sn8, coordinator.data)
+    state = coordinator.data
     return state.atw_c3_basic if state is not None else None
 
 
@@ -119,16 +120,14 @@ class ILetComfortClimate(CoordinatorEntity[ILetComfortCoordinator], ClimateEntit
         self._attr_device_info = build_device_info(coordinator)
 
     @property
-    def _status(self):
-        if self.coordinator.data:
-            return self.coordinator.data.get("status")
-        return None
+    def _status(self) -> ITSStatus | None:
+        state = self.coordinator.data
+        return state.status if state is not None else None
 
     @property
-    def _sensors(self):
-        if self.coordinator.data:
-            return self.coordinator.data.get("sensors")
-        return None
+    def _sensors(self) -> ITSSensors | None:
+        state = self.coordinator.data
+        return state.sensors if state is not None else None
 
     @property
     def _c3(self) -> C3BasicStatus | None:
@@ -173,7 +172,7 @@ class ILetComfortClimate(CoordinatorEntity[ILetComfortCoordinator], ClimateEntit
 
     @property
     def _state(self) -> HeatPumpState | None:
-        return resolve_state(self.coordinator.sn8, self.coordinator.data)
+        return self.coordinator.data
 
     @property
     def _is_kjrh120l_dual(self) -> bool:
@@ -215,7 +214,7 @@ class ILetComfortClimate(CoordinatorEntity[ILetComfortCoordinator], ClimateEntit
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        attrs = {}
+        attrs: dict[str, Any] = {}
         if self._sensors is not None:
             if self._sensors.twin_temp is not None:
                 attrs["water_inlet"] = self._sensors.twin_temp

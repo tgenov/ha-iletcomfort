@@ -49,6 +49,7 @@ from custom_components.iletcomfort.switch import (
 )
 from tests.kjrh120l_snapshots import KJRH120L_SNAPSHOT_A, KJRH120L_SNAPSHOT_B
 from tests.write_helpers import bind_write_path, sent_commands
+from tests.snapshot_helpers import make_state
 
 
 def _with(body: bytes, **index_values: int) -> bytes:
@@ -63,10 +64,7 @@ def _coordinator(body: bytes) -> MagicMock:
     coordinator.appliance_code = "APPL1"
     coordinator.sn8 = KJRH120L_SN8
     coordinator.last_update_success = True
-    coordinator.data = {
-        "status": decode_kjrh120l_status(body),
-        "sensors": ITSSensors(),
-    }
+    coordinator.data = make_state(decode_kjrh120l_status(body), ITSSensors(), sn8=KJRH120L_SN8)
     coordinator.c3_basic_controllable = None
     return bind_write_path(coordinator, kjrh120l_zone1_latched=True)
 
@@ -139,10 +137,7 @@ async def test_zone1_number_follows_live_status_without_caching():
     entity = ILetComfortKjrh120lZone1Setpoint(coordinator)
     assert entity.native_value == 50.0
 
-    coordinator.data = {
-        "status": decode_kjrh120l_status(_with(KJRH120L_SNAPSHOT_A, b11=2, b12=20)),
-        "sensors": ITSSensors(),
-    }
+    coordinator.data = make_state(decode_kjrh120l_status(_with(KJRH120L_SNAPSHOT_A, b11=2, b12=20)), ITSSensors(), sn8=KJRH120L_SN8)
 
     assert entity.native_value == 20.0
     assert entity.native_max_value == 25.0

@@ -82,9 +82,9 @@ class ILetComfortKjrh120lDhwSetpoint(
 
     @property
     def native_value(self) -> float | None:
-        status = (self.coordinator.data or {}).get("status")
-        if status is None:
+        if self.coordinator.data is None:
             return None
+        status = self.coordinator.data.status
         if status.kjrh120l_dhw_setpoint is not None:
             return status.kjrh120l_dhw_setpoint
         # When Zone 1 is off (body[8:10] == 00 00), decode_kjrh120l_status
@@ -124,7 +124,8 @@ class ILetComfortKjrh120lZone1Setpoint(
 
     @property
     def _status(self) -> ITSStatus | None:
-        return (self.coordinator.data or {}).get("status")
+        state = self.coordinator.data
+        return state.status if state is not None else None
 
     @property
     def _range(self) -> tuple[int, int] | None:

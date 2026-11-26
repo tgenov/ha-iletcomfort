@@ -22,11 +22,11 @@ from .const import DOMAIN
 from .coordinator import ILetComfortCoordinator
 from .entity import async_add_when_capable, build_device_info
 from .model_profiles import ModelProfile
-from .protocols import get_adapter, resolve_state
+from .protocols import get_adapter
 
 
 def _coordinator_c3_basic(coordinator: ILetComfortCoordinator) -> C3BasicStatus | None:
-    state = resolve_state(coordinator.sn8, coordinator.data)
+    state = coordinator.data
     return state.atw_c3_basic if state is not None else None
 
 

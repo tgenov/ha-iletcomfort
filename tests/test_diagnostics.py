@@ -21,6 +21,7 @@ from custom_components.iletcomfort.diagnostics import (
     _sensors_temperature_scan,
     async_get_config_entry_diagnostics,
 )
+from tests.snapshot_helpers import make_state
 
 
 APPLIANCE_CODE = "153931629126443"
@@ -49,7 +50,7 @@ async def _diagnostics(hass: HomeAssistant) -> dict:
 
     status = ITSStatus(mode=1, total_kwh=42, raw_body=bytes([0xaa, 0x01, 0xff]))
     sensors = ITSSensors(twin_temp=21.0, raw_body=bytes([0xbb, 0x02, 0x10]))
-    coord.data = {"status": status, "sensors": sensors}
+    coord.data = make_state(status, sensors, sn8=coord.sn8)
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coord
 
     return await async_get_config_entry_diagnostics(hass, entry)
@@ -142,7 +143,7 @@ async def test_diagnostics_includes_temperature_scan(hass: HomeAssistant):
 
     status = ITSStatus(mode=1, total_kwh=42, raw_body=bytes([0xaa, 0x01, 0xff]))
     sensors = ITSSensors(twin_temp=21.0, raw_body=bytes([0xbb, 0x02, 0x10, 0xef]))
-    coord.data = {"status": status, "sensors": sensors}
+    coord.data = make_state(status, sensors, sn8=coord.sn8)
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coord
 
     result = await async_get_config_entry_diagnostics(hass, entry)

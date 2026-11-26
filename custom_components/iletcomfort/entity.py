@@ -92,7 +92,7 @@ def build_device_info(coordinator: ILetComfortCoordinator) -> DeviceInfo:
     coordinator already has sensor data (it does by the time platforms are set
     up, since the first refresh runs during ``async_setup_entry``).
     """
-    sensors = (coordinator.data or {}).get("sensors")
+    sensors = coordinator.data.sensors if coordinator.data is not None else None
     sw_version = getattr(sensors, "odu_version", "") or None
     return DeviceInfo(
         identifiers={(DOMAIN, coordinator.appliance_code)},

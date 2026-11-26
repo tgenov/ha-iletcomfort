@@ -38,9 +38,9 @@ from custom_components.iletcomfort.protocols import (
     get_adapter,
     is_kjrh120l_dual_state,
     merge_atw_energy_notify,
-    resolve_state,
 )
 from tests.kjrh120l_snapshots import KJRH120L_SNAPSHOT_B
+from tests.snapshot_helpers import make_state
 from tests.test_atw_unit_params import NORDIS_UNIT_PARAMS_0X10
 from tests.test_model_profiles import ATW_PLACEHOLDER_SENSORS_BODY, NORDIS_ATW_STATUS_FRAMES
 
@@ -168,84 +168,70 @@ def test_apply_push_status_preserves_raw_frames_and_updates_state(
 ) -> None:
     coord = _coordinator(hass)
     coord.appliance_meta = {"applianceCode": "APPL1", "sn8": ATW_SN8}
-    coord.data = {
-        "status": MagicMock(),
-        "sensors": ITSSensors(th_temp=46.0),
-        "raw_frames": {0x02: b"\x02\x00"},
-    }
+    coord.data = make_state(
+        sensors=ITSSensors(th_temp=46.0),
+        raw_frames={0x02: b"\x02\x00"},
+        sn8=ATW_SN8,
+    )
     pushed = MagicMock(raw_body=NORDIS_ATW_STATUS_FRAMES["issue132"])
 
     coord._apply_push_status(pushed)
 
-    assert coord.data["raw_frames"][0x02] == b"\x02\x00"
-    assert coord.data["raw_frames"][0x01] == NORDIS_ATW_STATUS_FRAMES["issue132"]
-    state = coord.data["state"]
+    state = coord.data
     assert isinstance(state, HeatPumpState)
+    assert state.raw_frames[0x02] == b"\x02\x00"
+    assert state.raw_frames[0x01] == NORDIS_ATW_STATUS_FRAMES["issue132"]
     assert state.profile is ModelProfile.ATW
     assert state.variant == "atw_27_byte"
-    assert state.raw_frames is not coord.data["raw_frames"]
-    assert state.has_authoritative_raw_frames is True
 
 
-def test_resolve_state_returns_existing_or_synthesizes() -> None:
-    assert resolve_state(None, None) is None
-    assert resolve_state(ATW_SN8, {}) is None
-
+def test_make_state_builds_typed_snapshot_via_build_snapshot() -> None:
     status = decode_atw_status(NORDIS_ATW_STATUS_FRAMES["issue132"])
-    prebuilt = HeatPumpState(
-        profile=ModelProfile.ATW,
-        variant="atw_27_byte",
-        status=status,
+    state = make_state(
+        status,
+        ITSSensors(
+            twin_temp=20.0,
+            th_temp=46.0,
+            raw_body=ATW_PLACEHOLDER_SENSORS_BODY,
+        ),
+        {0x02: ATW_PLACEHOLDER_SENSORS_BODY},
+        sn8=ATW_SN8,
     )
-    assert resolve_state(ATW_SN8, {"state": prebuilt}) is prebuilt
-
-    synthesized = resolve_state(
-        ATW_SN8,
-        {
-            "status": status,
-            "sensors": ITSSensors(
-                twin_temp=20.0,
-                th_temp=46.0,
-                raw_body=ATW_PLACEHOLDER_SENSORS_BODY,
-            ),
-            "raw_frames": {0x02: ATW_PLACEHOLDER_SENSORS_BODY},
-        },
-    )
-    assert synthesized is not None
-    assert synthesized.profile is ModelProfile.ATW
-    assert synthesized.variant == "atw_27_byte"
-    assert synthesized.has_authoritative_raw_frames is True
-    assert synthesized.has_atw_0x10 is False
-    assert synthesized.atw_c3_basic is not None
-    assert synthesized.climate_current_temperature is None
+    assert state.profile is ModelProfile.ATW
+    assert state.variant == "atw_27_byte"
+    assert state.has_atw_0x10 is False
+    assert state.atw_c3_basic is not None
+    assert state.climate_current_temperature is None
 
 
-def test_heat_pump_state_has_atw_0x10_authoritative_vs_fallback() -> None:
+def test_heat_pump_state_has_atw_0x10_follows_raw_frames_only() -> None:
     sensors_with_0x10 = ITSSensors(twout_temp=24.0, raw_body=NORDIS_UNIT_PARAMS_0X10)
 
-    # Without raw_frames dict, sensors.raw_body prefix decides.
-    fallback = resolve_state(ATW_SN8, {"sensors": sensors_with_0x10})
-    assert fallback is not None
-    assert fallback.has_authoritative_raw_frames is False
-    assert fallback.has_atw_0x10 is True
-
-    # With an explicit raw_frames dict lacking 0x10, it is authoritative (False).
-    authoritative_missing = resolve_state(
-        ATW_SN8,
-        {
-            "sensors": sensors_with_0x10,
-            "raw_frames": {0x02: ATW_PLACEHOLDER_SENSORS_BODY},
-        },
+    # raw_frames is authoritative: a 0x10-prefixed sensors body alone does not count.
+    missing = HeatPumpState(
+        profile=ModelProfile.ATW,
+        variant="atw_unclassified",
+        status=ITSStatus(),
+        sensors=sensors_with_0x10,
+        raw_frames={0x02: ATW_PLACEHOLDER_SENSORS_BODY},
     )
-    assert authoritative_missing is not None
-    assert authoritative_missing.has_authoritative_raw_frames is True
-    assert authoritative_missing.has_atw_0x10 is False
+    assert missing.has_atw_0x10 is False
+
+    present = HeatPumpState(
+        profile=ModelProfile.ATW,
+        variant="atw_unclassified",
+        status=ITSStatus(),
+        sensors=sensors_with_0x10,
+        raw_frames={0x10: NORDIS_UNIT_PARAMS_0X10},
+    )
+    assert present.has_atw_0x10 is True
 
 
 def test_heat_pump_state_climate_helpers_and_kjrh120l_dual() -> None:
     aqua = HeatPumpState(
         profile=ModelProfile.AQUAPURA,
         variant="aquapura",
+        status=ITSStatus(),
         sensors=ITSSensors(th_temp=0.0, twout_temp=31.0, twin_temp=28.0),
     )
     assert aqua.climate_current_temperature == 31.0
@@ -254,7 +240,9 @@ def test_heat_pump_state_climate_helpers_and_kjrh120l_dual() -> None:
     assert aqua.atw_c3_basic is None
 
     # KJRH-120L temp bounds & dual-variant check including None data.
-    kjrh_state = HeatPumpState(profile=ModelProfile.KJRH120L, variant="kjrh120l_pure_dhw")
+    kjrh_state = HeatPumpState(
+        profile=ModelProfile.KJRH120L, variant="kjrh120l_pure_dhw", status=ITSStatus()
+    )
     assert kjrh_state.climate_temp_bounds(MODE_HEAT) == (20.0, 70.0)
     assert is_kjrh120l_dual_state(KJRH120L_SN8, None, True) is True
     assert is_kjrh120l_dual_state(KJRH120L_SN8, None, False) is False
@@ -262,7 +250,11 @@ def test_heat_pump_state_climate_helpers_and_kjrh120l_dual() -> None:
     assert (
         is_kjrh120l_dual_state(
             KJRH120L_SN8,
-            {"status": MagicMock(raw_body=KJRH120L_SNAPSHOT_B)},
+            HeatPumpState(
+                profile=ModelProfile.KJRH120L,
+                variant="kjrh120l_pure_dhw",
+                status=MagicMock(raw_body=KJRH120L_SNAPSHOT_B),
+            ),
             False,
         )
         is False
@@ -336,7 +328,6 @@ def test_build_snapshot_applies_atw_overlays_and_energy_last() -> None:
         raw_frames,
     )
 
-    assert state.has_authoritative_raw_frames is True
     assert state.raw_frames == raw_frames
     assert state.raw_frames is not raw_frames
     assert state.status is not None and state.sensors is not None

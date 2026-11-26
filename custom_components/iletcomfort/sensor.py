@@ -30,73 +30,59 @@ from .const import DOMAIN
 from .coordinator import ILetComfortCoordinator
 from .entity import build_device_info
 from .error_codes import ERROR_CODES
-from .protocols import resolve_state
+from .protocols import HeatPumpState
 
 
 @dataclass(frozen=True, kw_only=True)
 class ILetComfortSensorDescription(SensorEntityDescription):
     """Describe an iLetComfort sensor."""
 
-    value_fn: Callable[[dict[str, Any]], Any]
+    value_fn: Callable[[HeatPumpState], Any]
 
 
-def _s(attr: str) -> Callable[[dict[str, Any]], Any]:
+def _s(attr: str) -> Callable[[HeatPumpState], Any]:
     """Helper: get attribute from sensors data."""
-    def _get(data: dict[str, Any]) -> Any:
-        sensors = data.get("sensors")
-        return getattr(sensors, attr, None) if sensors else None
+    def _get(state: HeatPumpState) -> Any:
+        return getattr(state.sensors, attr, None) if state.sensors else None
     return _get
 
 
-def _st(attr: str) -> Callable[[dict[str, Any]], Any]:
+def _st(attr: str) -> Callable[[HeatPumpState], Any]:
     """Helper: get attribute from status data."""
-    def _get(data: dict[str, Any]) -> Any:
-        status = data.get("status")
-        return getattr(status, attr, None) if status else None
+    def _get(state: HeatPumpState) -> Any:
+        return getattr(state.status, attr, None)
     return _get
 
 
-def _has_atw_0x10(data: dict[str, Any]) -> bool:
-    """Return True when live ATW subtype 0x10 telemetry populated this snapshot."""
-    state = resolve_state(None, data)
-    return state.has_atw_0x10 if state is not None else False
-
-
-def _atw_0x10_s(attr: str) -> Callable[[dict[str, Any]], Any]:
+def _atw_0x10_s(attr: str) -> Callable[[HeatPumpState], Any]:
     """Read a sensor field only when ATW 0x10 telemetry is present."""
-    def _get(data: dict[str, Any]) -> Any:
-        if not _has_atw_0x10(data):
+    def _get(state: HeatPumpState) -> Any:
+        if not state.has_atw_0x10 or state.sensors is None:
             return None
-        sensors = data.get("sensors")
-        return getattr(sensors, attr, None) if sensors is not None else None
+        return getattr(state.sensors, attr, None)
     return _get
 
 
-def _has_atw_energy_frame(data: dict[str, Any]) -> bool:
+def _has_atw_energy_frame(state: HeatPumpState) -> bool:
     """Return True when ATW 0x10 or MQTT 0x04 energy telemetry populated this snapshot."""
-    if _has_atw_0x10(data):
-        return True
-    raw_frames = data.get("raw_frames")
-    return isinstance(raw_frames, dict) and 0x04 in raw_frames
+    return state.has_atw_0x10 or 0x04 in state.raw_frames
 
 
-def _atw_energy_st(attr: str) -> Callable[[dict[str, Any]], Any]:
+def _atw_energy_st(attr: str) -> Callable[[HeatPumpState], Any]:
     """Read a status energy field when ATW 0x10 or MQTT 0x04 telemetry is present."""
-    def _get(data: dict[str, Any]) -> Any:
-        if not _has_atw_energy_frame(data):
+    def _get(state: HeatPumpState) -> Any:
+        if not _has_atw_energy_frame(state):
             return None
-        status = data.get("status")
-        return getattr(status, attr, None) if status is not None else None
+        return getattr(state.status, attr, None)
     return _get
 
 
-def _atw_0x10_st(attr: str) -> Callable[[dict[str, Any]], Any]:
+def _atw_0x10_st(attr: str) -> Callable[[HeatPumpState], Any]:
     """Read a status field only when ATW 0x10 telemetry is present."""
-    def _get(data: dict[str, Any]) -> Any:
-        if not _has_atw_0x10(data):
+    def _get(state: HeatPumpState) -> Any:
+        if not state.has_atw_0x10:
             return None
-        status = data.get("status")
-        return getattr(status, attr, None) if status is not None else None
+        return getattr(state.status, attr, None)
     return _get
 
 
@@ -240,11 +226,11 @@ SENSOR_DESCRIPTIONS: tuple[ILetComfortSensorDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         suggested_display_precision=2,
         entity_registry_enabled_default=False,
-        value_fn=lambda data: (
+        value_fn=lambda state: (
             round(flow / 100.0, 2)
-            if _has_atw_0x10(data)
-            and (sensors := data.get("sensors")) is not None
-            and (flow := getattr(sensors, "water_flow", None)) is not None
+            if state.has_atw_0x10
+            and state.sensors is not None
+            and (flow := state.sensors.water_flow) is not None
             else None
         ),
     ),

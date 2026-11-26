@@ -36,6 +36,7 @@ from custom_components.iletcomfort.model_profiles import (
     decode_atw_status,
 )
 from custom_components.iletcomfort.select import ILetComfortMuteSelect
+from tests.snapshot_helpers import make_state
 
 
 def _bytes(csv: str) -> bytes:
@@ -187,8 +188,8 @@ async def test_coordinator_probes_silent_and_eco_and_wires_entities_and_diagnost
 
     assert coord.capabilities.atw_silent.supported is True
     assert coord.capabilities.atw_eco.supported is True
-    assert data["status"].atw_silent_level == 2
-    assert data["status"].atw_eco_mode is True
+    assert data.status.atw_silent_level == 2
+    assert data.status.atw_eco_mode is True
 
     mute = ILetComfortMuteSelect(coord)
     assert mute.current_option == "Level 2"
@@ -233,9 +234,9 @@ async def test_coordinator_disables_0x05_and_0x07_on_initial_api_error_and_retri
     assert coord.capabilities.atw_silent.supported is False
     assert client.query_atw_eco.call_count == 3
     assert coord.capabilities.atw_eco.supported is True
-    assert d1["status"].atw_eco_mode is True
-    assert d2["status"].atw_eco_mode is True  # cached fallback on transient error
-    assert d3["status"].atw_eco_mode is False
+    assert d1.status.atw_eco_mode is True
+    assert d2.status.atw_eco_mode is True  # cached fallback on transient error
+    assert d3.status.atw_eco_mode is False
 
 
 def test_select_falls_back_to_c3_basic_silent_flag_when_0x05_not_probed(
@@ -244,10 +245,7 @@ def test_select_falls_back_to_c3_basic_silent_flag_when_0x05_not_probed(
     coord, _ = _atw_coordinator(hass)
     body = bytearray(AIRWELL_0X01)
     body[3] = 0x92  # bit 1 silent active on 0x01
-    coord.data = {
-        "status": decode_atw_status(bytes(body)),
-        "sensors": ITSSensors(),
-    }
+    coord.data = make_state(decode_atw_status(bytes(body)), ITSSensors(), sn8=coord.sn8)
     assert ILetComfortMuteSelect(coord).current_option == "Level 1"
     # Pre-probe climate attributes fall back to basic.eco_mode and omit silent_level.
     attrs = ILetComfortClimate(coord).extra_state_attributes
@@ -266,10 +264,7 @@ def test_apply_atw_silent_and_eco_ignore_short_or_wrong_subtype() -> None:
 def test_select_and_climate_keep_non_atw_behavior(hass: HomeAssistant) -> None:
     coord, _ = _atw_coordinator(hass)
     coord.appliance_meta = None
-    coord.data = {
-        "status": ITSStatus(mode=1),
-        "sensors": ITSSensors(ctrl_flag=1, mute_level=1, twin_temp=22.0),
-    }
+    coord.data = make_state(ITSStatus(mode=1), ITSSensors(ctrl_flag=1, mute_level=1, twin_temp=22.0), sn8=coord.sn8)
     assert ILetComfortMuteSelect(coord).current_option == "Level 2"
     attrs = ILetComfortClimate(coord).extra_state_attributes
     assert "eco_mode" not in attrs

@@ -28,6 +28,7 @@ from custom_components.iletcomfort.sensor import (
     ILetComfortSensor,
 )
 from custom_components.iletcomfort.switch import ILetComfortBoostSwitch
+from tests.snapshot_helpers import make_state
 
 
 def _coordinator(hass: HomeAssistant) -> ILetComfortCoordinator:
@@ -46,10 +47,10 @@ def _coordinator(hass: HomeAssistant) -> ILetComfortCoordinator:
     entry.add_to_hass(hass)
     with patch("custom_components.iletcomfort.coordinator.ILetComfortClient"):
         coord = ILetComfortCoordinator(hass, entry)
-    coord.data = {
-        "status": ITSStatus(mode=1),
-        "sensors": ITSSensors(odu_current=4.0, odu_version="1.2.3"),
-    }
+    coord.data = make_state(
+        ITSStatus(mode=1),
+        ITSSensors(odu_current=4.0, odu_version="1.2.3"),
+    )
     return coord
 
 
@@ -100,7 +101,7 @@ def test_odu_current_sensor_exists_and_reads_scaled_amps(hass: HomeAssistant):
 def _error_code_sensor(hass: HomeAssistant, error_code: int) -> ILetComfortSensor:
     """Build the existing numeric error-code sensor with a selected code."""
     coord = _coordinator(hass)
-    coord.data["status"].error_code = error_code
+    coord.data.status.error_code = error_code
     desc = next(d for d in SENSOR_DESCRIPTIONS if d.key == "error_code")
     return ILetComfortSensor(coord, desc)
 

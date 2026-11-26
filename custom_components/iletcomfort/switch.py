@@ -112,7 +112,7 @@ class ILetComfortBoostSwitch(CoordinatorEntity[ILetComfortCoordinator], SwitchEn
     def is_on(self) -> bool:
         if self.coordinator.data is None:
             return False
-        sensors = self.coordinator.data.get("sensors")
+        sensors = self.coordinator.data.sensors
         if sensors is None:
             return False
         return sensors.ctrl_flag == 2
@@ -144,8 +144,8 @@ class ILetComfortKjrh120lZone1PowerSwitch(
 
     @property
     def is_on(self) -> bool | None:
-        status = (self.coordinator.data or {}).get("status")
-        return status.kjrh120l_zone1_power if status is not None else None
+        state = self.coordinator.data
+        return state.status.kjrh120l_zone1_power if state is not None else None
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         await self.coordinator.async_send_command(
@@ -179,8 +179,8 @@ class ILetComfortKjrh120lDhwPowerSwitch(
 
     @property
     def is_on(self) -> bool | None:
-        status = (self.coordinator.data or {}).get("status")
-        return status.kjrh120l_dhw_power if status is not None else None
+        state = self.coordinator.data
+        return state.status.kjrh120l_dhw_power if state is not None else None
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         await self.coordinator.async_send_command(SetDhwPowerCommand(on=True))
@@ -309,12 +309,10 @@ class ILetComfortC3FeatureSwitch(_ILetComfortC3Switch):
         basic = self._basic
         if basic is None:
             return None
-        if self._status_state_fn is not None and self.coordinator.data:
-            status = self.coordinator.data.get("status")
-            if isinstance(status, ITSStatus):
-                override = self._status_state_fn(status)
-                if override is not None:
-                    return override
+        if self._status_state_fn is not None and self.coordinator.data is not None:
+            override = self._status_state_fn(self.coordinator.data.status)
+            if override is not None:
+                return override
         return self._state_fn(basic)
 
     async def async_turn_on(self, **kwargs: Any) -> None:

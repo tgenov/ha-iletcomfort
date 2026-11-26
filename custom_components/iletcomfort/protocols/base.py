@@ -32,18 +32,15 @@ class HeatPumpState:
 
     profile: ModelProfile
     variant: str
-    status: ITSStatus | None = None
+    status: ITSStatus
     sensors: ITSSensors | None = None
     raw_frames: dict[int, bytes] = field(default_factory=dict)
-    has_authoritative_raw_frames: bool = False
 
     @property
     def outdoor_temp(self) -> float | None:
         if self.sensors is not None and self.sensors.t4_temp is not None:
             return self.sensors.t4_temp
-        if self.status is not None:
-            return self.status.kjrh120l_outdoor_temp
-        return None
+        return self.status.kjrh120l_outdoor_temp
 
     @property
     def dhw_tank_temp(self) -> float | None:
@@ -53,23 +50,20 @@ class HeatPumpState:
 
     @property
     def compressor_running(self) -> bool | None:
-        return self.status.comp_running if self.status is not None else None
+        return self.status.comp_running
 
     @property
     def compressor_freq(self) -> int | None:
-        return self.status.comp_frq if self.status is not None else None
+        return self.status.comp_frq
 
     @property
     def error_code(self) -> int:
-        return self.status.error_code if self.status is not None else 0
+        return self.status.error_code
 
     @property
     def has_atw_0x10(self) -> bool:
         """Return True when live ATW subtype 0x10 telemetry populated this state."""
-        if self.has_authoritative_raw_frames:
-            return 0x10 in self.raw_frames
-        raw_body = getattr(self.sensors, "raw_body", b"") if self.sensors is not None else b""
-        return bytes(raw_body)[:1] == b"\x10"
+        return 0x10 in self.raw_frames
 
     @property
     def atw_c3_basic(self) -> C3BasicStatus | None:

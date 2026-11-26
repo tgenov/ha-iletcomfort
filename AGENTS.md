@@ -390,11 +390,11 @@ does not enforce per-appliance topic ACLs.
 | `c3_basic.py` | Standard Midea C3 basic status decode (`decode_c3_basic`, `C3BasicStatus`) and validated SET builders (`apply_basic_changes`, `build_basic_set`, `build_feature_set`) for `171H120F`; used by the ATW dialect's `plan_write`. |
 | `c3_frame.py` | Low-level C3 framing (`build_c3_frame`, `build_c3_query`, `build_c3_set`, `parse_hex_response`, `extract_c3_body`, `_temp_offset`). |
 | `water_heater.py` | DHW entity for ATW units whose status matches the C3 basic layout. |
-| `coordinator.py` | `ILetComfortCoordinator`: polling, re-auth, cache-fallback, offline Repair card. Caches `appliance_meta` (best-effort, never fatal) and exposes `sn8`; threads profile into decode. |
+| `coordinator.py` | `ILetComfortCoordinator` (`DataUpdateCoordinator[HeatPumpState]`): polling, re-auth, cache-fallback, offline Repair card. `coordinator.data` is the typed `HeatPumpState` returned by `build_snapshot` (`status`, `sensors`, `raw_frames`); there is no dict snapshot (#111). Caches `appliance_meta` (best-effort, never fatal) and exposes `sn8`; threads profile into decode. |
 | `diagnostics.py` | Redacted snapshot: raw frames, decoded status/sensors, `sensors_temperature_scan` (per-byte `_temp_offset` map — use it to find a model's misplaced temp byte), and the `appliance` metadata block. `APPLIANCE_TO_REDACT = {owner, sn, name}` (keeps `applianceType`/`modelNumber`/`sn8`). |
 | `climate.py` / `number.py` / `sensor.py` / `binary_sensor.py` / `switch.py` / `select.py` | HA entities. See §4 for which field backs which entity. |
 | `config_flow.py` / `__init__.py` / `const.py` / `entity.py` | Setup, entry, constants, base entity. |
-| `tests/` | pytest suite; real captured frames are pinned as fixtures (e.g. issue-#11 frames for STANDARD regression). |
+| `tests/` | pytest suite; real captured frames are pinned as fixtures (e.g. issue-#11 frames for STANDARD regression). Build a test `coordinator.data` with `tests/snapshot_helpers.py::make_state(status, sensors, raw_frames, sn8=...)`, which runs the production `build_snapshot`. |
 
 ---
 
