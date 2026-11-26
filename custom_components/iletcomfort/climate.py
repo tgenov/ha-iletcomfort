@@ -101,13 +101,26 @@ class ILetComfortClimate(CoordinatorEntity[ILetComfortCoordinator], ClimateEntit
     @property
     def hvac_modes(self) -> list[HVACMode]:
         basic = self._c3
-        if basic is None:
-            return self._attr_hvac_modes
-        # Only Heat/Off can be selected; Cool is listed only to report a unit
-        # that is already cooling (mode switching is not validated).
-        if basic.is_cooling_mode:
-            return [HVACMode.OFF, HVACMode.HEAT, HVACMode.COOL]
-        return [HVACMode.OFF, HVACMode.HEAT]
+        if basic is not None:
+            # Only Heat/Off can be selected; Cool is listed only to report a unit
+            # that is already cooling (mode switching is not validated).
+            if basic.is_cooling_mode:
+                return [HVACMode.OFF, HVACMode.HEAT, HVACMode.COOL]
+            return [HVACMode.OFF, HVACMode.HEAT]
+        state = self._state
+        read_basic = state.atw_c3_basic if state is not None else None
+        if isinstance(read_basic, C3BasicStatus):
+            modes: list[HVACMode] = [HVACMode.OFF]
+            if (
+                read_basic.cap_heat
+                or not read_basic.cap_cool
+                or (read_basic.zone1_power and not read_basic.is_cooling_mode)
+            ):
+                modes.append(HVACMode.HEAT)
+            if read_basic.cap_cool or read_basic.is_cooling_mode:
+                modes.append(HVACMode.COOL)
+            return modes
+        return self._attr_hvac_modes
 
     @property
     def hvac_mode(self) -> HVACMode:
@@ -173,6 +186,7 @@ class ILetComfortClimate(CoordinatorEntity[ILetComfortCoordinator], ClimateEntit
             # so expose both raw values as evidence.
             attrs["zone1_water_target"] = float(basic.zone1_target)
             attrs["room_target"] = basic.room_target
+            attrs["zone1_temp_mode"] = "water" if basic.zone1_water_temp else "room"
             attrs["weather_curve"] = basic.zone1_curve
             status = state.status if state is not None else None
             attrs["eco_mode"] = (
@@ -216,6 +230,11 @@ class ILetComfortClimate(CoordinatorEntity[ILetComfortCoordinator], ClimateEntit
     @property
     def target_temperature_step(self) -> float:
         basic = self._c3
+        if basic is None:
+            state = self._state
+            read_basic = state.atw_c3_basic if state is not None else None
+            if isinstance(read_basic, C3BasicStatus):
+                basic = read_basic
         if basic is not None and not basic.zone1_water_temp:
             return 0.5
         return self._attr_target_temperature_step

@@ -118,41 +118,22 @@ def build_query_command(profile: ModelProfile, subtype: int) -> str:
 
 
 # ---------------------------------------------------------------------------
-# ATW profile (issue #22) — validated against five real frames from yoavaviram
+# ATW profile (sn8 171H120F) — unified C3BasicStatus decode + fallback
 # ---------------------------------------------------------------------------
 #
-# status raw_body, 0-indexed ([0] = 0x01 subtype byte):
-#   byte[1]  flags: on the 25-byte Italtherm layout bit0 (0x01) tracks
-#            space-heat demand and 0x04 tracks DHW activity. On the 27-byte
-#            layout (Galmet #38, NØRDIS #132) bit0 is confirmed Zone-1 power
-#            (ON in both active and stopped Heating states; clear when Zone-1
-#            is OFF).
-#   byte[8]  DHW setpoint in °C — DIRECT value (not +35-offset encoded).
-#   byte[9]  Zone-1 setpoint × 2 (0.5° resolution) → zone1 = byte[9] / 2.
-#   byte[22] DHW tank current temp in °C — DIRECT value.
-#   byte[24] constant 0x80 across all captured states → a flags/MSB byte,
-#            NOT an error code. The app shows no fault, so error_code = 0.
+# All hardware-captured 171H120F status frames (25B & 27B) follow Midea's
+# C3BasicBody layout (see ``c3_basic.py``):
+#   byte[1]  flags: bit 0 (0x01) is Zone-1 power (Heat/Cool when set, Off when clear).
+#   byte[2]  capabilities: bit 4 (0x10) = zone1_water_temp, selecting byte[6]
+#            (direct water °C) vs byte[9]/2 (0.5 °C room setpoint).
+#   byte[4]  mode: 2 = Cool, 3 = Heat (1 = Auto fallback).
+#   byte[8]  DHW setpoint in °C (direct value).
+#   byte[22] DHW tank current temp in °C (direct value, routed to th_temp).
+#   byte[23] error_code (byte[24..] are flags/MSB bytes, not an error code).
 #
-# The STANDARD decoder misreads this 25-byte frame (set_temperature=3,
-# error_code=128, spurious comp_running, DHW tank=0, mode=Unknown(7), …);
-# decode_atw_status fixes those by surfacing the confirmed values through the
-# existing ITSStatus fields the entities already read:
-#   - set_temperature  ← byte[8]   (no DHW-setpoint entity today; kept for SET
-#                                    echo / future use)
-#   - t5s_def          ← byte[9]/2 (climate target_temperature reads t5s_def)
-#   - box_bottom_temp  ← byte[22]  (routed to th_temp / "DHW Tank Temperature";
-#                                    see apply_profile_to_sensors. Climate
-#                                    current_temperature is profile-aware and
-#                                    reads th_temp for ATW.)
-#
-# CONSERVATIVE / ASSUMED (await hardware validation by the reporter):
-#   - comp_running is forced False: none of the five frames carries a confirmed
-#     compressor-running signal, and there is no comp_frq field in a 25-byte
-#     frame, so we do not derive "running" from byte[14] (which the STANDARD
-#     path misread as a comp flag).
-#   - The 25-byte Italtherm HVAC mode/action semantics remain at the dataclass
-#     defaults (mode 0 / "Off"); its bit0 is demand, not persistent power. The
-#     27-byte layout is separately hardware-validated as Heat/Off power.
+# ``comp_running`` / ``comp_frq`` are None in 0x01 and overlaid from subtype
+# 0x10 when supported. Short or non-C3Basic fallback frames (e.g. Auto mode
+# body[4]==1) keep conservative legacy offsets below.
 
 ATW_DHW_SETPOINT_INDEX = 8
 ATW_ZONE1_SETPOINT_X2_INDEX = 9
@@ -173,21 +154,17 @@ def _is_27_byte_atw_status(body: bytearray | bytes) -> bool:
 
 
 def _is_rotenso_atw_status(body: bytearray | bytes) -> bool:
-    """Return whether ``body`` has the validated 25-byte Rotenso layout (#124).
-
-    Only ``[2] == 0x15`` is validated. Other 25-byte capability masks
-    (Italtherm 0x07, Kaisai 0x11, ...) keep the established decode, where
-    byte[1] bit 0 is space-heat demand rather than Zone-1 power.
-    """
+    """Return whether ``body`` has the 25-byte Rotenso [2]=0x15 signature (#124)."""
     return len(body) == 25 and body[0] == 0x01 and body[2] == 0x15
 
 
 def decode_atw_status(body: bytearray | bytes) -> ITSStatus:
     """Decode an ATW (sn8 171H120F) status frame into an ITSStatus.
 
-    Routes the confirmed ATW byte values into the existing ITSStatus fields the
-    entities consume. See the module-level field map for the full layout and the
-    conservative choices made for unvalidated fields.
+    When the frame matches ``C3BasicStatus`` (midea-local ``C3BasicBody``),
+    Zone-1 power/mode and water-vs-room setpoint selection (``body[2] & 0x10``)
+    apply uniformly across all capability masks. Short or non-C3Basic fallback
+    frames keep the safe legacy ATW offsets.
     """
     status = ITSStatus()
     status.raw_body = bytes(body)
@@ -201,51 +178,16 @@ def decode_atw_status(body: bytearray | bytes) -> ITSStatus:
 
     flags = body[ATW_FLAGS_INDEX]
     status.status_flags_raw = flags
-    # The bit's exact semantics depend on the frame layout; see module notes.
     status.pump_system = bool(flags & ATW_SPACE_HEAT_DEMAND_BIT)
-    is_27_byte = _is_27_byte_atw_status(body)
-    if is_27_byte:
-        # Three controlled hardware states establish bit 0 as Zone-1 power for
-        # this layout: set for both active and idle Heating, clear when Off.
-        status.mode = MODE_HEAT if status.pump_system else MODE_OFF
-        status.mode_name = "Heat" if status.pump_system else "Off"
 
-    # DHW setpoint — direct °C value.
+    # DHW setpoint and DHW tank temperature — direct °C values.
     status.set_temperature = body[ATW_DHW_SETPOINT_INDEX]
-    # Zone-1 / climate target setpoint. The original 25-byte Italtherm layout
-    # stores a half-degree value at byte[9]. The hardware-validated 27-byte
-    # variant stores direct degrees at byte[6] despite sharing the sn8.
-    if is_27_byte:
-        status.t5s_def = float(body[ATW_GALMET_ZONE1_SETPOINT_INDEX])
-    else:
-        status.t5s_def = body[ATW_ZONE1_SETPOINT_X2_INDEX] / 2
-    # DHW tank current temp — direct °C value. Surfaced via box_bottom_temp,
-    # which apply_profile_to_sensors routes to th_temp ("DHW Tank Temperature").
     status.box_bottom_temp = float(body[ATW_DHW_TANK_TEMP_INDEX])
-
-    # byte[24] is a flags/MSB byte, not a fault → no error. The Galmet active
-    # and stopped captures are otherwise identical, so compressor state and
-    # frequency are unavailable rather than false zeroes. Preserve the older
-    # conservative False/0 behavior for the 25-byte Italtherm layout.
     status.error_code = 0
-    if is_27_byte:
-        status.comp_running = None
-        status.comp_frq = None
-    else:
-        status.comp_running = False
 
-    # Every 171H120F capture so far also matches the standard Midea C3 basic
-    # layout (see c3_basic); keep the raw decode for entities that need it.
     basic = decode_c3_basic(body)
     status.c3_basic = basic
-    if basic is not None and _is_rotenso_atw_status(body):
-        # Rotenso Aquami layout (#124): byte[1] bit 0 is the Zone-1 power
-        # switch. Confirmed by the #124 reporter (heating on in the app while
-        # the old decode said Off) and on a second unit by switching Zone-1
-        # on from Home Assistant and seeing it in the official app. Byte[4]
-        # carries the operating mode, so a powered zone in Cool is reported
-        # as Cool, never as Heat. The setpoint mapping above is unchanged
-        # (#124 reports the app showing byte[9] / 2 on that unit).
+    if basic is not None:
         if basic.zone1_power:
             cooling = basic.is_cooling_mode
             status.mode = STATUS_MODE_COOL if cooling else STATUS_MODE_HEAT
@@ -253,9 +195,27 @@ def decode_atw_status(body: bytearray | bytes) -> ITSStatus:
         else:
             status.mode = STATUS_MODE_OFF
             status.mode_name = "Off"
-        # The frame has no compressor signal: unknown rather than False/0.
+        status.t5s_def = (
+            float(basic.zone1_target)
+            if basic.zone1_water_temp
+            else basic.room_target
+        )
+        # No compressor signal in 0x01; subtype 0x10 overlays live values when supported.
         status.comp_running = None
         status.comp_frq = None
+        return status
+
+    # Fallback for frames that did not match C3BasicStatus (e.g., Auto mode body[4]==1).
+    is_27_byte = _is_27_byte_atw_status(body)
+    if is_27_byte:
+        status.mode = MODE_HEAT if status.pump_system else MODE_OFF
+        status.mode_name = "Heat" if status.pump_system else "Off"
+        status.t5s_def = float(body[ATW_GALMET_ZONE1_SETPOINT_INDEX])
+        status.comp_running = None
+        status.comp_frq = None
+    else:
+        status.t5s_def = body[ATW_ZONE1_SETPOINT_X2_INDEX] / 2
+        status.comp_running = False
 
     return status
 

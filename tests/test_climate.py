@@ -223,6 +223,38 @@ def test_non_kjrh_min_max_unchanged(sn8):
     assert entity.max_temp == 40.0
 
 
+def test_atw_c3_basic_climate_uses_device_bounds_step_and_capabilities():
+    """Read-only ATW units honor C3Basic mode capabilities, bounds, and 0.5 step."""
+    # Water-mode (heat + DHW only, e.g. Hyundai #129 [2]=0x75, heat max=55)
+    water_status = decode_atw_status(
+        bytes.fromhex("0101750003033c1e343037191905371919053c223c141c0080")
+    )
+    water_climate = _climate(ATW_SN8, ITSSensors(), water_status)
+    assert water_climate.target_temperature == 60.0
+    assert water_climate.target_temperature_step == 1.0
+    assert water_climate.hvac_modes == [HVACMode.OFF, HVACMode.HEAT]
+    assert (water_climate.min_temp, water_climate.max_temp) == (25.0, 55.0)
+    assert water_climate.extra_state_attributes["zone1_temp_mode"] == "water"
+
+    # Room-mode ([2]=0x05 heat + DHW, Inventor #125, room range 17.0-30.0)
+    room_status = decode_atw_status(
+        bytes.fromhex("01090511030332283c3c41231905412319053c223c14250080")
+    )
+    room_climate = _climate(ATW_SN8, ITSSensors(), room_status)
+    assert room_climate.target_temperature == 30.0
+    assert room_climate.target_temperature_step == 0.5
+    assert (room_climate.min_temp, room_climate.max_temp) == (17.0, 30.0)
+    assert room_climate.extra_state_attributes["zone1_temp_mode"] == "room"
+
+    # Cool capability + zeroed bounds fall back to Cooling profile bounds (12-40).
+    cool_cap_zero_limits = decode_atw_status(
+        bytes.fromhex("010117000203231e2c3000000000371919053c223c142c0080")
+    )
+    cool_climate = _climate(ATW_SN8, ITSSensors(), cool_cap_zero_limits)
+    assert cool_climate.hvac_modes == [HVACMode.OFF, HVACMode.HEAT, HVACMode.COOL]
+    assert (cool_climate.min_temp, cool_climate.max_temp) == (12.0, 40.0)
+
+
 def test_kjrh120l_min_max_widened_to_20_70():
     """KJRH min/max widened to the app-allowed 20–70 °C (issue #35)."""
     entity = _climate(KJRH120L_SN8, ITSSensors(), ITSStatus(mode=1))

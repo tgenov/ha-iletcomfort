@@ -30,14 +30,14 @@ Legend:
 
 | Index | Field / Bits | Status | Notes |
 |---|---|---|---|
-| `1` | `0x01` zone1 power/demand, `0x02` zone2, `0x04` DHW, `0x08` curve1, `0x10` curve2, `0x20` TBH, `0x40` fast DHW | **Hardware-Verified (Variant-gated)** | `bit 0` is persistent Zone-1 Power on 27B (`[3:6]=a0,03,03`) and Rotenso 25B (`[2]=0x15`); treated conservatively as space-heat demand on Italtherm `0x07` / Kaisai `0x11`. |
-| `2` | Capabilities (`0x01` heat, `0x02` cool, `0x04` DHW, `0x08` double_zone, `0x10` zone1_water_temp) | **Hardware-Verified (`cap_dhw`)** | `cap_dhw` gates `ILetComfortDhw` entity creation (`water_heater.py`). |
+| `1` | `0x01` zone1 power/demand, `0x02` zone2, `0x04` DHW, `0x08` curve1, `0x10` curve2, `0x20` TBH, `0x40` fast DHW | **Hardware-Verified (Unified)** | `bit 0` is Zone-1 Power and `body[4]` is Cool/Heat mode uniformly across all valid `C3BasicStatus` frames (`#22`, `#38`, `#120`, `#123`, `#124`, `#125`, `#127`, `#129`, `#134`, `#135`, `#138`, `#139`, `#141`, `#150`, `#151`). |
+| `2` | Capabilities (`0x01` heat, `0x02` cool, `0x04` DHW, `0x08` double_zone, `0x10` zone1_water_temp) | **Hardware-Verified (Unified)** | `cap_dhw` gates `ILetComfortDhw`; `zone1_water_temp` (`body[2] & 0x10`) selects `body[6]` water target vs `body[9]/2` room target (matching `midea-local`). |
 | `3` | `0x02` Silent, `0x04` Holiday, `0x08` ECO | **Dollin-Divergent (ECO)** | Airwell #139 confirmed `body[3] & 0x02` toggles for both Silent L1 & L2 (`0x90 → 0x92`), while ECO left `body[3]=0x90` unchanged. |
 | `4` | Operating mode (`2` Cool, `3` Heat; `1` Auto unverified) | **Hardware-Verified (`2`/`3`)** | Auto (`1`) intentionally ignored until hardware capture confirms semantics. |
-| `6` | `zone1_target` (direct °C) | **Hardware-Verified (27B)** | Direct Zone-1 water target on Galmet #38 & NØRDIS #132; unresolved vs `body[9]/2` on Rotenso #124. |
+| `6` | `zone1_target` (direct °C) | **Hardware-Verified (Unified water-mode)** | Selected whenever `body[2] & 0x10` (`zone1_water_temp`) is set (25B & 27B: Galmet #38, NØRDIS #120/#132, Kosner #134, Sinclair #150, Hyundai #129, Kaisai #123/#151, Rotenso #143). Single unconfirmed `#124` `merol77a` capture still exposes raw `room_target` in attributes. |
 | `7` | `zone2_target` (direct °C) | **Candidate (`midea-local`)** | Decoded in `C3BasicStatus`, not yet surfaced as a Zone-2 entity. |
 | `8` | `dhw_target` (direct °C) | **Hardware-Verified (Dollin)** | Verified on Italtherm #22, Galmet #38, NØRDIS #132, Rotenso #124. |
-| `9` | `room_target` (`raw / 2` °C) | **Hardware-Verified (Italtherm)** | Primary Zone-1 target on Italtherm 25B (#22); also matches #124 first Rotenso capture. |
+| `9` | `room_target` (`raw / 2` °C) | **Hardware-Verified (Unified room-mode)** | Selected when `body[2] & 0x10` is clear (`0`: Italtherm #22, Inventor ATM16S #125, Heiwa #42 C14); 0.5 °C resolution. |
 | `10..21` | Min/max limits (Zone-1/Zone-2/Room×2/DHW) | **Candidate (`midea-local`)** | Matches vendor schema bounds in `c3_basic.py`. |
 | `22` | `dhw_tank_temp` (direct °C) | **Hardware-Verified (Dollin)** | Routed to `th_temp` ("DHW Tank Temperature"). |
 | `23` | `error_code` | **Hardware-Verified (`0`)** | 25B/27B tail `[24..26]` is flags/MSB (`0x80`/`0xe0`/`0x60`/`0x40`), never error code. |
