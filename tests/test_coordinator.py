@@ -42,7 +42,7 @@ def _entry(region: str | None) -> MockConfigEntry:
         data[CONF_REGION] = region
     return MockConfigEntry(
         domain=DOMAIN,
-        unique_id=f"user@example.com:APPL1",
+        unique_id="user@example.com:APPL1",
         data=data,
         version=2,
     )

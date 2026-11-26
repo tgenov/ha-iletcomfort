@@ -55,6 +55,7 @@ from __future__ import annotations
 import dataclasses
 import math
 from enum import Enum
+from typing import Any
 
 from .api import (
     MODE_HEAT,
@@ -492,7 +493,7 @@ def apply_atw_unit_params(
         return status, sensors
 
     comp_frq = body[1]
-    status_updates: dict[str, object] = {
+    status_updates: dict[str, Any] = {
         "comp_frq": comp_frq,
         "comp_running": comp_frq > 0,
         "exv_drg": (body[20] << 8) | body[21],
@@ -503,7 +504,7 @@ def apply_atw_unit_params(
             (body[67] << 24) | (body[68] << 16) | (body[69] << 8) | body[70]
         )
 
-    sensor_updates: dict[str, object] = {
+    sensor_updates: dict[str, Any] = {
         "t3_temp": _atw_unit_s8(body[7]),
         "t4_temp": _atw_unit_s8(body[8]),
         "tp_temp": _atw_unit_s8(body[9]),
@@ -830,7 +831,7 @@ def apply_profile_to_sensors(
       decode would produce (issues #21 / #5).
     """
     if profile is ModelProfile.KJRH120L:
-        overrides = dict(_KJRH120L_SUPPRESSED_TEMPS)
+        overrides: dict[str, Any] = dict(_KJRH120L_SUPPRESSED_TEMPS)
         if status is not None and status.kjrh120l_outdoor_temp is not None:
             overrides["t4_temp"] = status.kjrh120l_outdoor_temp
         return dataclasses.replace(sensors, **overrides)
@@ -838,7 +839,8 @@ def apply_profile_to_sensors(
         if profile is ModelProfile.ATW and atw_sensors_are_placeholder(
             sensors.raw_body,
         ):
-            sensors = dataclasses.replace(sensors, **_ATW_PLACEHOLDER_SENSOR_FIELDS)
+            placeholder_fields: dict[str, Any] = dict(_ATW_PLACEHOLDER_SENSOR_FIELDS)
+            sensors = dataclasses.replace(sensors, **placeholder_fields)
         if status is not None and status.box_bottom_temp is not None:
             return dataclasses.replace(sensors, th_temp=status.box_bottom_temp)
     return sensors
