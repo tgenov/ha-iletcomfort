@@ -385,22 +385,14 @@ def test_set_device_standard_uses_build_c3_set_frame():
     assert result["sent"] == set_frame
 
 
-def test_set_device_atw_uses_build_c3_set_frame():
-    """ATW (sn8 171H120F) is unaffected by the KJRH branch — still build_c3_set."""
+def test_set_device_atw_refuses_legacy_c3_set_frame():
+    """ATW (sn8 171H120F) must never be sent the legacy 62-byte ITS SET frame."""
     client = _make_client()
-    status_body = bytes([0x01, 0x00, 0x01]) + bytes(17)
-    sent: list[str] = []
+    with patch.object(client, "send_hex_command") as mock_send:
+        with pytest.raises(ApiError, match="171H120F"):
+            client.set_device("APPL1", sn8="171H120F", temperature=30)
 
-    def _fake_send(_code, command):
-        sent.append(command)
-        return _c3_frame(status_body)
-
-    with patch.object(client, "send_hex_command", side_effect=_fake_send):
-        client.set_device("APPL1", sn8="171H120F", temperature=30)
-
-    assert len(sent) == 2
-    assert sent[0] == build_c3_query(0x01)
-    assert len(sent[1]) == 124  # 62-byte C3 SET frame, unchanged
+    mock_send.assert_not_called()
 
 
 def test_status_flag_zero_and_no_frequency_keeps_compressor_off():

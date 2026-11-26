@@ -11,7 +11,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .api import MODE_HEAT, MODE_OFF
+from .api import MODE_HEAT, MODE_OFF, ITSStatus
 from .c3_basic import FEATURE_ECO, FEATURE_SILENT, C3BasicStatus
 from .const import DOMAIN
 from .coordinator import ILetComfortCoordinator
@@ -53,24 +53,35 @@ async def async_setup_entry(
                 or get_adapter(coordinator.sn8).profile is ModelProfile.ATW
             )
         ),
-        build=lambda: [
-            ILetComfortC3CurveSwitch(coordinator),
-            ILetComfortC3FeatureSwitch(
-                coordinator,
-                FEATURE_SILENT,
-                "Silent Mode",
-                "mdi:volume-off",
-                lambda basic: basic.silent_mode,
-            ),
-            ILetComfortC3FeatureSwitch(
-                coordinator,
-                FEATURE_ECO,
-                "ECO Mode",
-                "mdi:leaf",
-                lambda basic: basic.eco_mode,
-            ),
-        ],
+        build=lambda: _build_c3_switches(coordinator),
     )
+
+
+def _build_c3_switches(coordinator: ILetComfortCoordinator) -> list[SwitchEntity]:
+    """Build opt-in C3 basic switches for an ATW unit."""
+    switches: list[SwitchEntity] = [
+        ILetComfortC3CurveSwitch(coordinator),
+        ILetComfortC3FeatureSwitch(
+            coordinator,
+            FEATURE_SILENT,
+            "Silent Mode",
+            "mdi:volume-off",
+            lambda basic: basic.silent_mode,
+            status_state_fn=lambda status: status.atw_silent_mode,
+        ),
+        ILetComfortC3FeatureSwitch(
+            coordinator,
+            FEATURE_ECO,
+            "ECO Mode",
+            "mdi:leaf",
+            lambda basic: basic.eco_mode,
+            status_state_fn=lambda status: status.atw_eco_mode,
+        ),
+    ]
+    basic = coordinator.c3_basic_controllable
+    if isinstance(basic, C3BasicStatus) and basic.cap_dhw:
+        switches.append(ILetComfortC3FastDhwSwitch(coordinator))
+    return switches
 
 
 class ILetComfortBoostSwitch(CoordinatorEntity[ILetComfortCoordinator], SwitchEntity):
@@ -203,6 +214,27 @@ class ILetComfortC3CurveSwitch(_ILetComfortC3Switch):
         await self.coordinator.async_set_c3_basic(zone1_curve=False)
 
 
+class ILetComfortC3FastDhwSwitch(_ILetComfortC3Switch):
+    """Fast DHW on/off (C3Basic flag bit 0x40 in status, bit 0x08 in SET)."""
+
+    _attr_name = "Fast DHW"
+    _attr_icon = "mdi:water-boiler-alert"
+
+    def __init__(self, coordinator: ILetComfortCoordinator) -> None:
+        super().__init__(coordinator, "fast_dhw")
+
+    @property
+    def is_on(self) -> bool | None:
+        basic = self._basic
+        return basic.fast_dhw if basic is not None else None
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        await self.coordinator.async_set_c3_basic(fast_dhw=True)
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        await self.coordinator.async_set_c3_basic(fast_dhw=False)
+
+
 class ILetComfortC3FeatureSwitch(_ILetComfortC3Switch):
     """Silent / ECO mode; the device keeps its own timer schedule."""
 
@@ -213,17 +245,27 @@ class ILetComfortC3FeatureSwitch(_ILetComfortC3Switch):
         name: str,
         icon: str,
         state_fn: Callable[[C3BasicStatus], bool],
+        status_state_fn: Callable[[ITSStatus], bool | None] | None = None,
     ) -> None:
         super().__init__(coordinator, f"{feature}_mode")
         self._attr_name = name
         self._attr_icon = icon
         self._feature = feature
         self._state_fn = state_fn
+        self._status_state_fn = status_state_fn
 
     @property
     def is_on(self) -> bool | None:
         basic = self._basic
-        return self._state_fn(basic) if basic is not None else None
+        if basic is None:
+            return None
+        if self._status_state_fn is not None and self.coordinator.data:
+            status = self.coordinator.data.get("status")
+            if isinstance(status, ITSStatus):
+                override = self._status_state_fn(status)
+                if override is not None:
+                    return override
+        return self._state_fn(basic)
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         await self.coordinator.async_set_c3_feature(self._feature, True)

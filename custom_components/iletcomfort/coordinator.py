@@ -705,13 +705,23 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             lambda: self.client.set_c3_basic(self.appliance_code, sn8=sn8, **changes)
         )
 
-    async def async_set_c3_feature(self, feature: str, on: bool) -> None:
-        """Switch the C3 silent or ECO mode."""
+    async def async_set_c3_feature(
+        self,
+        feature: str,
+        on: bool,
+        *,
+        silent_level: int | None = None,
+    ) -> None:
+        """Switch the C3 silent (with optional level 0/1/2) or ECO mode."""
         self._require_c3_basic_control()
         sn8 = self.sn8
         await self.async_execute_command(
             lambda: self.client.set_c3_feature(
-                self.appliance_code, sn8=sn8, feature=feature, on=on,
+                self.appliance_code,
+                sn8=sn8,
+                feature=feature,
+                on=on,
+                silent_level=silent_level,
             )
         )
 

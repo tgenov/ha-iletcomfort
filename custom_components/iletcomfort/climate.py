@@ -162,6 +162,13 @@ class ILetComfortClimate(CoordinatorEntity[ILetComfortCoordinator], ClimateEntit
                 "Zone-1 control is unavailable because its write command has not "
                 "been validated; use the DHW setpoint entity for hot water"
             )
+        state = self._state
+        read_basic = state.atw_c3_basic if state is not None else None
+        if isinstance(read_basic, C3BasicStatus) and self._c3 is None:
+            raise HomeAssistantError(
+                "ATW (171H120F) control is disabled by default; enable "
+                "experimental ATW control in the integration options"
+            )
 
     @property
     def current_temperature(self) -> float | None:
@@ -292,13 +299,19 @@ class ILetComfortClimate(CoordinatorEntity[ILetComfortCoordinator], ClimateEntit
             await self.coordinator.async_set_device(mode=set_mode)
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
-        if self._c3 is not None:
+        basic = self._c3
+        if basic is not None:
             temp = kwargs.get(ATTR_TEMPERATURE)
             if temp is not None:
                 clamped = max(self.min_temp, min(float(temp), self.max_temp))
-                await self.coordinator.async_set_c3_basic(
-                    zone1_water_target=clamped,
-                )
+                if basic.zone1_water_temp:
+                    await self.coordinator.async_set_c3_basic(
+                        zone1_water_target=clamped,
+                    )
+                else:
+                    await self.coordinator.async_set_c3_basic(
+                        room_target=clamped,
+                    )
             return
         self._ensure_climate_control_supported()
         if self.hvac_mode is HVACMode.FAN_ONLY:

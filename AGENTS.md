@@ -199,17 +199,20 @@ Status `raw_body` (0-indexed; STANDARD misreads this 25-byte frame):
   2026-11-17), each re-queried and reverted, all in Heat mode with water-temperature control: DHW
   target, DHW power, Zone-1 water target, Zone-1 curve, Zone-1 power (from HA, confirmed in the
   app). The exact accepted frames are pinned in `tests/test_c3_basic.py`.
-- Silent = SET body `05` + 9 bytes, ECO = `07` + 6 bytes; bit 0 of the first byte is on/off and the
-  rest is the unit's timer schedule, copied from a fresh `05`/`07` query (midea-local zeroes it). A
-  reply shorter than the validated layout (silence 9 data bytes, ECO 5 + one accepted `00` pad) is
-  rejected before any SET — never zero-fill a schedule.
+- Silent = SET body `05` + 9 bytes, ECO = `07` + 6 bytes; bit 0 of the first byte is on/off (and
+  bit 3 is Super Silent for `0x05`, cleared explicitly when selecting Silent Level 1 via
+  `ILetComfortMuteSelect`) and the rest is the unit's timer schedule, copied from a fresh `05`/`07`
+  query (midea-local zeroes it). A reply shorter than the validated layout (silence 9 data bytes,
+  ECO 5 + one accepted `00` pad) is rejected before any SET — never zero-fill a schedule.
 - **Gating:** control is an options-flow opt-in (`CONF_C3_BASIC_CONTROL`, offered only for ATW units)
   because Italtherm (#22), Galmet (#38), and other `171H120F` frames also match the layout but are
-  not validated for writes. The client refuses any non-ATW `sn8`; `c3_basic.apply_basic_changes`
-  refuses mode changes, any Zone-1 power-on/setpoint/curve change unless the unit is already in Heat
-  (a Heat request must never power on Cool), and room-temperature setpoints. With control enabled
-  the climate shows `[6]` (the field it writes); the option text asks the owner to confirm that
-  matches the app (#124).
+  not validated for writes. The client refuses any non-ATW `sn8` on `set_c3_*` and refuses ATW
+  `sn8` on legacy `set_device`; `c3_basic.apply_basic_changes` refuses mode changes, any Zone-1
+  power-on/setpoint/curve change unless the unit is already in Heat (a Heat request must never power
+  on Cool), water-target writes on room-mode units (and vice versa), and DHW/Fast-DHW writes when
+  `cap_dhw` is False. Both water-temperature (`body[6]`) and room-temperature (`body[9]`, 0.5 °C)
+  setpoint writes, `Fast DHW` (`switch.*_fast_dhw` when `cap_dhw`), and `select.*_silent_mode`
+  (Off / Level 1 / Level 2) are routed through C3 basic/feature SET when opt-in is enabled.
 - **One write path:** `coordinator.async_execute_command` handles the phone-app guard, a
   per-appliance `_write_lock` spanning the fresh read → SET (and any auth retry), one re-auth,
   `HomeAssistantError` wrapping, and refresh on success only, for `async_set_device`,

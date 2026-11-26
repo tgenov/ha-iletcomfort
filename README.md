@@ -98,27 +98,29 @@ climate shows Zone-1 Heat/Off. The climate attributes `zone1_water_target` and
 one matches the official app when you report an issue (#124).
 
 **Control (experimental, opt-in).** Standard Midea C3 commands were validated
-on a Rotenso Aquami (EU account). To use them, open the integration's
-**Configure** dialog and enable *Enable standard Midea C3 control* — only if
-`zone1_water_target` matches the heating setpoint in the official app. Then:
+on a Rotenso Aquami (EU account) and extended for room-temperature control and
+Silent Level 1/2. To use them, open the integration's **Configure** dialog and
+enable *Enable standard Midea C3 control* — only if the displayed setpoint
+(`zone1_water_target` in water mode, or `room_target` in room mode) matches the
+official app. Then:
 
 | Entity | What it does |
 |---|---|
-| **Heat Pump** (climate) | Zone-1 Heat/Off and water setpoint (limits come from the unit) |
-| **Hot Water** (water heater) | DHW on/off and target temperature |
+| **Heat Pump** (climate) | Zone-1 Heat/Off and water or room (0.5 °C) setpoint (limits come from the unit) |
+| **Hot Water** (water heater) | DHW on/off and target temperature (when supported by the unit) |
+| **Fast DHW** (switch) | Fast DHW boost on/off (when supported by the unit) |
 | **Weather Curve** (switch) | Zone-1 weather-compensation curve on/off |
-| **Silent Mode** / **ECO Mode** (switches) | On/off; the unit's own schedules are kept |
+| **Silent Mode** (select / switch) | Off, Level 1, or Level 2 (Super Silent) via `select.*_silent_mode`, or on/off via `switch.*_silent_mode`; the unit's own schedules are kept |
+| **ECO Mode** (switch) | On/off (reads live `0x07` ECO state when supported); the unit's own schedules are kept |
 
-> **Note:** Enabling C3 control adds a **Silent Mode** switch
-> (`switch.*_silent_mode`). Use that switch rather than the pre-existing
-> `select.*_silent_mode` or `switch.*_boost` entities, which use the legacy
-> 62-byte ITS command format.
+> **Note:** Do not use `switch.*_boost` on `171H120F` units — it uses the
+> legacy 62-byte ITS command format (use **Fast DHW** instead).
 
 Every command re-reads the current status first and changes only the
 requested field; commands are sent one at a time. Not supported: switching
-the operating mode, cooling (a unit in Cool mode is shown as Cool, but Heat
-and setpoint changes are refused), and room-temperature setpoints. Control
-requires the **HA is the primary client** operation mode.
+the operating mode, and cooling writes (a unit in Cool mode is shown as Cool,
+but Heat and setpoint changes are refused). Control requires the **HA is the
+primary client** operation mode.
 
 ## Troubleshooting & reporting issues
 
