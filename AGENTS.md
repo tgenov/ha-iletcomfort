@@ -392,4 +392,5 @@ does not enforce per-appliance topic ACLs.
   mitmproxy).
 - Out-of-scope (Midea MSmartHome) devices: <https://github.com/georgezhao2010/midea_ac_lan>,
   <https://github.com/midea-lan/midea-local>.
+- `docs/C3_PROTOCOL_MATRIX.md` (Hardware-Verified Dollin vs. `midea-local` candidate matrix across `0x01`/`0x02`/`0x05`/`0x0A`/`0x10` and write dialects).
 - `README.md` (scope, install, login-war note) and `docs/TROUBLESHOOTING.md`, `CONTRIBUTING.md`.
