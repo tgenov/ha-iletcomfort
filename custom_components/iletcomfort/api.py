@@ -191,6 +191,7 @@ class ITSStatus:
     # KJRH-120L Zone 1 fields from the subtype 0x01 body, decoded on every
     # KJRH-120L frame regardless of body[8:10] (app capture 2026-11-12/14).
     kjrh120l_zone1_power: bool | None = None  # body[8]
+    kjrh120l_dhw_power: bool | None = None  # body[10]
     kjrh120l_run_mode: int | None = None  # body[11], heat=3, cool=2
     kjrh120l_zone1_setpoint: float | None = None  # body[12]
     kjrh120l_zone1_heat_max: int | None = None  # body[37]

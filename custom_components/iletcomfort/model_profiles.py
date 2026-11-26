@@ -598,10 +598,9 @@ def decode_kjrh120l_status(body: bytearray | bytes) -> ITSStatus:
     # — making the card read ON and the Off button usable. Defaults to Off when
     # the frame is too short to carry the power byte.
     if body_len > KJRH120L_POWER_INDEX:
-        if body[KJRH120L_POWER_INDEX] == 0:
-            status.mode = KJRH120L_MODE_OFF
-        else:
-            status.mode = KJRH120L_MODE_ON
+        dhw_on = body[KJRH120L_POWER_INDEX] != 0
+        status.kjrh120l_dhw_power = dhw_on
+        status.mode = KJRH120L_MODE_ON if dhw_on else KJRH120L_MODE_OFF
         status.mode_name = _KJRH120L_MODES.get(
             status.mode, f"Unknown({status.mode})"
         )

@@ -17,7 +17,13 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.iletcomfort.api import ITSSensors, decode_its_status
+from custom_components.iletcomfort.api import (
+    ILetComfortClient,
+    ITSSensors,
+    MODE_HEAT,
+    MODE_OFF,
+    decode_its_status,
+)
 from custom_components.iletcomfort.const import (
     CONF_APPLIANCE_CODE,
     CONF_KJRH120L_ZONE1_CAPABLE,
@@ -33,7 +39,10 @@ from custom_components.iletcomfort.model_profiles import (
 )
 from custom_components.iletcomfort.number import ILetComfortKjrh120lZone1Setpoint
 from custom_components.iletcomfort.select import ILetComfortKjrh120lModeSelect
-from custom_components.iletcomfort.switch import ILetComfortKjrh120lZone1PowerSwitch
+from custom_components.iletcomfort.switch import (
+    ILetComfortKjrh120lDhwPowerSwitch,
+    ILetComfortKjrh120lZone1PowerSwitch,
+)
 from tests.kjrh120l_snapshots import KJRH120L_SNAPSHOT_A, KJRH120L_SNAPSHOT_B
 
 
@@ -266,12 +275,63 @@ def test_zone1_power_switch_keeps_previous_unique_id_and_name():
     assert entity.name == "Zone 1 Power"
 
 
+# --- DHW power switch ---------------------------------------------------------
+
+
+def test_dhw_power_switch_reads_body10_and_handles_truncated_or_none():
+    on = ILetComfortKjrh120lDhwPowerSwitch(_coordinator(KJRH120L_SNAPSHOT_A))
+    off = ILetComfortKjrh120lDhwPowerSwitch(
+        _coordinator(_with(KJRH120L_SNAPSHOT_A, b10=0))
+    )
+    short = ILetComfortKjrh120lDhwPowerSwitch(_coordinator(KJRH120L_SNAPSHOT_A[:10]))
+    no_data_coord = _coordinator(KJRH120L_SNAPSHOT_A)
+    no_data_coord.data = None
+    no_data = ILetComfortKjrh120lDhwPowerSwitch(no_data_coord)
+
+    assert on.is_on is True
+    assert off.is_on is False
+    assert short.is_on is None
+    assert no_data.is_on is None
+
+
+async def test_dhw_power_switch_writes_mode_on_off():
+    entity = ILetComfortKjrh120lDhwPowerSwitch(_coordinator(KJRH120L_SNAPSHOT_A))
+
+    await entity.async_turn_on()
+    await entity.async_turn_off()
+
+    assert entity.coordinator.async_set_device.await_args_list[0].kwargs == {
+        "mode": MODE_HEAT
+    }
+    assert entity.coordinator.async_set_device.await_args_list[1].kwargs == {
+        "mode": MODE_OFF
+    }
+
+
+def test_dhw_power_switch_unique_id_and_name():
+    entity = ILetComfortKjrh120lDhwPowerSwitch(_coordinator(KJRH120L_SNAPSHOT_A))
+
+    assert entity.unique_id == "APPL1_kjrh120l_dhw_power"
+    assert entity.name == "DHW Power"
+
+
+def test_client_kjrh120l_dhw_power_commands():
+    client = ILetComfortClient(api_base="https://us.dollin.net")
+    with patch.object(client, "send_hex_command", return_value="") as mock_send:
+        client.set_device("APPL1", sn8=KJRH120L_SN8, mode=MODE_HEAT)
+        client.set_device("APPL1", sn8=KJRH120L_SN8, mode=MODE_OFF)
+
+    assert mock_send.call_args_list[0].args == ("APPL1", "00020101ff")
+    assert mock_send.call_args_list[1].args == ("APPL1", "00020100ff")
+
+
 # --- Platform setup and the capability latch ----------------------------------
 
 _NEW_ENTITIES = (
     ("number", "APPL1_kjrh120l_zone1_setpoint"),
     ("select", "APPL1_kjrh120l_mode"),
     ("switch", "APPL1_kjrh120l_zone1_power"),
+    ("switch", "APPL1_kjrh120l_dhw_power"),
 )
 
 
@@ -358,6 +418,7 @@ async def test_dual_unit_gets_entities_at_setup_and_latches_without_reload(
     assert hass.states.get(ids["APPL1_kjrh120l_zone1_setpoint"]).state == "50.0"
     assert hass.states.get(ids["APPL1_kjrh120l_mode"]).state == "heat"
     assert hass.states.get(ids["APPL1_kjrh120l_zone1_power"]).state == STATE_ON
+    assert hass.states.get(ids["APPL1_kjrh120l_dhw_power"]).state == STATE_ON
     assert _existing_entities_present(hass)
 
 
@@ -398,6 +459,7 @@ async def test_latched_unit_restarting_with_zone_off_keeps_entities_available(
     ids = _entity_ids(hass)
     assert all(ids.values())
     assert hass.states.get(ids["APPL1_kjrh120l_zone1_power"]).state == STATE_OFF
+    assert hass.states.get(ids["APPL1_kjrh120l_dhw_power"]).state == STATE_ON
     assert hass.states.get(ids["APPL1_kjrh120l_zone1_setpoint"]).state == "37.0"
     assert hass.states.get(ids["APPL1_kjrh120l_mode"]).state == "heat"
 
@@ -424,6 +486,7 @@ async def test_zone_switched_off_after_setup_keeps_entities_available(
 
     ids = _entity_ids(hass)
     assert hass.states.get(ids["APPL1_kjrh120l_zone1_power"]).state == STATE_OFF
+    assert hass.states.get(ids["APPL1_kjrh120l_dhw_power"]).state == STATE_ON
     assert hass.states.get(ids["APPL1_kjrh120l_zone1_setpoint"]).state == "37.0"
     assert entry.data[CONF_KJRH120L_ZONE1_CAPABLE] is True
 
