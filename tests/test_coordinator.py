@@ -907,6 +907,39 @@ async def test_phone_app_mode_status_watchdog_marks_silent_device_unavailable(
     assert coordinator.last_update_success is False
 
 
+async def test_phone_app_mode_status_watchdog_schedules_callback_job(
+    hass: HomeAssistant,
+):
+    """Watchdog timer must run on the event loop, never in an executor (#129)."""
+    from homeassistant.core import HassJobType, is_callback
+
+    from custom_components.iletcomfort.const import OPERATION_MODE_PHONE_APP
+
+    entry = _entry_operation_mode(OPERATION_MODE_PHONE_APP)
+    entry.add_to_hass(hass)
+    coordinator = ILetComfortCoordinator(hass, entry)
+    coordinator.async_set_updated_data(
+        {"status": ITSStatus(mode=1), "sensors": ITSSensors()}
+    )
+
+    scheduled_jobs: list = []
+    with patch(
+        "custom_components.iletcomfort.coordinator.async_call_later",
+        side_effect=lambda _hass, _delay, action: (
+            scheduled_jobs.append(action) or (lambda: None)
+        ),
+    ):
+        coordinator._apply_push_connected(True)
+
+    assert len(scheduled_jobs) == 1
+    job = scheduled_jobs[0]
+    assert job.job_type is HassJobType.Callback
+    assert is_callback(job.target)
+
+    job.target(None)
+    assert coordinator.last_update_success is False
+
+
 async def test_phone_app_mode_status_push_recovers_from_status_watchdog(
     hass: HomeAssistant,
 ):

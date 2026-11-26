@@ -368,19 +368,24 @@ _ATW_PLACEHOLDER_SENSOR_FIELDS = {
 
 
 # The same template appears in other shapes: 38 bytes with constant 0x28 and no
-# separator (Rotenso #124, Kaisai #123), and Galmet's 75-byte shape whose group
+# separator (Rotenso #124, Kaisai #123), Galmet's 75-byte shape whose group
 # payloads are not all zero (NØRDIS #132; they read like hh,00,hh,00 time slots,
-# while the app's live water and outdoor values appear nowhere in the frame).
-# Match the structure: subtype 0x02, a 0x00, then only ``03,<c>,x,x,x,x``
-# groups sharing one ``c``, with at most a single 0x00 between groups.
+# while the app's live water and outdoor values appear nowhere in the frame),
+# and 75-byte Cool-tagged 02,<c> groups (Western MONO 2 #124 C1). Match the
+# structure: subtype 0x02, a 0x00, then only ``02|03,<c>,x,x,x,x`` groups
+# sharing one ``(tag, c)``, with at most a single 0x00 between groups.
 _ATW_TEMPLATE_GROUP_LEN = 6
 _ATW_TEMPLATE_MIN_GROUPS = 6
+_ATW_TEMPLATE_MODE_TAGS = (0x02, 0x03)
 _ATW_ACTIVE_SCHEDULE_LEN = 2 + _ATW_TEMPLATE_MIN_GROUPS * _ATW_TEMPLATE_GROUP_LEN
-_ATW_ACTIVE_SCHEDULE_TAGS = (0x03, 0x05)
+_ATW_ACTIVE_SCHEDULE_TAGS = (0x02, 0x03, 0x05)
 
 
 def _atw_sensors_match_template_shape(raw_body: bytes) -> bool:
     if len(raw_body) < 4 or raw_body[:2] != b"\x02\x00":
+        return False
+    mode_tag = raw_body[2]
+    if mode_tag not in _ATW_TEMPLATE_MODE_TAGS:
         return False
     constant = raw_body[3]
     groups = 0
@@ -394,7 +399,7 @@ def _atw_sensors_match_template_shape(raw_body: bytes) -> bool:
         group = raw_body[i : i + _ATW_TEMPLATE_GROUP_LEN]
         if (
             len(group) != _ATW_TEMPLATE_GROUP_LEN
-            or group[0] != 0x03
+            or group[0] != mode_tag
             or group[1] != constant
         ):
             return False
@@ -405,14 +410,15 @@ def _atw_sensors_match_template_shape(raw_body: bytes) -> bool:
 
 
 def _atw_sensors_match_active_schedule_shape(raw_body: bytes) -> bool:
-    """Match 38-byte ATW 0x02 schedule frames with active 03/05 timer slots.
+    """Match 38-byte ATW 0x02 schedule frames with active 02/03/05 timer slots.
 
-    Airwell Wellea M (#128) and Sinclair MSH-100IB-3/9 (#150) emit 38-byte
-    ``0x02`` frames of six 6-byte ``[mode, target, start_h, start_m, end_h,
-    end_m]`` schedule slots with a 6-bit enable mask in ``body[1]`` (``0x00``
-    or ``0x0a``). Active slots can carry ``0x05`` with a different target byte
-    than idle ``0x03`` slots, while every slot carries valid ``HH:MM`` clock
-    bytes and idle ``00:00-00:00`` slots share one uniform ``03,<c>`` header.
+    Airwell Wellea M (#128), Sinclair MSH-100IB-3/9 (#150), and Kosner (#134)
+    emit 38-byte ``0x02`` frames of six 6-byte ``[mode, target, start_h,
+    start_m, end_h, end_m]`` schedule slots with a 6-bit enable mask in
+    ``body[1]`` (``0x00`` or ``0x0a``). Active slots can carry ``0x05`` (DHW) or
+    ``0x02``/``0x03`` (Cool/Heat) with a different target byte than idle slots,
+    while every slot carries valid ``HH:MM`` clock bytes and idle ``00:00-00:00``
+    slots share at most two ``02|03,<c>`` (Cool/Heat) headers.
     """
     if (
         len(raw_body) != _ATW_ACTIVE_SCHEDULE_LEN
@@ -420,7 +426,7 @@ def _atw_sensors_match_active_schedule_shape(raw_body: bytes) -> bool:
         or raw_body[1] > 0x3F
     ):
         return False
-    idle_header: tuple[int, int] | None = None
+    idle_headers: set[tuple[int, int]] = set()
     has_active_slot = False
     for offset in range(2, len(raw_body), _ATW_TEMPLATE_GROUP_LEN):
         tag, val, start_h, start_m, end_h, end_m = raw_body[
@@ -433,11 +439,10 @@ def _atw_sensors_match_active_schedule_shape(raw_body: bytes) -> bool:
         ):
             return False
         if (start_h, start_m, end_h, end_m) == (0, 0, 0, 0):
-            if tag != 0x03:
+            if tag not in _ATW_TEMPLATE_MODE_TAGS:
                 return False
-            if idle_header is None:
-                idle_header = (tag, val)
-            elif idle_header != (tag, val):
+            idle_headers.add((tag, val))
+            if len(idle_headers) > 2:
                 return False
         else:
             has_active_slot = True
