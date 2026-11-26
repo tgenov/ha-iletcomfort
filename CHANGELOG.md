@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.32.1](https://github.com/tgenov/ha-iletcomfort/compare/v0.32.0...v0.32.1) (2026-11-26)
+
+
+### Bug Fixes
+
+* prevent ATW zero-energy resets on transient 0x10 errors and add total thermal energy ([#211](https://github.com/tgenov/ha-iletcomfort/issues/211)) ([cfbfe2a](https://github.com/tgenov/ha-iletcomfort/commit/cfbfe2ab8961c6312187a68c1beae4f878631f32))
+
 ## [0.32.0](https://github.com/tgenov/ha-iletcomfort/compare/v0.31.0...v0.32.0) (2026-11-26)
 
 
