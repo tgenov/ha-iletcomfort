@@ -28,6 +28,7 @@ from custom_components.iletcomfort.model_profiles import (
     decode_atw_status,
     decode_kjrh120l_status,
 )
+from tests.snapshot_helpers import make_state
 from tests.write_helpers import bind_write_path, sent_commands
 
 
@@ -37,7 +38,7 @@ def _climate(sn8: str | None, sensors: ITSSensors, status: ITSStatus | None = No
     coordinator.appliance_code = "APPL1"
     coordinator.sn8 = sn8
     coordinator.appliance_meta = {"sn8": sn8} if sn8 else None
-    coordinator.data = {"status": status, "sensors": sensors}
+    coordinator.data = make_state(status, sensors, sn8=sn8)
     coordinator.c3_basic_controllable = None
     return ILetComfortClimate(bind_write_path(coordinator))
 

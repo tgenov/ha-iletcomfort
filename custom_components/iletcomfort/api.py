@@ -181,13 +181,17 @@ class ITSStatus:
     vacation_start_day: int = 0
     vacation_end_month: int = 0
     vacation_end_day: int = 0
-    exv_drg: int = 0
-    pressure_h: int | None = 0
-    pressure_l: int | None = 0
-    comp_frq: int | None = 0
-    total_kwh: int | None = 0
+    # Telemetry below defaults to None (not decoded); each decoder or subtype
+    # overlay sets it only when the frame actually carries it, so an entity
+    # can tell unknown from a real zero (#111). Cumulative counters must never
+    # read 0 in place of unknown (that is a meter reset in HA statistics).
+    exv_drg: int | None = None
+    pressure_h: int | None = None
+    pressure_l: int | None = None
+    comp_frq: int | None = None
+    total_kwh: int | None = None
     total_thermal_kwh: int | None = None
-    comp_total_run_hours: int | None = 0
+    comp_total_run_hours: int | None = None
     fan_total_run_hours: int = 0
     # KJRH-120L dual variant's separate DHW target (status body[15], issue #5).
     kjrh120l_dhw_setpoint: float | None = None
@@ -310,11 +314,12 @@ class ITSSensors:
     online_num: int = 0
     odu_mac_type: int = 0
     limit_frq_code: int = 0
-    tf_temp: float | None = 0
-    tp_temp: float | None = 0
-    th_temp: float | None = 0
+    # Telemetry defaults to None (not decoded) rather than 0 (#111).
+    tf_temp: float | None = None
+    tp_temp: float | None = None
+    th_temp: float | None = None
     water_pres: int = 0
-    water_flow: int = 0
+    water_flow: int | None = None
     capacity_hp: int = 0
     t3_temp: float | None = None
     t4_temp: float | None = None
@@ -323,15 +328,15 @@ class ITSSensors:
     twin_temp: float | None = None
     twout_temp: float | None = None
     t1_temp: float | None = None
-    odu_current: float | None = 0.0
-    odu_voltage: int | None = 0
-    dc_current: int = 0
+    odu_current: float | None = None
+    odu_voltage: int | None = None
+    dc_current: int | None = None
     idu_version: str = ""
     odu_version: str = ""
     hmi_version: str = ""
     ctrl_flag: int = 0  # d+41: 0=normal, 1=mute, 2=boost
     mute_level: int = 0  # d+40: 0=Level 1 (or off), 1=Level 2
-    dc_voltage: int = 0
+    dc_voltage: int | None = None
     ibh1_total_run_hours: int = 0
     ibh2_total_run_hours: int = 0
     tbh_total_run_hours: int = 0

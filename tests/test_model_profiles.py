@@ -43,6 +43,7 @@ from custom_components.iletcomfort.model_profiles import (
     decode_kjrh120l_status,
     resolve_profile,
 )
+from tests.snapshot_helpers import make_state
 
 
 def _make_client() -> ILetComfortClient:
@@ -528,11 +529,12 @@ def test_atw_dhw_tank_sensor_value_fn_returns_tank_temp(name):
     status = decode_atw_status(ATW_FRAMES[name])
     out = apply_profile_to_sensors(ModelProfile.ATW, sensors, status)
 
+    state = make_state(status, out, sn8=ATW_SN8)
     dhw = next(d for d in SENSOR_DESCRIPTIONS if d.key == "dhw_tank")
-    assert dhw.value_fn({"sensors": out, "status": status}) == tank
+    assert dhw.value_fn(state) == tank
     # The Water Inlet sensor must not carry the tank value.
     water_inlet = next(d for d in SENSOR_DESCRIPTIONS if d.key == "water_inlet")
-    assert water_inlet.value_fn({"sensors": out, "status": status}) != tank
+    assert water_inlet.value_fn(state) != tank
 
 
 # ---------------------------------------------------------------------------
@@ -648,15 +650,15 @@ def test_kjrh120l_status_surfaces_confirmed_setpoint_only():
     # raw_body preserved.
     assert status.raw_body == bytes(KJRH120L_STATUS_BODY)
     # The bogus fields the STANDARD decode produced must NOT be populated.
-    assert status.total_kwh in (None, 0)
-    assert status.comp_frq in (None, 0)
+    assert status.total_kwh is None
+    assert status.comp_frq is None
     assert status.box_bottom_temp is None
     assert status.tr_temperature is None
     assert status.ptc_temperature is None
-    assert status.exv_drg in (None, 0)
-    assert status.comp_total_run_hours in (None, 0)
-    assert status.pressure_h in (None, 0)
-    assert status.pressure_l in (None, 0)
+    assert status.exv_drg is None
+    assert status.comp_total_run_hours is None
+    assert status.pressure_h is None
+    assert status.pressure_l is None
 
 
 def test_kjrh120l_status_setpoint_tracks_body15():
@@ -750,8 +752,8 @@ def test_kjrh120l_profile_applied_to_status_object():
     assert kjrh.set_temperature == 60
     assert kjrh.error_code == 0
     assert kjrh.comp_running is False
-    assert kjrh.total_kwh in (None, 0)
-    assert kjrh.comp_frq in (None, 0)
+    assert kjrh.total_kwh is None
+    assert kjrh.comp_frq is None
     assert kjrh.box_bottom_temp is None
 
 

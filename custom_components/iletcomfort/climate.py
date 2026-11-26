@@ -40,7 +40,6 @@ from .protocols import (
     get_adapter,
     is_kjrh120l_dual_state,
     profile_climate_temp_bounds,
-    resolve_state,
 )
 
 # Query response mode (from device) → HA HVAC mode
@@ -69,7 +68,7 @@ _HVAC_TO_INTENT: dict[HVACMode, HvacModeIntent] = {
 
 
 def _coordinator_c3_basic(coordinator: ILetComfortCoordinator) -> C3BasicStatus | None:
-    state = resolve_state(coordinator.sn8, coordinator.data)
+    state = coordinator.data
     return state.atw_c3_basic if state is not None else None
 
 
@@ -119,18 +118,6 @@ class ILetComfortClimate(CoordinatorEntity[ILetComfortCoordinator], ClimateEntit
         self._attr_device_info = build_device_info(coordinator)
 
     @property
-    def _status(self):
-        if self.coordinator.data:
-            return self.coordinator.data.get("status")
-        return None
-
-    @property
-    def _sensors(self):
-        if self.coordinator.data:
-            return self.coordinator.data.get("sensors")
-        return None
-
-    @property
     def _c3(self) -> C3BasicStatus | None:
         """C3 basic status when the owner enabled C3 basic control (171H120F)."""
         basic = self.coordinator.c3_basic_controllable
@@ -167,13 +154,14 @@ class ILetComfortClimate(CoordinatorEntity[ILetComfortCoordinator], ClimateEntit
             if not basic.zone1_power:
                 return HVACMode.OFF
             return HVACMode.COOL if basic.is_cooling_mode else HVACMode.HEAT
-        if self._status is None:
+        state = self._state
+        if state is None:
             return HVACMode.OFF
-        return _QUERY_MODE_TO_HVAC.get(self._status.mode, HVACMode.OFF)
+        return _QUERY_MODE_TO_HVAC.get(state.operating_mode, HVACMode.OFF)
 
     @property
     def _state(self) -> HeatPumpState | None:
-        return resolve_state(self.coordinator.sn8, self.coordinator.data)
+        return self.coordinator.data
 
     @property
     def _is_kjrh120l_dual(self) -> bool:
@@ -215,16 +203,18 @@ class ILetComfortClimate(CoordinatorEntity[ILetComfortCoordinator], ClimateEntit
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        attrs = {}
-        if self._sensors is not None:
-            if self._sensors.twin_temp is not None:
-                attrs["water_inlet"] = self._sensors.twin_temp
-            if self._sensors.twout_temp is not None:
-                attrs["water_outlet"] = self._sensors.twout_temp
-            if self._sensors.t4_temp is not None:
-                attrs["outdoor_ambient"] = self._sensors.t4_temp
+        attrs: dict[str, Any] = {}
         state = self._state
-        basic = state.atw_c3_basic if state is not None else None
+        if state is None:
+            return attrs
+        for key, value in (
+            ("water_inlet", state.water_inlet_temp),
+            ("water_outlet", state.water_outlet_temp),
+            ("outdoor_ambient", state.outdoor_temp),
+        ):
+            if value is not None:
+                attrs[key] = value
+        basic = state.atw_c3_basic
         if basic is not None:
             # Both candidate Zone-1 setpoints of the C3 basic layout. Which
             # one the official app shows is not settled for every unit (#124),
@@ -232,19 +222,15 @@ class ILetComfortClimate(CoordinatorEntity[ILetComfortCoordinator], ClimateEntit
             attrs["zone1_water_target"] = float(basic.zone1_target)
             attrs["room_target"] = basic.room_target
             attrs["zone1_temp_mode"] = "water" if basic.zone1_water_temp else "room"
-            attrs["weather_curve"] = basic.zone1_curve
-            status = state.status if state is not None else None
-            attrs["eco_mode"] = (
-                status.atw_eco_mode
-                if status is not None and status.atw_eco_mode is not None
-                else basic.eco_mode
-            )
-            if status is not None and status.atw_silent_level is not None:
+            attrs["weather_curve"] = state.zone1_curve_enabled
+            attrs["eco_mode"] = state.eco_enabled
+            silent_level = state.reported_silent_level
+            if silent_level is not None:
                 attrs["silent_level"] = {
                     0: "off",
                     1: "level_1",
                     2: "level_2",
-                }[status.atw_silent_level]
+                }[silent_level]
         return attrs
 
     @property
@@ -256,21 +242,15 @@ class ILetComfortClimate(CoordinatorEntity[ILetComfortCoordinator], ClimateEntit
             if basic.zone1_water_temp:
                 return float(basic.zone1_target)
             return basic.room_target
-        if self._status is None or self.hvac_mode is HVACMode.FAN_ONLY:
+        state = self._state
+        if state is None or self.hvac_mode is HVACMode.FAN_ONLY:
             return None
         # On a latched dual KJRH-120L unit, keep showing the Zone-1 setpoint
         # (body[12]) even when Zone 1 is switched off rather than flipping to
         # the DHW setpoint (body[15]).
-        if (
-            self._is_kjrh120l_dual
-            and self._status.kjrh120l_zone1_setpoint is not None
-        ):
-            return self._status.kjrh120l_zone1_setpoint
-        # t5s_def (d+2, offset-encoded) is the active mode setpoint.
-        # set_temperature (d+4, direct) is the DHW tank target.
-        if self._status.t5s_def is not None:
-            return self._status.t5s_def
-        return float(self._status.set_temperature)
+        if self._is_kjrh120l_dual and state.zone1_target_temp is not None:
+            return state.zone1_target_temp
+        return state.active_setpoint
 
     @property
     def target_temperature_step(self) -> float:

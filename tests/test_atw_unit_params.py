@@ -25,16 +25,19 @@ from custom_components.iletcomfort.const import (
 from custom_components.iletcomfort.coordinator import ILetComfortCoordinator
 from custom_components.iletcomfort.model_profiles import (
     ATW_SN8,
+    KJRH120L_SN8,
     ModelProfile,
     apply_atw_hmi_params,
     apply_atw_unit_params,
     apply_profile_to_sensors,
     decode_atw_status,
+    decode_kjrh120l_status,
 )
 from tests.test_model_profiles import (
     ATW_PLACEHOLDER_SENSORS_BODY,
     NORDIS_ATW_STATUS_FRAMES,
 )
+from tests.snapshot_helpers import make_state
 
 
 def _bytes(csv: str) -> bytes:
@@ -164,7 +167,16 @@ def test_climate_uses_live_water_outlet_when_0x10_telemetry_present():
     coord = MagicMock()
     coord.appliance_code = "APPL1"
     coord.sn8 = ATW_SN8
-    coord.data = {"status": status, "sensors": sensors}
+    coord.data = make_state(
+        status,
+        sensors,
+        {
+            0x01: status.raw_body,
+            0x02: ATW_PLACEHOLDER_SENSORS_BODY,
+            0x10: NORDIS_UNIT_PARAMS_0X10,
+        },
+        sn8=coord.sn8,
+    )
     climate = ILetComfortClimate(coord)
 
     assert climate.current_temperature == 24.0
@@ -208,9 +220,9 @@ async def test_coordinator_polls_0x10_on_atw_placeholder_and_populates_sensors(
 
     client.query_atw_unit_params.assert_called_once_with("APPL1")
     assert coord._atw_unit_params_supported is True
-    assert data["sensors"].t4_temp == 14.0
-    assert data["sensors"].twout_temp == 24.0
-    assert data["status"].total_kwh == 6463
+    assert data.sensors.t4_temp == 14.0
+    assert data.sensors.twout_temp == 24.0
+    assert data.status.total_kwh == 6463
 
 
 async def test_coordinator_disables_0x10_after_1214_and_keeps_placeholder_safe(
@@ -227,9 +239,9 @@ async def test_coordinator_disables_0x10_after_1214_and_keeps_placeholder_safe(
     assert client.query_atw_unit_params.call_count == 1
     assert client.query_atw_hmi_params.call_count == 0
     assert coord._atw_unit_params_supported is False
-    assert data1["sensors"].t4_temp is None
-    assert data1["sensors"].th_temp == 46.0
-    assert data2["sensors"].t4_temp is None
+    assert data1.sensors.t4_temp is None
+    assert data1.sensors.th_temp == 46.0
+    assert data2.sensors.t4_temp is None
 
 
 def test_apply_atw_hmi_params_decodes_verified_issue120_run_hours():
@@ -276,8 +288,8 @@ async def test_coordinator_polls_0x0a_after_0x10_and_populates_run_hours(
 
     client.query_atw_hmi_params.assert_called_once_with("APPL1")
     assert coord._atw_hmi_params_supported is True
-    assert data["status"].comp_total_run_hours == 7311
-    assert data["status"].total_kwh == 6463
+    assert data.status.comp_total_run_hours == 7311
+    assert data.status.total_kwh == 6463
 
 
 async def test_coordinator_disables_0x0a_after_api_error_while_keeping_0x10(
@@ -295,8 +307,8 @@ async def test_coordinator_disables_0x0a_after_api_error_while_keeping_0x10(
     assert client.query_atw_hmi_params.call_count == 1
     assert coord._atw_unit_params_supported is True
     assert coord._atw_hmi_params_supported is False
-    assert data1["status"].comp_total_run_hours is None
-    assert data2["status"].total_kwh == 6463
+    assert data1.status.comp_total_run_hours is None
+    assert data2.status.total_kwh == 6463
 
 
 def test_extended_0x10_sensor_descriptions_disabled_by_default_and_scaled():
@@ -310,7 +322,16 @@ def test_extended_0x10_sensor_descriptions_disabled_by_default_and_scaled():
         status,
     )
     status, sensors = apply_atw_unit_params(NORDIS_UNIT_PARAMS_0X10, status, sensors)
-    data = {"status": status, "sensors": sensors}
+    data = make_state(
+        status,
+        sensors,
+        {
+            0x01: status.raw_body,
+            0x02: ATW_PLACEHOLDER_SENSORS_BODY,
+            0x10: NORDIS_UNIT_PARAMS_0X10,
+        },
+        sn8=ATW_SN8,
+    )
 
     by_key = {desc.key: desc for desc in SENSOR_DESCRIPTIONS}
     for key, expected in (
@@ -339,20 +360,23 @@ def test_extended_0x10_sensors_return_none_without_0x10_frame():
     by_key = {desc.key: desc for desc in SENSOR_DESCRIPTIONS}
     cases = [
         (
+            None,
             decode_its_status(ISSUE_11_STATUS_BODY),
             decode_its_sensors(ISSUE_11_SENSORS_BODY),
         ),
         (
-            decode_its_status(KJRH120L_STATUS_BODY),
+            KJRH120L_SN8,
+            decode_kjrh120l_status(KJRH120L_STATUS_BODY),
             decode_its_sensors(KJRH120L_SENSORS_BODY),
         ),
         (
+            ATW_SN8,
             decode_atw_status(NORDIS_ATW_STATUS_FRAMES["issue132"]),
             decode_its_sensors(ATW_PLACEHOLDER_SENSORS_BODY),
         ),
     ]
-    for st, sens in cases:
-        data = {"status": st, "sensors": sens, "raw_frames": {0x01: st.raw_body, 0x02: sens.raw_body}}
+    for sn8, st, sens in cases:
+        data = make_state(st, sens, {0x01: st.raw_body, 0x02: sens.raw_body}, sn8=sn8)
         for key in ("water_flow", "dc_voltage", "dc_current", "exv_steps", "total_thermal_energy"):
             assert by_key[key].value_fn(data) is None
 
@@ -361,11 +385,11 @@ def test_extended_0x10_sensors_return_none_without_0x10_frame():
     st = decode_atw_status(NORDIS_ATW_STATUS_FRAMES["issue132"])
     sens = decode_its_sensors(ATW_PLACEHOLDER_SENSORS_BODY)
     _, cached_0x10_sens = apply_atw_unit_params(NORDIS_UNIT_PARAMS_0X10, st, sens)
-    degraded_data = {
-        "status": st,
-        "sensors": cached_0x10_sens,
-        "raw_frames": {0x01: st.raw_body, 0x02: ATW_PLACEHOLDER_SENSORS_BODY},
-    }
+    degraded_data = make_state(
+        st,
+        cached_0x10_sens,
+        {0x01: st.raw_body, 0x02: ATW_PLACEHOLDER_SENSORS_BODY},
+    )
     for key in ("water_flow", "dc_voltage", "dc_current", "exv_steps", "total_thermal_energy"):
         assert by_key[key].value_fn(degraded_data) is None
 
@@ -383,9 +407,9 @@ async def test_coordinator_sensors_cache_fallback_preserves_0x02_and_keeps_0x10_
         client.query_sensors.side_effect = ApiError("transient sensors timeout")
         data2 = await coord._poll()
 
-    assert data2["raw_frames"][0x02].startswith(b"\x02\x00\x03\x1e")
-    assert 0x10 in data2["raw_frames"]
-    assert 0x0A in data2["raw_frames"]
+    assert data2.raw_frames[0x02].startswith(b"\x02\x00\x03\x1e")
+    assert 0x10 in data2.raw_frames
+    assert 0x0A in data2.raw_frames
     assert client.query_atw_unit_params.call_count == 2
 
 
@@ -408,7 +432,7 @@ async def test_coordinator_transient_api_error_after_0x10_supported_retries_next
 
     assert coord.capabilities.atw_unit_params.supported is True
     assert client.query_atw_unit_params.call_count == 3
-    assert data3["status"].total_kwh == 6463
+    assert data3.status.total_kwh == 6463
 
 
 def test_atw_status_without_0x10_leaves_cumulative_counters_none():
@@ -448,13 +472,9 @@ def test_galmet_issue118_0x10_decodes_total_thermal_energy_and_sensor():
     by_key = {desc.key: desc for desc in SENSOR_DESCRIPTIONS}
     thermal_desc = by_key["total_thermal_energy"]
     assert thermal_desc.entity_registry_enabled_default is False
-    data_with_0x10 = {
-        "status": out_st,
-        "sensors": out_sens,
-        "raw_frames": {0x10: galmet_0x10},
-    }
+    data_with_0x10 = make_state(out_st, out_sens, {0x10: galmet_0x10})
     assert thermal_desc.value_fn(data_with_0x10) == 7759
-    assert thermal_desc.value_fn({"status": out_st, "sensors": out_sens, "raw_frames": {}}) is None
+    assert thermal_desc.value_fn(make_state(out_st, out_sens, {})) is None
 
 
 async def test_coordinator_transient_0x10_failure_uses_cached_body_without_zero_reset(
@@ -479,9 +499,9 @@ async def test_coordinator_transient_0x10_failure_uses_cached_body_without_zero_
         data3 = await coord._poll()
 
     for data in (data1, data2, data3):
-        assert data["status"].total_kwh == 6463
-        assert data["status"].comp_total_run_hours == 7311
-        assert data["sensors"].twin_temp == 24.0
-        assert data["sensors"].t4_temp == 14.0
-        assert 0x10 in data["raw_frames"]
-        assert 0x0A in data["raw_frames"]
+        assert data.status.total_kwh == 6463
+        assert data.status.comp_total_run_hours == 7311
+        assert data.sensors.twin_temp == 24.0
+        assert data.sensors.t4_temp == 14.0
+        assert 0x10 in data.raw_frames
+        assert 0x0A in data.raw_frames

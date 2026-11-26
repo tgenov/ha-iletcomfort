@@ -58,6 +58,7 @@ from tests.test_c3_basic import (
     SET_SILENT_OFF,
     SET_SILENT_ON,
 )
+from tests.snapshot_helpers import make_state
 
 Q01 = build_c3_query(0x01)
 Q05 = build_c3_query(0x05)
@@ -188,10 +189,7 @@ async def test_async_send_command_dispatches_atw_c3_basic_intents(
     hass: HomeAssistant,
 ) -> None:
     coord = _make_coordinator(hass, sn8=ATW_SN8, c3_basic_control=True)
-    coord.data = {
-        "status": decode_atw_status(KAISAI_DUAL_ZONE),
-        "sensors": ITSSensors(),
-    }
+    coord.data = make_state(decode_atw_status(KAISAI_DUAL_ZONE), ITSSensors(), sn8=coord.sn8)
     transport = _wire(
         coord,
         {
@@ -238,7 +236,7 @@ async def test_async_send_command_dispatches_atw_c3_basic_intents(
     # Room-temperature mode routes SetTargetTemperatureCommand to room_target.
     room_frame = bytearray(KAISAI_DUAL_ZONE)
     room_frame[2] &= ~0x10
-    coord.data["status"] = decode_atw_status(bytes(room_frame))
+    coord.data = make_state(decode_atw_status(bytes(room_frame)), coord.data.sensors, sn8=coord.sn8)
     transport.replies[Q01] = _reply(bytes(room_frame))
     assert (await _basic_set(SetTargetTemperatureCommand(22.5)))[5] == 45
 
@@ -247,7 +245,7 @@ async def test_async_send_command_atw_without_opt_in_sends_nothing(
     hass: HomeAssistant,
 ) -> None:
     coord = _make_coordinator(hass, sn8=ATW_SN8, c3_basic_control=False)
-    coord.data = {"status": decode_atw_status(KAISAI_DUAL_ZONE), "sensors": ITSSensors()}
+    coord.data = make_state(decode_atw_status(KAISAI_DUAL_ZONE), ITSSensors(), sn8=coord.sn8)
     transport = _wire(coord)
 
     with pytest.raises(HomeAssistantError, match="C3 basic control is not enabled"):
@@ -262,10 +260,7 @@ async def test_async_send_command_dispatches_kjrh120l_intents(
     hass: HomeAssistant,
 ) -> None:
     coord = _make_coordinator(hass, sn8=KJRH120L_SN8)
-    coord.data = {
-        "status": decode_kjrh120l_status(KJRH120L_SNAPSHOT_A),
-        "sensors": ITSSensors(),
-    }
+    coord.data = make_state(decode_kjrh120l_status(KJRH120L_SNAPSHOT_A), ITSSensors(), sn8=coord.sn8)
     transport = _wire(coord)
 
     await coord.async_send_command(SetDhwPowerCommand(on=True))

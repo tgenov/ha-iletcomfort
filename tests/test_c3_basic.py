@@ -95,6 +95,7 @@ from custom_components.iletcomfort.switch import (
 )
 from custom_components.iletcomfort.water_heater import ILetComfortDhw
 from tests.write_helpers import sent_commands
+from tests.snapshot_helpers import make_state
 
 
 def _body(csv_frame: str) -> bytes:
@@ -261,10 +262,7 @@ def _coordinator(
         coordinator = ILetComfortCoordinator(hass, entry)
     coordinator.appliance_meta = {"sn8": sn8} if sn8 else None
     if frame is not None:
-        coordinator.data = {
-            "status": decode_atw_status(frame),
-            "sensors": ITSSensors(),
-        }
+        coordinator.data = make_state(decode_atw_status(frame), ITSSensors(), sn8=sn8)
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
     return coordinator
 
@@ -309,10 +307,7 @@ async def test_water_heater_added_once_model_is_known(hass: HomeAssistant):
     assert added == []
 
     coordinator.appliance_meta = {"sn8": ATW_SN8}
-    coordinator.data = {
-        "status": decode_atw_status(_body(ROTENSO_BASELINE)),
-        "sensors": ITSSensors(),
-    }
+    coordinator.data = make_state(decode_atw_status(_body(ROTENSO_BASELINE)), ITSSensors(), sn8=ATW_SN8)
     assert len(coordinator._listeners) == 1
     coordinator.async_update_listeners()
     coordinator.async_update_listeners()
@@ -883,7 +878,7 @@ async def test_climate_control_heat_off_and_setpoint(hass: HomeAssistant):
 
 async def test_climate_control_reports_cooling_with_cooling_limits(hass: HomeAssistant):
     coordinator = _control_coordinator(hass)
-    coordinator.data["status"] = decode_atw_status(_cooling(ROTENSO_ISSUE124_HEATING))
+    coordinator.data = make_state(decode_atw_status(_cooling(ROTENSO_ISSUE124_HEATING)), coordinator.data.sensors, sn8=ATW_SN8)
     climate = ILetComfortClimate(coordinator)
 
     assert climate.hvac_mode is HVACMode.COOL
@@ -896,7 +891,7 @@ async def test_climate_control_room_mode_and_invalid_bounds(hass: HomeAssistant)
     body[2] &= ~0x10  # room-temperature mode
     body[19], body[18] = 0, 0  # invalid/zeroed room limits
     coordinator = _control_coordinator(hass)
-    coordinator.data["status"] = decode_atw_status(bytes(body))
+    coordinator.data = make_state(decode_atw_status(bytes(body)), coordinator.data.sensors, sn8=ATW_SN8)
     climate = ILetComfortClimate(coordinator)
 
     assert climate.target_temperature == 24.0
@@ -908,7 +903,7 @@ async def test_climate_heat_request_on_cooling_unit_is_refused_end_to_end(
     hass: HomeAssistant,
 ):
     coordinator = _control_coordinator(hass)
-    coordinator.data["status"] = decode_atw_status(_cooling(_body(ROTENSO_BASELINE)))
+    coordinator.data = make_state(decode_atw_status(_cooling(_body(ROTENSO_BASELINE))), coordinator.data.sensors, sn8=ATW_SN8)
     client = ILetComfortClient()
     client.send_hex_command = MagicMock(return_value=ROTENSO_COOLING_REPLY)  # type: ignore[method-assign]
     coordinator.client = client
@@ -930,7 +925,7 @@ async def test_climate_room_mode_set_temperature_writes_room_target(
     body = bytearray(_body(ROTENSO_BASELINE))
     body[2] &= ~0x10  # room-temperature control
     coordinator = _control_coordinator(hass)
-    coordinator.data["status"] = decode_atw_status(bytes(body))
+    coordinator.data = make_state(decode_atw_status(bytes(body)), coordinator.data.sensors, sn8=ATW_SN8)
     client = ILetComfortClient()
     reply = (
         "aa,23,c3,00,00,00,00,00,00,03,"
@@ -1009,8 +1004,7 @@ async def test_switches(hass: HomeAssistant):
         FEATURE_SILENT,
         "Silent Mode",
         "mdi:volume-off",
-        lambda b: b.silent_mode,
-        status_state_fn=lambda s: s.atw_silent_mode,
+        lambda state: state.silent_enabled,
     )
     assert silent.unique_id == "APPL1_silent_mode"
     assert silent.is_on is False
@@ -1023,11 +1017,10 @@ async def test_switches(hass: HomeAssistant):
         FEATURE_ECO,
         "ECO Mode",
         "mdi:leaf",
-        lambda b: b.eco_mode,
-        status_state_fn=lambda s: s.atw_eco_mode,
+        lambda state: state.eco_enabled,
     )
     assert eco.is_on is False
-    coordinator.data["status"].atw_eco_mode = True
+    coordinator.data.status.atw_eco_mode = True
     assert eco.is_on is True
 
     fast_dhw = ILetComfortC3FastDhwSwitch(coordinator)
@@ -1087,10 +1080,7 @@ async def test_c3_switches_added_only_with_opt_in(hass: HomeAssistant):
     assert len(opt_in._listeners) == 2
 
     opt_in.appliance_meta = {"sn8": ATW_SN8}
-    opt_in.data = {
-        "status": decode_atw_status(_body(ROTENSO_BASELINE)),
-        "sensors": ITSSensors(),
-    }
+    opt_in.data = make_state(decode_atw_status(_body(ROTENSO_BASELINE)), ITSSensors(), sn8=ATW_SN8)
     opt_in.async_update_listeners()
     opt_in.async_update_listeners()
     assert sorted(e.unique_id for e in added_opt_in) == [
@@ -1242,10 +1232,7 @@ async def test_zone2_climate_added_only_for_double_zone_units(hass: HomeAssistan
     assert [e.unique_id for e in added_dual] == ["APPL1_climate"]
 
     dual.appliance_meta = {"sn8": ATW_SN8}
-    dual.data = {
-        "status": decode_atw_status(KAISAI_DUAL_ZONE),
-        "sensors": ITSSensors(),
-    }
+    dual.data = make_state(decode_atw_status(KAISAI_DUAL_ZONE), ITSSensors(), sn8=ATW_SN8)
     dual.async_update_listeners()
     dual.async_update_listeners()
     assert [e.unique_id for e in added_dual] == ["APPL1_climate", "APPL1_zone2"]
@@ -1290,7 +1277,7 @@ async def test_zone2_climate_read_only_and_opt_in_control(hass: HomeAssistant):
     assert ctrl.async_execute_plan.await_count == 3
 
     # Cool mode reports COOL with Zone-2 cooling limits.
-    ctrl.data["status"] = decode_atw_status(_cooling(KAISAI_DUAL_ZONE))
+    ctrl.data = make_state(decode_atw_status(_cooling(KAISAI_DUAL_ZONE)), ctrl.data.sensors, sn8=ATW_SN8)
     assert zone2.hvac_mode is HVACMode.COOL
     assert HVACMode.COOL in zone2.hvac_modes
     assert (zone2.min_temp, zone2.max_temp) == (5.0, 25.0)
@@ -1299,7 +1286,7 @@ async def test_zone2_climate_read_only_and_opt_in_control(hass: HomeAssistant):
     # and TARGET_TEMPERATURE feature is omitted while raw attribute stays for diagnostics.
     no_z2_water = bytearray(KAISAI_DUAL_ZONE)
     no_z2_water[2] &= ~0x20
-    ctrl.data["status"] = decode_atw_status(bytes(no_z2_water))
+    ctrl.data = make_state(decode_atw_status(bytes(no_z2_water)), ctrl.data.sensors, sn8=ATW_SN8)
     assert zone2.target_temperature is None
     assert zone2.extra_state_attributes["zone2_water_target"] == 25.0
     assert zone2.supported_features == (
@@ -1328,5 +1315,5 @@ async def test_zone2_curve_switch_added_for_dual_zone_opt_in(hass: HomeAssistant
     assert sent_commands(coordinator, KAISAI_DUAL_ZONE) == [_kaisai_set(flags=0x01)]
 
     # If a later status lacks double_zone, the switch becomes unavailable.
-    coordinator.data["status"] = decode_atw_status(_body(ROTENSO_BASELINE))
+    coordinator.data = make_state(decode_atw_status(_body(ROTENSO_BASELINE)), coordinator.data.sensors, sn8=ATW_SN8)
     assert z2_curve.available is False

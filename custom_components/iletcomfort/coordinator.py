@@ -69,7 +69,6 @@ from .protocols import (
     build_snapshot,
     get_adapter,
     merge_atw_energy_notify,
-    resolve_state,
     run_write_plan,
     WriteContext,
     WritePlan,
@@ -96,7 +95,7 @@ OFFLINE_REPAIR_ID = "device_offline_{entry_id}"
 SUSTAINED_FAILURE_THRESHOLD = 5
 
 
-class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
+class ILetComfortCoordinator(DataUpdateCoordinator[HeatPumpState]):
     """Coordinator that polls the iLetComfort cloud API."""
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
@@ -210,10 +209,9 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     @property
     def c3_basic(self) -> C3BasicStatus | None:
         """Decoded C3 basic status for an ATW unit (sn8 171H120F), else None."""
-        state = resolve_state(self.sn8, self.data)
-        if state is None:
+        if self.data is None:
             return None
-        basic = state.atw_c3_basic
+        basic = self.data.atw_c3_basic
         return basic if isinstance(basic, C3BasicStatus) else None
 
     @property
@@ -259,7 +257,7 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             data={**self.entry.data, CONF_KJRH120L_ZONE1_CAPABLE: True},
         )
 
-    async def _async_update_data(self) -> dict[str, Any]:
+    async def _async_update_data(self) -> HeatPumpState:
         """Fetch status and sensors from the heat pump."""
         try:
             return await self._poll()
@@ -312,7 +310,7 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
         return 0
 
-    async def _poll(self) -> dict[str, Any]:
+    async def _poll(self) -> HeatPumpState:
         """Run the actual polling calls in the executor."""
         previous_profile = resolve_profile(self.sn8)
         await self._ensure_appliance_meta()
@@ -323,7 +321,7 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._last_on_state = None
             self._last_atw_subtypes.clear()
             self.capabilities.reset_probes()
-        cached = self.data or {}
+        cached: HeatPumpState | None = self.data
         sn8 = self.sn8
 
         try:
@@ -337,10 +335,9 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except AuthError:
             raise  # bubble up for re-auth
         except Exception as err:
-            cached_status = cached.get("status")
-            if cached_status is None:
+            if cached is None:
                 raise
-            status = cached_status
+            status = cached.status
             self._status_degraded = True
             self._status_fail_streak = self._log_cache_fallback(
                 "Status", err, self._status_fail_streak,
@@ -359,7 +356,7 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except AuthError:
             raise  # bubble up for re-auth
         except Exception as err:
-            cached_sensors = cached.get("sensors")
+            cached_sensors = cached.sensors if cached is not None else None
             if cached_sensors is None:
                 raise
             sensors = cached_sensors
@@ -418,7 +415,7 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if status.raw_body:
             raw_frames[0x01] = bytes(status.raw_body)
         if self._sensors_degraded:
-            cached_0x02 = (cached.get("raw_frames") or {}).get(0x02)
+            cached_0x02 = cached.raw_frames.get(0x02) if cached is not None else None
             if cached_0x02:
                 raw_frames[0x02] = bytes(cached_0x02)
         elif sensors.raw_body and sensors.raw_body[:1] == b"\x02":
@@ -477,21 +474,7 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._atw_energy_notify = None
         # Decode + overlay every successfully probed subtype in one pure step,
         # shared with the MQTT push paths so push and poll stay in parity (#225).
-        return self._snapshot_data(
-            build_snapshot(adapter, status, sensors, raw_frames), raw_frames
-        )
-
-    @staticmethod
-    def _snapshot_data(
-        state: HeatPumpState, raw_frames: dict[int, bytes]
-    ) -> dict[str, Any]:
-        """Return the ``coordinator.data`` dict for a built snapshot."""
-        return {
-            "status": state.status,
-            "sensors": state.sensors,
-            "raw_frames": raw_frames,
-            "state": state,
-        }
+        return build_snapshot(adapter, status, sensors, raw_frames)
 
     async def _async_probe_atw_subtype(
         self,
@@ -701,7 +684,7 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def _write_context(self) -> WriteContext:
         """Snapshot the state a dialect needs to plan a write (#113)."""
         return WriteContext(
-            status=(self.data or {}).get("status"),
+            status=self.data.status if self.data is not None else None,
             last_on_state=self._last_on_state,
             c3_basic_control=self._c3_basic_control,
             kjrh120l_zone1_latched=self.kjrh120l_zone1_capable,
@@ -823,11 +806,7 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         adapter = get_adapter(self.sn8)
         if adapter.profile is not ModelProfile.ATW:
             return
-        status = self.data.get("status")
-        if not isinstance(status, ITSStatus):
-            return
-        sensors = self.data.get("sensors")
-        raw_frames = dict(self.data.get("raw_frames") or {})
+        raw_frames = dict(self.data.raw_frames)
         raw_frames[0x04] = bytes(energy_body)
         # Keep the last valid value of each 0x04 field separately: the
         # snapshot is re-derived, so a sentinel field must not clobber it.
@@ -836,13 +815,13 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         state = build_snapshot(
             adapter,
-            status,
-            sensors,
+            self.data.status,
+            self.data.sensors,
             raw_frames,
             retained_subtypes=True,
             energy_notify=self._atw_energy_notify,
         )
-        self.async_set_updated_data(self._snapshot_data(state, raw_frames))
+        self.async_set_updated_data(state)
 
     def _apply_push_status(self, status: ITSStatus) -> None:
         """Publish a pushed status to entities, reusing the last polled sensors.
@@ -856,13 +835,13 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if self.data is None:
             # Push started after the first poll, so this is only reached if a
             # push races ahead of it. Ignore it rather than publish a status
-            # with no sensors (entities read coordinator.data["sensors"]); the
+            # with no sensors (entities read coordinator.data.sensors); the
             # imminent first poll delivers a complete snapshot.
             return
         adapter = get_adapter(self.sn8)
         status = adapter.decode_status(status)
         self._observe_kjrh120l_zone1(status)
-        raw_frames = dict(self.data.get("raw_frames") or {})
+        raw_frames = dict(self.data.raw_frames)
         if status.raw_body:
             raw_frames[0x01] = bytes(status.raw_body)
         # Re-apply every retained subtype overlay (0x10/0x0A/0x05/0x07/0x04)
@@ -872,12 +851,12 @@ class ILetComfortCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         state = build_snapshot(
             adapter,
             status,
-            self.data.get("sensors"),
+            self.data.sensors,
             raw_frames,
             retained_subtypes=True,
             energy_notify=self._atw_energy_notify,
         )
-        self.async_set_updated_data(self._snapshot_data(state, raw_frames))
+        self.async_set_updated_data(state)
 
     def _cancel_push_status_watchdog(self) -> None:
         if self._push_status_watchdog is not None:

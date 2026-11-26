@@ -86,7 +86,7 @@ async def async_get_config_entry_diagnostics(
 ) -> dict[str, Any]:
     """Return diagnostics for a config entry."""
     coordinator: ILetComfortCoordinator = hass.data[DOMAIN][entry.entry_id]
-    data = coordinator.data or {}
+    state = coordinator.data
 
     # async_redact_data leaves appliance_code intact (it is not a credential);
     # suffix-mask the device-unique id so a shared diagnostics file can be
@@ -105,9 +105,9 @@ async def async_get_config_entry_diagnostics(
     if appliance is not None and "applianceCode" in appliance:
         appliance["applianceCode"] = mask_identifier(appliance["applianceCode"])
 
-    status_obj = data.get("status")
-    sensors_obj = data.get("sensors")
-    raw_frames: dict[int, bytes] = dict(data.get("raw_frames") or {})
+    status_obj = state.status if state is not None else None
+    sensors_obj = state.sensors if state is not None else None
+    raw_frames: dict[int, bytes] = dict(state.raw_frames) if state is not None else {}
     if not raw_frames:
         if status_obj is not None and status_obj.raw_body:
             raw_frames[0x01] = bytes(status_obj.raw_body)

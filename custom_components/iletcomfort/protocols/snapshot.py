@@ -123,7 +123,6 @@ def build_snapshot(
         status=status,
         sensors=sensors,
         raw_frames=dict(raw_frames),
-        has_authoritative_raw_frames=True,
     )
 
 

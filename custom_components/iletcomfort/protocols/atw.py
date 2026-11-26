@@ -146,12 +146,12 @@ def decode_atw_status(body: bytearray | bytes) -> ITSStatus:
     """Decode an ATW (sn8 171H120F) status frame into an ITSStatus."""
     status = ITSStatus()
     status.raw_body = bytes(body)
+    # No 0x01 layout carries a confirmed compressor running signal; 0x10
+    # overlays it when supported. Unknown (None), never False.
+    status.comp_running = None
     # ATW subtype 0x01 never carries cumulative energy, compressor run hours,
-    # or refrigerant pressures (those come from 0x10 / 0x0A / MQTT 0x04).
-    status.total_kwh = None
-    status.comp_total_run_hours = None
-    status.pressure_h = None
-    status.pressure_l = None
+    # compressor frequency, EXV or refrigerant pressures: they keep the
+    # ITSStatus default None until 0x10 / 0x0A / MQTT 0x04 overlay them.
     body_len = len(body)
 
     if body_len <= ATW_DHW_TANK_TEMP_INDEX:
@@ -193,7 +193,8 @@ def decode_atw_status(body: bytearray | bytes) -> ITSStatus:
         status.comp_frq = None
     else:
         status.t5s_def = body[ATW_ZONE1_SETPOINT_X2_INDEX] / 2
-        status.comp_running = False
+        # No confirmed running signal in this layout: unknown, never False.
+        status.comp_running = None
 
     return status
 
@@ -602,6 +603,10 @@ class AtwAdapter:
 
     def c3_basic(self, status: ITSStatus | None) -> C3BasicStatus | None:
         return status.c3_basic if status is not None else None
+
+    def dhw_target_temp(self, status: ITSStatus) -> float | None:
+        basic = status.c3_basic
+        return float(basic.dhw_target) if isinstance(basic, C3BasicStatus) else None
 
     def plan_write(self, command: HeatPumpCommand, ctx: WriteContext) -> WritePlan:
         return plan_atw_write(command, ctx)

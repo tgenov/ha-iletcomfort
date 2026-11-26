@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from collections.abc import Callable
 
 from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
@@ -18,13 +18,14 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from .const import DOMAIN
 from .coordinator import ILetComfortCoordinator
 from .entity import build_device_info
+from .protocols import HeatPumpState
 
 
 @dataclass(frozen=True, kw_only=True)
 class ILetComfortBinarySensorDescription(BinarySensorEntityDescription):
     """Describe an iLetComfort binary sensor."""
 
-    is_on_fn: Any  # Callable[[dict], bool]
+    is_on_fn: Callable[[HeatPumpState], bool | None]
 
 
 BINARY_SENSOR_DESCRIPTIONS: tuple[ILetComfortBinarySensorDescription, ...] = (
@@ -32,25 +33,19 @@ BINARY_SENSOR_DESCRIPTIONS: tuple[ILetComfortBinarySensorDescription, ...] = (
         key="compressor_running",
         name="Compressor Running",
         device_class=BinarySensorDeviceClass.RUNNING,
-        is_on_fn=lambda data: (
-            data.get("status") is not None and data["status"].comp_running
-        ),
+        is_on_fn=lambda state: state.compressor_running,
     ),
     ILetComfortBinarySensorDescription(
         key="ibh_running",
         name="IBH Running",
         device_class=BinarySensorDeviceClass.RUNNING,
-        is_on_fn=lambda data: (
-            data.get("status") is not None and data["status"].ibh_running
-        ),
+        is_on_fn=lambda state: state.ibh_running,
     ),
     ILetComfortBinarySensorDescription(
         key="error",
         name="Error",
         device_class=BinarySensorDeviceClass.PROBLEM,
-        is_on_fn=lambda data: (
-            data.get("status") is not None and data["status"].error_code != 0
-        ),
+        is_on_fn=lambda state: state.has_error,
     ),
 )
 

@@ -22,11 +22,11 @@ from .const import DOMAIN
 from .coordinator import ILetComfortCoordinator
 from .entity import async_add_when_capable, build_device_info
 from .model_profiles import ModelProfile
-from .protocols import get_adapter, resolve_state
+from .protocols import HeatPumpState, get_adapter
 
 
 def _coordinator_c3_basic(coordinator: ILetComfortCoordinator) -> C3BasicStatus | None:
-    state = resolve_state(coordinator.sn8, coordinator.data)
+    state = coordinator.data
     return state.atw_c3_basic if state is not None else None
 
 
@@ -92,28 +92,32 @@ class ILetComfortDhw(CoordinatorEntity[ILetComfortCoordinator], WaterHeaterEntit
         )
 
     @property
+    def _state(self) -> HeatPumpState | None:
+        """The snapshot, only while it carries the C3 basic DHW layout."""
+        state = self.coordinator.data
+        return state if state is not None and self._basic is not None else None
+
+    @property
     def current_operation(self) -> str | None:
-        basic = self._basic
-        if basic is None:
+        state = self._state
+        if state is None or state.dhw_power is None:
             return None
-        return STATE_HEAT_PUMP if basic.dhw_power else STATE_OFF
+        return STATE_HEAT_PUMP if state.dhw_power else STATE_OFF
 
     @property
     def current_temperature(self) -> float | None:
-        basic = self._basic
-        return float(basic.dhw_tank_temp) if basic is not None else None
+        state = self._state
+        return state.dhw_tank_temp if state is not None else None
 
     @property
     def target_temperature(self) -> float | None:
-        basic = self._basic
-        return float(basic.dhw_target) if basic is not None else None
+        state = self._state
+        return state.dhw_target_temp if state is not None else None
 
     def _dhw_limits(self) -> tuple[float, float] | None:
         """The unit's DHW limits, ignoring zeroed or inverted values."""
-        basic = self._basic
-        if basic is None or not 0 < basic.dhw_min < basic.dhw_max:
-            return None
-        return float(basic.dhw_min), float(basic.dhw_max)
+        state = self._state
+        return state.dhw_target_range if state is not None else None
 
     @property
     def min_temp(self) -> float:

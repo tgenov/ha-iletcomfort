@@ -41,6 +41,7 @@ from custom_components.iletcomfort.model_profiles import (
     decode_kjrh120l_status as _decode_kjrh120l_status,
 )
 from tests.kjrh120l_snapshots import KJRH120L_SNAPSHOT_A as _KJRH120L_SNAPSHOT_A
+from tests.snapshot_helpers import make_state
 
 
 def _entry(region: str | None) -> MockConfigEntry:
@@ -131,7 +132,7 @@ async def test_poll_falls_back_to_cache_on_truncated_frame(hass: HomeAssistant):
     client = mock_cls.return_value
     cached_status = ITSStatus(mode=1)
     cached_sensors = ITSSensors()
-    coord.data = {"status": cached_status, "sensors": cached_sensors}
+    coord.data = make_state(cached_status, cached_sensors, sn8=coord.sn8)
 
     client.query_status.side_effect = ApiError("truncated frame")
     client.query_sensors.side_effect = ApiError("truncated frame")
@@ -142,8 +143,8 @@ async def test_poll_falls_back_to_cache_on_truncated_frame(hass: HomeAssistant):
     ):
         result = await coord._poll()
 
-    assert result["status"] is cached_status
-    assert result["sensors"] is cached_sensors
+    assert result.status is cached_status
+    assert result.sensors is cached_sensors
 
 
 async def test_single_transient_failure_logs_debug_not_warning(
@@ -165,7 +166,7 @@ async def test_single_transient_failure_logs_debug_not_warning(
         coord = ILetComfortCoordinator(hass, entry)
 
     client = mock_cls.return_value
-    coord.data = {"status": ITSStatus(mode=1), "sensors": ITSSensors()}
+    coord.data = make_state(ITSStatus(mode=1), ITSSensors(), sn8=coord.sn8)
 
     with patch(
         "custom_components.iletcomfort.coordinator.asyncio.sleep",
@@ -212,7 +213,7 @@ async def test_intermittent_failures_never_warn(hass: HomeAssistant, caplog):
         coord = ILetComfortCoordinator(hass, entry)
 
     client = mock_cls.return_value
-    coord.data = {"status": ITSStatus(mode=1), "sensors": ITSSensors()}
+    coord.data = make_state(ITSStatus(mode=1), ITSSensors(), sn8=coord.sn8)
     good_status = ITSStatus(mode=1)
     good_sensors = ITSSensors()
 
@@ -255,7 +256,7 @@ async def test_sustained_failures_warn_once_at_threshold_then_debug(
         coord = ILetComfortCoordinator(hass, entry)
 
     client = mock_cls.return_value
-    coord.data = {"status": ITSStatus(mode=1), "sensors": ITSSensors()}
+    coord.data = make_state(ITSStatus(mode=1), ITSSensors(), sn8=coord.sn8)
     client.query_status.side_effect = ApiError("502 Bad Gateway")
     client.query_sensors.side_effect = ApiError("502 Bad Gateway")
 
@@ -290,7 +291,7 @@ async def test_recovery_after_sustained_logs_info_once(hass: HomeAssistant, capl
         coord = ILetComfortCoordinator(hass, entry)
 
     client = mock_cls.return_value
-    coord.data = {"status": ITSStatus(mode=1), "sensors": ITSSensors()}
+    coord.data = make_state(ITSStatus(mode=1), ITSSensors(), sn8=coord.sn8)
     client.query_status.side_effect = ApiError("502 Bad Gateway")
     client.query_sensors.side_effect = ApiError("502 Bad Gateway")
 
@@ -422,9 +423,9 @@ async def test_poll_passes_sn8_and_applies_atw_overrides(hass: HomeAssistant):
     assert client.query_status.call_args.args == ("APPL1", "171H120F")
     assert client.query_sensors.call_args.args == ("APPL1", "171H120F")
     # th_temp (DHW Tank Temperature sensor) now reflects the tank reading.
-    assert result["sensors"].th_temp == 46.0
+    assert result.sensors.th_temp == 46.0
     # Water Inlet (twin_temp) stays honest — never the tank value.
-    assert result["sensors"].twin_temp != 46.0
+    assert result.sensors.twin_temp != 46.0
 
 
 async def test_poll_standard_leaves_sensors_untouched(hass: HomeAssistant):
@@ -449,8 +450,8 @@ async def test_poll_standard_leaves_sensors_untouched(hass: HomeAssistant):
 
     assert client.query_status.call_args.args == ("APPL1", None)
     assert client.query_sensors.call_args.args == ("APPL1", None)
-    assert result["sensors"] is sensors  # STANDARD is a no-op (object identity)
-    assert result["sensors"].twin_temp == 12.0  # unchanged by STANDARD
+    assert result.sensors is sensors  # STANDARD is a no-op (object identity)
+    assert result.sensors.twin_temp == 12.0  # unchanged by STANDARD
 
 
 async def test_async_send_command_plans_in_the_sn8_dialect(hass: HomeAssistant):
@@ -499,7 +500,7 @@ def _degraded_coordinator(hass: HomeAssistant) -> tuple[ILetComfortCoordinator, 
     ) as mock_cls:
         coord = ILetComfortCoordinator(hass, entry)
     client = mock_cls.return_value
-    coord.data = {"status": ITSStatus(mode=1), "sensors": ITSSensors()}
+    coord.data = make_state(ITSStatus(mode=1), ITSSensors(), sn8=coord.sn8)
     return coord, client
 
 
@@ -682,7 +683,7 @@ async def test_model_discovery_drops_incompatible_cache(hass: HomeAssistant):
     with patch("custom_components.iletcomfort.coordinator.ILetComfortClient") as cls:
         coord = ILetComfortCoordinator(hass, entry)
     client = cls.return_value
-    coord.data = {"status": ITSStatus(mode=19), "sensors": ITSSensors()}
+    coord.data = make_state(ITSStatus(mode=19), ITSSensors(), sn8=coord.sn8)
     coord._last_on_state = (1, 30)
     client.list_appliances.return_value = [{"applianceCode": "APPL1", "sn8": "171H120F"}]
     client.query_status.side_effect = ApiError("offline")
@@ -805,7 +806,7 @@ async def test_phone_app_mode_push_start_failure_does_not_fall_back_to_polling(
     entry.add_to_hass(hass)
     coordinator = ILetComfortCoordinator(hass, entry)
     coordinator.async_set_updated_data(
-        {"status": ITSStatus(mode=1), "sensors": ITSSensors()}
+        make_state(ITSStatus(mode=1), ITSSensors(), sn8=coordinator.sn8)
     )
 
     with patch(
@@ -847,16 +848,16 @@ async def test_push_status_updates_data_keeping_sensors(hass: HomeAssistant):
 
     prior_sensors = ITSSensors()
     coordinator.async_set_updated_data(
-        {"status": ITSStatus(mode=0), "sensors": prior_sensors}
+        make_state(ITSStatus(mode=0), prior_sensors, sn8=coordinator.sn8)
     )
 
     pushed = ITSStatus(mode=1, set_temperature=42)
     coordinator._apply_push_status(pushed)
 
-    assert coordinator.data["status"].mode == 1
-    assert coordinator.data["status"].set_temperature == 42
+    assert coordinator.data.status.mode == 1
+    assert coordinator.data.status.set_temperature == 42
     # sensors come from the poll, not the push — keep the last good ones
-    assert coordinator.data["sensors"] is prior_sensors
+    assert coordinator.data.sensors is prior_sensors
 
 
 async def test_push_status_ignored_before_first_poll(hass: HomeAssistant):
@@ -908,7 +909,7 @@ async def test_phone_app_mode_status_watchdog_marks_silent_device_unavailable(
     entry.add_to_hass(hass)
     coordinator = ILetComfortCoordinator(hass, entry)
     coordinator.async_set_updated_data(
-        {"status": ITSStatus(mode=1), "sensors": ITSSensors()}
+        make_state(ITSStatus(mode=1), ITSSensors(), sn8=coordinator.sn8)
     )
 
     coordinator._apply_push_connected(True)
@@ -934,7 +935,7 @@ async def test_phone_app_mode_atw_connected_push_never_expires_on_silence(
     coordinator = ILetComfortCoordinator(hass, entry)
     coordinator.appliance_meta = {"sn8": "171H120F"}
     coordinator.async_set_updated_data(
-        {"status": ITSStatus(mode=1), "sensors": ITSSensors()}
+        make_state(ITSStatus(mode=1), ITSSensors(), sn8=coordinator.sn8)
     )
 
     with patch(
@@ -963,7 +964,7 @@ async def test_phone_app_mode_watchdog_armed_before_sn8_skips_once_atw_resolves(
     entry.add_to_hass(hass)
     coordinator = ILetComfortCoordinator(hass, entry)
     coordinator.async_set_updated_data(
-        {"status": ITSStatus(mode=1), "sensors": ITSSensors()}
+        make_state(ITSStatus(mode=1), ITSSensors(), sn8=coordinator.sn8)
     )
 
     with patch(
@@ -994,7 +995,7 @@ async def test_phone_app_mode_status_watchdog_schedules_callback_job(
     entry.add_to_hass(hass)
     coordinator = ILetComfortCoordinator(hass, entry)
     coordinator.async_set_updated_data(
-        {"status": ITSStatus(mode=1), "sensors": ITSSensors()}
+        make_state(ITSStatus(mode=1), ITSSensors(), sn8=coordinator.sn8)
     )
 
     scheduled_jobs: list = []
@@ -1025,7 +1026,7 @@ async def test_phone_app_mode_status_push_recovers_from_status_watchdog(
     entry.add_to_hass(hass)
     coordinator = ILetComfortCoordinator(hass, entry)
     coordinator.async_set_updated_data(
-        {"status": ITSStatus(mode=1), "sensors": ITSSensors()}
+        make_state(ITSStatus(mode=1), ITSSensors(), sn8=coordinator.sn8)
     )
 
     coordinator._apply_push_connected(True)
@@ -1033,7 +1034,7 @@ async def test_phone_app_mode_status_push_recovers_from_status_watchdog(
     coordinator._apply_push_status(ITSStatus(mode=4))
 
     assert coordinator.last_update_success is True
-    assert coordinator.data["status"].mode == 4
+    assert coordinator.data.status.mode == 4
 
 
 async def test_phone_app_mode_disconnect_is_unavailable_without_polling(
@@ -1046,7 +1047,7 @@ async def test_phone_app_mode_disconnect_is_unavailable_without_polling(
     entry.add_to_hass(hass)
     coordinator = ILetComfortCoordinator(hass, entry)
     coordinator.async_set_updated_data(
-        {"status": ITSStatus(mode=1), "sensors": ITSSensors()}
+        make_state(ITSStatus(mode=1), ITSSensors(), sn8=coordinator.sn8)
     )
 
     with patch.object(
@@ -1209,7 +1210,7 @@ async def test_kjrh120l_push_status_latches_zone1_capability(hass: HomeAssistant
 
     coord = _kjrh_poll_coordinator(hass, "17100003", KJRH120L_SNAPSHOT_B)
     await _poll_once(coord)
-    coord.data = {"status": ITSStatus(), "sensors": ITSSensors()}
+    coord.data = make_state(ITSStatus(), ITSSensors(), sn8=coord.sn8)
     assert CONF_KJRH120L_ZONE1_CAPABLE not in coord.entry.data
 
     coord._apply_push_status(decode_its_status(bytearray(KJRH120L_SNAPSHOT_A)))
@@ -1255,7 +1256,9 @@ async def test_async_send_command_sends_kjrh120l_run_mode_with_clamped_setpoint(
     ) as mock_cls:
         coord = ILetComfortCoordinator(hass, entry)
     coord.appliance_meta = {"sn8": "17100003"}
-    coord.data = {"status": _decode_kjrh120l_status(_KJRH120L_SNAPSHOT_A)}
+    coord.data = make_state(
+        _decode_kjrh120l_status(_KJRH120L_SNAPSHOT_A), sn8=coord.sn8
+    )
     coord.async_request_refresh = AsyncMock()
 
     await coord.async_send_command(SetZoneRunModeCommand(zone=1, mode="cool"))
