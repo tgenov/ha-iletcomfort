@@ -1,0 +1,86 @@
+[
+  {
+    "id": "kjrh120l_pure_dhw_off_issue5",
+    "source_issue": "#5/#35",
+    "hardware": "KJRH-120L pure-DHW (Off, DHW 60 C)",
+    "sn8": "17100003",
+    "expected_profile": "kjrh120l",
+    "expected_variant": "kjrh120l_pure_dhw",
+    "frames": {
+      "0x01": "01,fe,00,00,00,42,00,56,00,00,00,03,41,1e,30,3c,00,00,00,00,00,00,01,00,01,00,00,00,01,00,00,00,00,00,01,02,02,4b,23,19,05,37,19,19,05,3c,22,46,14,13,00,01,01,02,03,01,01,e7,2f,ff,ff,ff,ff,ff,ff,ff,ff,ff,ff,ff,30,ff,ff,ff,ff,00,00,00,01,00,00,00,00,00,17,07,14,0f,20,00,00,00,00,00,ff",
+      "0x02": "02,fe,00,46,00,9f,00,5a,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,32,00,00,00,00,00,00,00,00,01,41,13,00,00,00,32,14,00,ff"
+    },
+    "expected_status": {
+      "mode": 0,
+      "set_temperature": 60,
+      "t5s_def": 60.0,
+      "kjrh120l_outdoor_temp": 35.0,
+      "error_code": 0,
+      "comp_running": false
+    },
+    "expected_sensors": {
+      "t4_temp": 35.0,
+      "twin_temp": null,
+      "twout_temp": null,
+      "t3_temp": null
+    }
+  },
+  {
+    "id": "kjrh120l_dual_snapshot_a_issue148",
+    "source_issue": "#148",
+    "hardware": "KJRH-120L dual Zone-1 + DHW (Snapshot A: Zone 1 On, Heat 50 C, DHW 40 C, T4 12 C)",
+    "sn8": "17100003",
+    "expected_profile": "kjrh120l",
+    "expected_variant": "kjrh120l_dual",
+    "frames": {
+      "0x01": "01,fe,00,00,00,41,00,55,01,01,01,03,32,1e,30,28,00,00,00,00,00,00,01,01,01,00,00,00,00,00,01,00,00,00,01,02,02,4b,23,19,05,37,19,19,05,3c,22,46,14,ee,00,01,01,06,03,01,01,d0,2f,ff,ff,ff,ff,ff,ff,ff,ff,ff,ff,ff,30,ff,ff,ff,ff,00,00,00,01,00,00,00,00,00,1a,0b,0c,0d,35,00,00,00,00,ff",
+      "0x02": "02,fe,00,46,00,9f,00,5a,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,32,00,00,00,00,00,00,00,00,01,41,13,00,00,00,32,14,00,ff"
+    },
+    "expected_status": {
+      "mode": 1,
+      "set_temperature": 50,
+      "t5s_def": 50.0,
+      "kjrh120l_zone1_power": true,
+      "kjrh120l_run_mode": 3,
+      "kjrh120l_zone1_setpoint": 50.0,
+      "kjrh120l_dhw_setpoint": 40.0,
+      "kjrh120l_zone1_heat_min": 35,
+      "kjrh120l_zone1_heat_max": 75,
+      "kjrh120l_zone1_cool_min": 5,
+      "kjrh120l_zone1_cool_max": 25,
+      "kjrh120l_outdoor_temp": 12.0,
+      "error_code": 0
+    },
+    "expected_sensors": {
+      "t4_temp": 12.0,
+      "twin_temp": null,
+      "twout_temp": null
+    }
+  },
+  {
+    "id": "kjrh120l_dual_snapshot_b_zone1_off_issue148",
+    "source_issue": "#148",
+    "hardware": "KJRH-120L dual Zone-1 + DHW (Snapshot B: Zone 1 Off, Heat 37 C, DHW 35 C, T4 8 C)",
+    "sn8": "17100003",
+    "expected_profile": "kjrh120l",
+    "expected_variant": "kjrh120l_pure_dhw",
+    "frames": {
+      "0x01": "01,fe,00,00,00,41,00,55,00,00,01,03,25,1e,30,23,00,00,00,00,00,00,01,01,01,00,00,00,00,00,00,00,00,00,01,02,02,4b,23,19,05,37,19,19,05,3c,22,46,14,f0,00,01,01,06,03,01,01,cc,2f,ff,ff,ff,ff,ff,ff,ff,ff,ff,ff,ff,30,ff,ff,ff,ff,00,00,00,01,00,00,00,00,00,1a,0b,12,08,39,00,00,00,00,ff",
+      "0x02": "02,fe,00,46,00,9f,00,5a,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,32,00,00,00,00,00,00,00,00,01,41,13,00,00,00,32,14,00,ff"
+    },
+    "expected_status": {
+      "mode": 1,
+      "set_temperature": 35,
+      "t5s_def": 35.0,
+      "kjrh120l_zone1_power": false,
+      "kjrh120l_run_mode": 3,
+      "kjrh120l_zone1_setpoint": 37.0,
+      "kjrh120l_outdoor_temp": 8.0,
+      "error_code": 0
+    },
+    "expected_sensors": {
+      "t4_temp": 8.0,
+      "twin_temp": null
+    }
+  }
+]
