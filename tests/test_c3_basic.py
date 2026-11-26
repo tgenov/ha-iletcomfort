@@ -1145,6 +1145,9 @@ async def test_zone2_climate_added_only_for_double_zone_units(hass: HomeAssistan
     dual.async_update_listeners()
     assert [e.unique_id for e in added_dual] == ["APPL1_climate", "APPL1_zone2"]
 
+    await single.async_shutdown()
+    await dual.async_shutdown()
+
 
 async def test_zone2_climate_read_only_and_opt_in_control(hass: HomeAssistant):
     # Read-only by default.
