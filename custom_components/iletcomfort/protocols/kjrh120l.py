@@ -207,6 +207,7 @@ class Kjrh120lAdapter:
     """Dialect adapter for KJRH-120L controllers (pure-DHW and dual Zone-1 + DHW)."""
 
     profile = ModelProfile.KJRH120L
+    periodic_status_push = True
 
     def build_query(self, subtype: int) -> str:
         return "ffff%02x%02x%02xff" % (subtype, subtype, subtype)

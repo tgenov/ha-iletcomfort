@@ -100,6 +100,9 @@ class ProtocolAdapter(Protocol):
     """Per-family protocol dialect contract (#110)."""
 
     profile: ModelProfile
+    # Whether the device publishes 0x01 status pushes on a fixed cadence while
+    # idle. Only then can silence on a live MQTT link mean the data is stale.
+    periodic_status_push: bool
 
     def build_query(self, subtype: int) -> str:
         """Build the wire hex query command for ``subtype``."""

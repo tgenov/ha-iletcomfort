@@ -384,6 +384,9 @@ class AtwAdapter:
     """Dialect adapter for 171H120F air-to-water heat pumps."""
 
     profile = ModelProfile.ATW
+    # 171H120F sends no periodic 0x01 status, only sporadic 0x04 change
+    # notifications (#129), so availability follows the MQTT link alone.
+    periodic_status_push = False
 
     def build_query(self, subtype: int) -> str:
         return build_c3_query(subtype)
