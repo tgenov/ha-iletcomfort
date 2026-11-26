@@ -17,6 +17,24 @@ from custom_components.iletcomfort.api import (
     build_c3_set,
     mask_identifier,
 )
+from custom_components.iletcomfort.commands import (
+    HeatPumpCommand,
+    SetBoostCommand,
+    SetHvacModeCommand,
+    SetPowerCommand,
+    SetTargetTemperatureCommand,
+    SetZonePowerCommand,
+    SetZoneRunModeCommand,
+    SetZoneTargetCommand,
+)
+from custom_components.iletcomfort.model_profiles import decode_kjrh120l_status
+from custom_components.iletcomfort.protocols import (
+    WriteContext,
+    WriteRefused,
+    get_adapter,
+    run_write_plan,
+)
+from tests.kjrh120l_snapshots import KJRH120L_SNAPSHOT_A
 
 
 def _make_client() -> ILetComfortClient:
@@ -302,55 +320,50 @@ def test_query_sensors_uses_long_command_for_standard_sn8():
     assert mock_send.call_args.args[1] == build_c3_query(0x02)
 
 
-# --- KJRH-120L SET path (issue #35) ---------------------------------------
-# The KJRH-120L's cloud rejects the standard 62-byte C3 SET frame, so for this
-# model set_device(sn8=KJRH120L_SN8, ...) sends the captured short write
-# commands directly via send_hex_command — NO status query, NO build_c3_set.
-# All other (unknown/None/ATW/AQUAPURA) sn8 keep the legacy build_c3_set path.
+# --- Write path (issue #35, #113) -----------------------------------------
+# Writes are planned by the selected protocol dialect and sent through the
+# client's transport (``send_hex_command``). The KJRH-120L's cloud rejects the
+# standard 62-byte C3 SET frame, so that dialect sends the captured short write
+# commands directly — NO status query, NO build_c3_set. STANDARD/AQUAPURA keep
+# the legacy build_c3_set path; ATW never receives the legacy frame.
 
 
-def test_set_device_kjrh120l_set_temperature_sends_short_command():
-    """KJRH set-temperature sends 0007 01 <temp> ff and nothing else."""
+def _send_command(
+    client: ILetComfortClient,
+    command: HeatPumpCommand,
+    *,
+    sn8: str | None = None,
+    ctx: WriteContext | None = None,
+) -> dict:
+    """Plan ``command`` in the sn8's dialect and run it over ``client``'s transport."""
+    plan = get_adapter(sn8).plan_write(command, ctx or WriteContext())
+    return run_write_plan(plan, lambda command_hex: client.send_hex_command("APPL1", command_hex))
+
+
+@pytest.mark.parametrize(
+    ("command", "expected"),
+    [
+        # Set-temperature sends 0007 01 <temp> ff and nothing else.
+        (SetTargetTemperatureCommand(60), "0007013cff"),
+        # Turn-on sends the captured DHW-ON command.
+        (SetPowerCommand(on=True), "00020101ff"),
+        # hvac-off sends the captured DHW-OFF command.
+        (SetHvacModeCommand("off"), "00020100ff"),
+        # hvac_mode → heat is treated as DHW power-on.
+        (SetHvacModeCommand("heat"), "00020101ff"),
+    ],
+)
+def test_kjrh120l_write_sends_short_command(command, expected):
     client = _make_client()
     with patch.object(client, "send_hex_command") as mock_send:
-        client.set_device("APPL1", sn8=KJRH120L_SN8, temperature=60)
+        _send_command(client, command, sn8=KJRH120L_SN8)
 
     # Exactly one transmit (no preliminary status query for this model).
     assert mock_send.call_count == 1
-    assert mock_send.call_args.args == ("APPL1", "0007013cff")
+    assert mock_send.call_args.args == ("APPL1", expected)
 
 
-def test_set_device_kjrh120l_power_on_sends_dhw_on():
-    """KJRH turn-on (power_on=True) sends the captured DHW-ON command."""
-    client = _make_client()
-    with patch.object(client, "send_hex_command") as mock_send:
-        client.set_device("APPL1", sn8=KJRH120L_SN8, power_on=True)
-
-    assert mock_send.call_count == 1
-    assert mock_send.call_args.args == ("APPL1", "00020101ff")
-
-
-def test_set_device_kjrh120l_mode_off_sends_dhw_off():
-    """KJRH hvac-off (mode=MODE_OFF) sends the captured DHW-OFF command."""
-    client = _make_client()
-    with patch.object(client, "send_hex_command") as mock_send:
-        client.set_device("APPL1", sn8=KJRH120L_SN8, mode=MODE_OFF)
-
-    assert mock_send.call_count == 1
-    assert mock_send.call_args.args == ("APPL1", "00020100ff")
-
-
-def test_set_device_kjrh120l_mode_heat_powers_on():
-    """KJRH hvac_mode→heat (mode=MODE_HEAT) is treated as DHW power-on."""
-    client = _make_client()
-    with patch.object(client, "send_hex_command") as mock_send:
-        client.set_device("APPL1", sn8=KJRH120L_SN8, mode=MODE_HEAT)
-
-    assert mock_send.call_count == 1
-    assert mock_send.call_args.args == ("APPL1", "00020101ff")
-
-
-def test_set_device_standard_uses_build_c3_set_frame():
+def test_standard_write_uses_build_c3_set_frame():
     """STANDARD (unknown/None sn8) keeps the legacy build_c3_set path, unchanged.
 
     The legacy path first queries status (one send) then transmits the 62-byte
@@ -366,7 +379,7 @@ def test_set_device_standard_uses_build_c3_set_frame():
         return _c3_frame(status_body)
 
     with patch.object(client, "send_hex_command", side_effect=_fake_send):
-        result = client.set_device("APPL1", temperature=30)
+        result = _send_command(client, SetTargetTemperatureCommand(30))
 
     # Two transmits: status query, then the SET frame.
     assert len(sent) == 2
@@ -377,7 +390,7 @@ def test_set_device_standard_uses_build_c3_set_frame():
     expected = build_c3_set(
         mode=MODE_HEAT,
         temperature=30,
-        status_body=status_body,
+        status_body=bytearray(status_body),
         mute_level=0x00,
         ctrl_flag=0x00,
     )
@@ -385,12 +398,12 @@ def test_set_device_standard_uses_build_c3_set_frame():
     assert result["sent"] == set_frame
 
 
-def test_set_device_atw_refuses_legacy_c3_set_frame():
+def test_atw_refuses_legacy_c3_set_frame():
     """ATW (sn8 171H120F) must never be sent the legacy 62-byte ITS SET frame."""
     client = _make_client()
     with patch.object(client, "send_hex_command") as mock_send:
         with pytest.raises(ApiError, match="171H120F"):
-            client.set_device("APPL1", sn8="171H120F", temperature=30)
+            _send_command(client, SetTargetTemperatureCommand(30), sn8="171H120F")
 
     mock_send.assert_not_called()
 
@@ -408,8 +421,11 @@ def test_status_flag_zero_and_no_frequency_keeps_compressor_off():
     assert status.comp_running is False
 
 
-@pytest.mark.parametrize("changes", [{"boost": True}, {"temperature": 30}, {"mode": MODE_HEAT}])
-def test_set_device_refuses_unrecognized_status_mode(changes):
+@pytest.mark.parametrize(
+    "command",
+    [SetBoostCommand(enabled=True), SetTargetTemperatureCommand(30), SetHvacModeCommand("heat")],
+)
+def test_legacy_write_refuses_unrecognized_status_mode(command):
     """An unfamiliar layout must never become an OFF command (issue #47)."""
     client = _make_client()
     # Actual status body from the reporter's diagnostics (no identifiers).
@@ -418,26 +434,26 @@ def test_set_device_refuses_unrecognized_status_mode(changes):
     )
     with patch.object(client, "send_hex_command", return_value=_c3_frame(body)) as send:
         with pytest.raises(ApiError, match="Unrecognized status mode"):
-            client.set_device("APPL1", **changes)
+            _send_command(client, command)
     assert send.call_count == 1  # Only the read; no control frame reaches the device.
 
 
-@pytest.mark.parametrize("mode", [MODE_OFF, MODE_HEAT])
-def test_set_device_can_explicitly_leave_auto(mode):
+@pytest.mark.parametrize(("intent", "mode"), [("off", MODE_OFF), ("heat", MODE_HEAT)])
+def test_legacy_write_can_explicitly_leave_auto(intent, mode):
     client = _make_client()
     body = bytes([1, 0, 3, 60]) + bytes(21)
     with patch.object(client, "send_hex_command", return_value=_c3_frame(body)) as send:
-        result = client.set_device("APPL1", mode=mode)
+        result = _send_command(client, SetHvacModeCommand(intent))
     assert send.call_count == 2
-    assert result["effective_mode"] == mode
+    assert bytes.fromhex(result["sent"])[12] == mode
 
 
-def test_set_device_does_not_turn_auto_off_for_boost():
+def test_legacy_write_does_not_turn_auto_off_for_boost():
     client = _make_client()
     body = bytes([1, 0, 3, 60]) + bytes(21)
     with patch.object(client, "send_hex_command", return_value=_c3_frame(body)) as send:
         with pytest.raises(ApiError, match="Cannot preserve Auto mode"):
-            client.set_device("APPL1", boost=True)
+            _send_command(client, SetBoostCommand(enabled=True))
     assert send.call_count == 1
 
 
@@ -515,65 +531,90 @@ def test_v1_request_includes_access_token_header_when_requested():
     assert "accessToken" not in captured["headers"]
 
 
-# --- KJRH-120L Zone 1 writes through set_device ----------------------------
+# --- KJRH-120L Zone 1 writes ------------------------------------------------
 # Command strings pinned from the iOS app capture (2026-11-12, 2026-11-14).
+
+def _kjrh_ctx(setpoint: int) -> WriteContext:
+    """KJRH-120L context whose Zone 1 setpoint is ``setpoint`` (snapshot A limits)."""
+    body = bytearray(KJRH120L_SNAPSHOT_A)
+    body[12] = setpoint
+    return WriteContext(status=decode_kjrh120l_status(bytes(body)))
 
 
 @pytest.mark.parametrize(
-    ("kwargs", "expected"),
+    ("command", "ctx", "expected"),
     [
-        ({"zone1_temperature": 51}, "00040133ff"),
-        ({"zone1_temperature": 63}, "0004013fff"),
-        ({"zone1_run_mode": 2, "zone1_temperature": 50}, "00030102ff00040132ff"),
-        ({"zone1_run_mode": 3, "zone1_temperature": 50}, "00030103ff00040132ff"),
-        ({"zone1_power": True}, "00000101ff"),
-        ({"zone1_power": False}, "00000100ff"),
+        (SetZoneTargetCommand(zone=1, temperature=51), None, "00040133ff"),
+        (SetZoneTargetCommand(zone=1, temperature=63), None, "0004013fff"),
+        (SetZoneRunModeCommand(zone=1, mode="cool"), _kjrh_ctx(25), "00030102ff00040119ff"),
+        (SetZoneRunModeCommand(zone=1, mode="heat"), _kjrh_ctx(50), "00030103ff00040132ff"),
+        (SetZonePowerCommand(zone=1, on=True), None, "00000101ff"),
+        (SetZonePowerCommand(zone=1, on=False), None, "00000100ff"),
     ],
 )
-def test_set_device_kjrh120l_zone1_writes_send_captured_command(kwargs, expected):
+def test_kjrh120l_zone1_writes_send_captured_command(command, ctx, expected):
     client = _make_client()
     with patch.object(client, "send_hex_command") as mock_send:
-        client.set_device("APPL1", sn8=KJRH120L_SN8, **kwargs)
+        _send_command(client, command, sn8=KJRH120L_SN8, ctx=ctx)
 
     assert mock_send.call_count == 1
     assert mock_send.call_args.args == ("APPL1", expected)
 
 
 @pytest.mark.parametrize(
-    "kwargs",
+    ("command", "ctx"),
     [
-        {"zone1_run_mode": 2},  # the app always pairs mode with the setpoint
-        {"zone1_run_mode": 1, "zone1_temperature": 50},
-        {"zone1_temperature": 300},
-        {"zone1_power": True, "zone1_temperature": 50},
-        {"zone1_temperature": 50, "temperature": 50},
-        {"zone1_power": True, "mode": MODE_OFF},
-        {"zone1_power": False, "power_on": True},
+        # The app always pairs mode with the setpoint; no status → no setpoint.
+        (SetZoneRunModeCommand(zone=1, mode="cool"), None),
+        (SetZoneTargetCommand(zone=1, temperature=300), None),
     ],
 )
-def test_set_device_kjrh120l_refuses_invalid_zone1_requests_without_sending(kwargs):
+def test_kjrh120l_refuses_invalid_zone1_requests_without_sending(command, ctx):
     client = _make_client()
     with patch.object(client, "send_hex_command") as mock_send:
         with pytest.raises(ValueError):
-            client.set_device("APPL1", sn8=KJRH120L_SN8, **kwargs)
+            _send_command(client, command, sn8=KJRH120L_SN8, ctx=ctx)
+
+    mock_send.assert_not_called()
+
+
+@pytest.mark.parametrize("sn8", [None, "171000AU", "17100007", "UNKNOWN8"])
+@pytest.mark.parametrize(
+    "command",
+    [
+        SetZoneTargetCommand(zone=1, temperature=50),
+        SetZonePowerCommand(zone=1, on=True),
+    ],
+)
+def test_non_kjrh_refuses_zone1_writes_without_sending(sn8, command):
+    """Other models must never receive a KJRH-120L frame or a status query."""
+    client = _make_client()
+    with patch.object(client, "send_hex_command") as mock_send:
+        with pytest.raises(ApiError, match="KJRH-120L"):
+            _send_command(client, command, sn8=sn8)
 
     mock_send.assert_not_called()
 
 
 @pytest.mark.parametrize("sn8", [None, "171H120F", "171000AU", "17100007", "UNKNOWN8"])
-@pytest.mark.parametrize(
-    "kwargs",
-    [
-        {"zone1_temperature": 50},
-        {"zone1_run_mode": 2, "zone1_temperature": 25},
-        {"zone1_power": True},
-    ],
-)
-def test_set_device_non_kjrh_refuses_zone1_writes_without_sending(sn8, kwargs):
-    """Other models must never receive a KJRH-120L frame or a status query."""
+def test_non_kjrh_refuses_run_mode_without_sending(sn8):
     client = _make_client()
     with patch.object(client, "send_hex_command") as mock_send:
         with pytest.raises(ApiError, match="KJRH-120L"):
-            client.set_device("APPL1", sn8=sn8, **kwargs)
+            _send_command(
+                client,
+                SetZoneRunModeCommand(zone=1, mode="cool"),
+                sn8=sn8,
+                ctx=_kjrh_ctx(25),
+            )
+
+    mock_send.assert_not_called()
+
+
+def test_atw_zone1_writes_need_c3_opt_in_without_sending():
+    client = _make_client()
+    with patch.object(client, "send_hex_command") as mock_send:
+        with pytest.raises(WriteRefused, match="not enabled"):
+            _send_command(client, SetZonePowerCommand(zone=1, on=True), sn8="171H120F")
 
     mock_send.assert_not_called()

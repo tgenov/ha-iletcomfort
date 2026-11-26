@@ -28,10 +28,50 @@ from ..api import (
     ITSSensors,
     ITSStatus,
 )
-from ..c3_basic import C3BasicStatus, decode_c3_basic
+from ..c3_basic import (
+    BODY_BASIC,
+    BODY_ECO,
+    BODY_SILENCE,
+    C3BasicStatus,
+    apply_basic_changes,
+    build_basic_set,
+    build_feature_set,
+    decode_c3_basic,
+)
 from ..c3_frame import build_c3_query
+from ..cloud import ApiError
+from ..commands import (
+    HeatPumpCommand,
+    SetBoostCommand,
+    SetDhwPowerCommand,
+    SetDhwTargetCommand,
+    SetEcoModeCommand,
+    SetFastDhwCommand,
+    SetHvacModeCommand,
+    SetPowerCommand,
+    SetSilentModeCommand,
+    SetTargetTemperatureCommand,
+    SetZoneCurveCommand,
+    SetZonePowerCommand,
+    SetZoneRunModeCommand,
+    SetZoneTargetCommand,
+)
+from .kjrh120l import zone1_run_mode_setpoint
 from .profile import ModelProfile, resolve_profile
 from .standard import default_climate_temp_bounds
+from .write import (
+    C3_CONTROL_DISABLED,
+    KJRH120L_ONLY_ZONE1,
+    FreshRead,
+    WriteContext,
+    WritePlan,
+    WriteRefused,
+)
+
+ATW_LEGACY_WRITE_REFUSED = (
+    "Legacy ITS commands are not supported on ATW (171H120F) units; "
+    "use the C3 basic entities (with C3 basic control enabled in options)"
+)
 
 ATW_DHW_SETPOINT_INDEX = 8
 ATW_ZONE1_SETPOINT_X2_INDEX = 9
@@ -380,6 +420,124 @@ def atw_c3_basic(sn8: str | None, status: ITSStatus | None) -> C3BasicStatus | N
     return status.c3_basic
 
 
+def _c3_basic_plan(**changes: Any) -> WritePlan:
+    """Plan a C3 basic SET: fresh 0x01 read → validated changes → full write-back."""
+
+    def _encode(body: bytes) -> str:
+        current = decode_c3_basic(body)
+        if current is None:
+            raise ApiError(
+                "Status frame is not a recognised C3 basic layout; refusing "
+                "to send a control command"
+            )
+        return build_basic_set(apply_basic_changes(current, **changes))
+
+    return WritePlan.read_modify_write(
+        FreshRead(BODY_BASIC, build_c3_query(BODY_BASIC)),
+        _encode,
+        description=f"c3_basic {changes}",
+    )
+
+
+def _c3_feature_plan(
+    body_type: int, on: bool, silent_level: int | None = None
+) -> WritePlan:
+    """Plan a Silent (0x05) / ECO (0x07) SET that copies the fresh timer schedule.
+
+    ``build_feature_set`` refuses a reply too short to carry the schedule, so
+    a short reply aborts the write before any SET is sent.
+    """
+
+    def _encode(body: bytes) -> str:
+        return build_feature_set(body, on, silent_level=silent_level)
+
+    return WritePlan.read_modify_write(
+        FreshRead(body_type, build_c3_query(body_type)),
+        _encode,
+        description=f"c3_feature 0x{body_type:02x} on={on} level={silent_level}",
+    )
+
+
+def plan_atw_write(command: HeatPumpCommand, ctx: WriteContext) -> WritePlan:
+    """Plan an ATW (171H120F) write via the standard Midea C3 SET.
+
+    Control is opt-in (``CONF_C3_BASIC_CONTROL``) and needs a status frame that
+    matched the C3 basic layout; otherwise C3 intents are refused. ATW units
+    never receive the legacy 62-byte ITS frame. Field-level envelope checks
+    (Heat-only zone writes, water vs room control, ``cap_dhw``, ranges) run in
+    ``apply_basic_changes`` against the fresh status read inside the write
+    transaction.
+    """
+    decoded = ctx.status.c3_basic if ctx.status is not None else None
+    basic = (
+        decoded
+        if ctx.c3_basic_control and isinstance(decoded, C3BasicStatus)
+        else None
+    )
+
+    def _require_control() -> C3BasicStatus:
+        if basic is None:
+            raise WriteRefused(C3_CONTROL_DISABLED)
+        return basic
+
+    if isinstance(command, SetPowerCommand):
+        if basic is None:
+            raise ApiError(ATW_LEGACY_WRITE_REFUSED)
+        return _c3_basic_plan(zone1_power=command.on)
+    if isinstance(command, SetHvacModeCommand):
+        if basic is None:
+            raise ApiError(ATW_LEGACY_WRITE_REFUSED)
+        if command.mode not in ("off", "heat"):
+            raise WriteRefused(
+                f"{command.mode} is not supported; only Heat and Off can be set"
+            )
+        return _c3_basic_plan(zone1_power=command.mode == "heat")
+    if isinstance(command, SetTargetTemperatureCommand):
+        if basic is None:
+            raise ApiError(ATW_LEGACY_WRITE_REFUSED)
+        if basic.zone1_water_temp:
+            return _c3_basic_plan(zone1_water_target=command.temperature)
+        return _c3_basic_plan(room_target=command.temperature)
+    if isinstance(command, SetBoostCommand):
+        raise ApiError(ATW_LEGACY_WRITE_REFUSED)
+    if isinstance(command, SetSilentModeCommand):
+        if basic is None and command.enabled is None:
+            raise ApiError(ATW_LEGACY_WRITE_REFUSED)
+        _require_control()
+        if command.level is not None:
+            return _c3_feature_plan(
+                BODY_SILENCE, command.level > 0, silent_level=command.level
+            )
+        return _c3_feature_plan(BODY_SILENCE, bool(command.enabled))
+    if isinstance(command, SetEcoModeCommand):
+        _require_control()
+        return _c3_feature_plan(BODY_ECO, command.enabled)
+    if isinstance(command, SetZoneRunModeCommand):
+        zone1_run_mode_setpoint(ctx, command.mode)
+        raise ApiError(KJRH120L_ONLY_ZONE1)
+
+    _require_control()
+    if isinstance(command, SetDhwPowerCommand):
+        return _c3_basic_plan(dhw_power=command.on)
+    if isinstance(command, SetDhwTargetCommand):
+        return _c3_basic_plan(dhw_target=command.temperature)
+    if isinstance(command, SetFastDhwCommand):
+        return _c3_basic_plan(fast_dhw=command.enabled)
+    if isinstance(command, SetZonePowerCommand):
+        if command.zone == 2:
+            return _c3_basic_plan(zone2_power=command.on)
+        return _c3_basic_plan(zone1_power=command.on)
+    if isinstance(command, SetZoneTargetCommand):
+        if command.zone == 2:
+            return _c3_basic_plan(zone2_water_target=command.temperature)
+        return _c3_basic_plan(zone1_water_target=command.temperature)
+    if isinstance(command, SetZoneCurveCommand):
+        if command.zone == 2:
+            return _c3_basic_plan(zone2_curve=command.enabled)
+        return _c3_basic_plan(zone1_curve=command.enabled)
+    raise WriteRefused(f"Unsupported command intent: {command!r}")
+
+
 class AtwAdapter:
     """Dialect adapter for 171H120F air-to-water heat pumps."""
 
@@ -444,3 +602,6 @@ class AtwAdapter:
 
     def c3_basic(self, status: ITSStatus | None) -> C3BasicStatus | None:
         return status.c3_basic if status is not None else None
+
+    def plan_write(self, command: HeatPumpCommand, ctx: WriteContext) -> WritePlan:
+        return plan_atw_write(command, ctx)

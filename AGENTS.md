@@ -216,18 +216,26 @@ Status `raw_body` (0-indexed; STANDARD misreads this 25-byte frame):
   ECO 5 + one accepted `00` pad) is rejected before any SET — never zero-fill a schedule.
 - **Gating:** control is an options-flow opt-in (`CONF_C3_BASIC_CONTROL`, offered only for ATW units)
   because Italtherm (#22), Galmet (#38), and other `171H120F` frames also match the layout but are
-  not validated for writes. The client refuses any non-ATW `sn8` on `set_c3_*` and refuses ATW
-  `sn8` on legacy `set_device`; `c3_basic.apply_basic_changes` refuses mode changes, any Zone-1
+  not validated for writes. Only the ATW dialect plans C3 SETs (other dialects refuse C3-only
+  intents) and it never plans the legacy ITS frame; `c3_basic.apply_basic_changes` refuses mode changes, any Zone-1
   power-on/setpoint/curve change unless the unit is already in Heat (a Heat request must never power
   on Cool), water-target writes on room-mode units (and vice versa), and DHW/Fast-DHW writes when
   `cap_dhw` is False. Both water-temperature (`body[6]`) and room-temperature (`body[9]`, 0.5 °C)
   setpoint writes, `Fast DHW` (`switch.*_fast_dhw` when `cap_dhw`), and `select.*_silent_mode`
   (Off / Level 1 / Level 2) are routed through C3 basic/feature SET when opt-in is enabled.
-- **One write path:** `coordinator.async_execute_command` handles the phone-app guard, a
-  per-appliance `_write_lock` spanning the fresh read → SET (and any auth retry), one re-auth,
-  `HomeAssistantError` wrapping, and refresh on success only, for `async_set_device`,
-  `async_set_c3_basic`, and `async_set_c3_feature` alike. Frame builders live in `c3_basic.py`;
-  entities pass semantic arguments only (no hex).
+- **One write path (#113):** entities send typed commands (`commands.py`) to
+  `coordinator.async_send_command`, which asks the selected dialect's pure
+  `ProtocolAdapter.plan_write(command, WriteContext)` for a `WritePlan` (`protocols/write.py`).
+  Capability checks, ranges, refusals and frame encoding live in the dialect
+  (`protocols/{standard,aquapura,atw,kjrh120l}.py`). A plan is static (KJRH-120L short writes) or
+  read-modify-write: it names the `FreshRead` query and a pure `encode(fresh_body)`.
+  `run_write_plan` does read → encode → send inside `coordinator.async_execute_command`, which
+  handles the phone-app guard, a per-appliance `_write_lock` spanning the fresh read → SET (and any
+  auth retry, which repeats the read), one re-auth, `HomeAssistantError` wrapping, and refresh on
+  success only. `WriteRefused` is surfaced verbatim; `ApiError`/`ValueError` as "Heat pump command
+  failed: …". The client is write transport only (`send_hex_command`). Frame builders live in
+  `c3_basic.py` / `protocols/kjrh120l.py` / `c3_frame.py`; entities pass semantic commands only
+  (no hex). `tests/test_write_planning.py` is the (dialect, state, command) → hex | refusal table.
 - Query support on Rotenso (`171H120F`): `01`, `05`, `07` return real data; `02` returns the
   placeholder template; `04` zeros; `08`, `09`, `0A`, `10` are rejected with `1214` (whereas `0x10`
   and `0x0A` succeed on NØRDIS #120 and Airwell #139).
@@ -379,7 +387,7 @@ does not enforce per-appliance topic ACLs.
 | `scripts/c3_probe.py` | **Dev tool, not shipped, read-only** — sends C3 queries for `171H120F` units and decodes them (midea-local C3 layouts); reads only `ILET_EMAIL`/`ILET_PASSWORD`/`ILET_REGION` from `.env`. Cannot send SET frames. |
 | `model_profiles.py` | `ModelProfile` enum, `_SN8_PROFILES` table, `resolve_profile`, `decode_atw_status`, `apply_profile_to_status`, `apply_profile_to_sensors`. **Add new model support here.** |
 | `protocols/snapshot.py` | `build_snapshot(adapter, status, sensors, raw_frames, *, retained_subtypes=False, energy_notify=None)` — the **one** pure step that applies the profile sensors decode and every ATW overlay (0x10 → 0x0A → 0x05/0x07 when C3 basic → 0x04 last). `_poll`, `_apply_push_status` and `_apply_push_energy` and the corpus contract all use it (#225); never re-implement the overlay chain elsewhere. Pushes pass `retained_subtypes=True` (0x10 counters only, 0x05 reconciled with the 0x01 Silent bit) and the coordinator's sentinel-filtered 0x04 state as `energy_notify`; `raw_frames[0x04]` stays literal. Probing stays in the coordinator. |
-| `c3_basic.py` | Standard Midea C3 basic status decode (`decode_c3_basic`, `C3BasicStatus`) and validated SET builders (`apply_basic_changes`, `build_basic_set`, `build_feature_set`) for `171H120F`; client methods `set_c3_basic` / `set_c3_feature`. |
+| `c3_basic.py` | Standard Midea C3 basic status decode (`decode_c3_basic`, `C3BasicStatus`) and validated SET builders (`apply_basic_changes`, `build_basic_set`, `build_feature_set`) for `171H120F`; used by the ATW dialect's `plan_write`. |
 | `c3_frame.py` | Low-level C3 framing (`build_c3_frame`, `build_c3_query`, `build_c3_set`, `parse_hex_response`, `extract_c3_body`, `_temp_offset`). |
 | `water_heater.py` | DHW entity for ATW units whose status matches the C3 basic layout. |
 | `coordinator.py` | `ILetComfortCoordinator`: polling, re-auth, cache-fallback, offline Repair card. Caches `appliance_meta` (best-effort, never fatal) and exposes `sn8`; threads profile into decode. |
