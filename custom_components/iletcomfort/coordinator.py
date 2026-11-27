@@ -75,6 +75,8 @@ from .protocols import (
     run_write_plan,
     WriteContext,
     WritePlan,
+    appliance_sn8,
+    dialect_label,
     WriteRefused,
 )
 from .session import DollinSessionManager, SessionPolicyError
@@ -141,6 +143,7 @@ class ILetComfortCoordinator(DataUpdateCoordinator[HeatPumpState]):
         # are retried until the model code is available. See
         # ``_ensure_appliance_meta``.
         self.appliance_meta: dict[str, Any] | None = None
+        self._logged_model_selection: tuple[str | None, str, str] | None = None
         self._token_file = (
             Path(hass.config.path(".storage"))
             / f"iletcomfort_token_{entry.entry_id}"
@@ -250,13 +253,22 @@ class ILetComfortCoordinator(DataUpdateCoordinator[HeatPumpState]):
         """Return this appliance's sn8 model code, if known.
 
         Read from the cached cloud metadata (``appliance_meta``); it selects the
-        model decode profile (issue #22 / #12). None when metadata is absent,
-        which resolves to the STANDARD profile.
+        model decode profile (issue #22 / #12). When the cloud ``sn8`` field is
+        empty, it is derived from the serial (``sn[9:17]``, #260). None when
+        metadata is absent or has neither, which resolves to the STANDARD
+        profile.
         """
+        return self._resolved_sn8()[0]
+
+    @property
+    def sn8_source(self) -> str:
+        """Return where ``sn8`` came from: ``cloud``, ``serial`` or ``unknown``."""
+        return self._resolved_sn8()[1]
+
+    def _resolved_sn8(self) -> tuple[str | None, str]:
         if self.appliance_meta is None:
-            return None
-        sn8 = self.appliance_meta.get("sn8")
-        return str(sn8) if sn8 else None
+            return None, "unknown"
+        return appliance_sn8(self.appliance_meta)
 
     @property
     def c3_basic_control_enabled(self) -> bool:
@@ -407,6 +419,7 @@ class ILetComfortCoordinator(DataUpdateCoordinator[HeatPumpState]):
         """Run the actual polling calls in the executor."""
         previous_sn8 = self.sn8
         await self._ensure_appliance_meta()
+        self._log_model_selection()
         self._apply_transition(
             self.health_machine.on_profile_check(
                 self.sn8, previous_sn8=previous_sn8
@@ -624,6 +637,34 @@ class ILetComfortCoordinator(DataUpdateCoordinator[HeatPumpState]):
                     mask_identifier(self.appliance_code),
                 )
 
+    def _log_model_selection(self) -> None:
+        """Log the model code and the selected dialect once per change (#260).
+
+        A report of an unsupported unit then shows the sn8 without a
+        diagnostics file (which cannot be downloaded while setup fails). The
+        sn8 is a model code, not a per-device identifier; the serial is never
+        logged.
+        """
+        sn8, source = self._resolved_sn8()
+        selection = (sn8, source, dialect_label(sn8))
+        if selection == self._logged_model_selection:
+            return
+        self._logged_model_selection = selection
+        if sn8 is None:
+            _LOGGER.info(
+                "Appliance %s: model code (sn8) unknown; using the %s protocol dialect",
+                mask_identifier(self.appliance_code),
+                selection[2],
+            )
+            return
+        _LOGGER.info(
+            "Appliance %s: model code sn8=%s (from %s); using the %s protocol dialect",
+            mask_identifier(self.appliance_code),
+            sn8,
+            source,
+            selection[2],
+        )
+
     async def _ensure_appliance_meta(self) -> None:
         """Cache this appliance's cloud metadata for model selection.
 
@@ -633,7 +674,9 @@ class ILetComfortCoordinator(DataUpdateCoordinator[HeatPumpState]):
         used for both decoding and control. A failed lookup is retried on the
         next poll; it is logged at DEBUG and leaves ``appliance_meta`` as None.
         """
-        if self.sn8 is not None:
+        # Keep asking while the code is not from the cloud field: a derived
+        # (serial) code must not hide a cloud value that arrives later.
+        if self.sn8_source == "cloud":
             return
         try:
             appliances = await self.session.async_discover_appliances()

@@ -155,6 +155,10 @@ async def async_get_config_entry_diagnostics(
         },
         "protocol": {
             "resolved_profile": adapter.profile.value,
+            # The sn8 that selected the profile and where it came from
+            # (``cloud`` field or ``serial`` fallback, #260). Model-level only.
+            "resolved_sn8": coordinator.sn8,
+            "sn8_source": getattr(coordinator, "sn8_source", "unknown"),
             "matched_variant": adapter.describe_variant(status_obj),
             "atw_0x02_placeholder": (
                 adapter.sensors_placeholder(raw_0x02) if raw_0x02 else None

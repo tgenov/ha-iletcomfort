@@ -20,6 +20,8 @@
   },
   "protocol": {
    "resolved_profile": "aquapura",
+   "resolved_sn8": "171000AU",
+   "sn8_source": "cloud",
    "matched_variant": "aquapura",
    "atw_0x02_placeholder": null,
    "kjrh120l_zone1_capable": false,
@@ -229,6 +231,8 @@
   },
   "protocol": {
    "resolved_profile": "aquapura",
+   "resolved_sn8": "171000AU",
+   "sn8_source": "cloud",
    "matched_variant": "aquapura",
    "atw_0x02_placeholder": null,
    "kjrh120l_zone1_capable": false,
@@ -438,6 +442,8 @@
   },
   "protocol": {
    "resolved_profile": "aquapura",
+   "resolved_sn8": "171000AU",
+   "sn8_source": "cloud",
    "matched_variant": "aquapura",
    "atw_0x02_placeholder": null,
    "kjrh120l_zone1_capable": false,
@@ -646,6 +652,8 @@
   },
   "protocol": {
    "resolved_profile": "aquapura",
+   "resolved_sn8": "171000AU",
+   "sn8_source": "cloud",
    "matched_variant": "aquapura",
    "atw_0x02_placeholder": null,
    "kjrh120l_zone1_capable": false,
@@ -854,6 +862,8 @@
   },
   "protocol": {
    "resolved_profile": "aquapura",
+   "resolved_sn8": "171000AU",
+   "sn8_source": "cloud",
    "matched_variant": "aquapura",
    "atw_0x02_placeholder": null,
    "kjrh120l_zone1_capable": false,
@@ -1063,6 +1073,8 @@
   },
   "protocol": {
    "resolved_profile": "aquapura",
+   "resolved_sn8": "171000AU",
+   "sn8_source": "cloud",
    "matched_variant": "aquapura",
    "atw_0x02_placeholder": null,
    "kjrh120l_zone1_capable": false,
@@ -1272,6 +1284,8 @@
   },
   "protocol": {
    "resolved_profile": "atw",
+   "resolved_sn8": "171H120F",
+   "sn8_source": "cloud",
    "matched_variant": "atw_25_byte",
    "atw_0x02_placeholder": true,
    "kjrh120l_zone1_capable": false,
@@ -1507,6 +1521,8 @@
   },
   "protocol": {
    "resolved_profile": "atw",
+   "resolved_sn8": "171H120F",
+   "sn8_source": "cloud",
    "matched_variant": "atw_25_byte",
    "atw_0x02_placeholder": true,
    "kjrh120l_zone1_capable": false,
@@ -1742,6 +1758,8 @@
   },
   "protocol": {
    "resolved_profile": "atw",
+   "resolved_sn8": "171H120F",
+   "sn8_source": "cloud",
    "matched_variant": "atw_27_byte",
    "atw_0x02_placeholder": null,
    "kjrh120l_zone1_capable": false,
@@ -1907,6 +1925,8 @@
   },
   "protocol": {
    "resolved_profile": "atw",
+   "resolved_sn8": "171H120F",
+   "sn8_source": "cloud",
    "matched_variant": "atw_27_byte",
    "atw_0x02_placeholder": null,
    "kjrh120l_zone1_capable": false,
@@ -2072,6 +2092,8 @@
   },
   "protocol": {
    "resolved_profile": "atw",
+   "resolved_sn8": "171H120F",
+   "sn8_source": "cloud",
    "matched_variant": "atw_27_byte",
    "atw_0x02_placeholder": null,
    "kjrh120l_zone1_capable": false,
@@ -2237,6 +2259,8 @@
   },
   "protocol": {
    "resolved_profile": "atw",
+   "resolved_sn8": "171H120F",
+   "sn8_source": "cloud",
    "matched_variant": "atw_27_byte",
    "atw_0x02_placeholder": null,
    "kjrh120l_zone1_capable": false,
@@ -2402,6 +2426,8 @@
   },
   "protocol": {
    "resolved_profile": "atw",
+   "resolved_sn8": "171H120F",
+   "sn8_source": "cloud",
    "matched_variant": "atw_27_byte",
    "atw_0x02_placeholder": true,
    "kjrh120l_zone1_capable": false,
@@ -2674,6 +2700,8 @@
   },
   "protocol": {
    "resolved_profile": "atw",
+   "resolved_sn8": "171H120F",
+   "sn8_source": "cloud",
    "matched_variant": "atw_27_byte",
    "atw_0x02_placeholder": true,
    "kjrh120l_zone1_capable": false,
@@ -2946,6 +2974,8 @@
   },
   "protocol": {
    "resolved_profile": "atw",
+   "resolved_sn8": "171H120F",
+   "sn8_source": "cloud",
    "matched_variant": "atw_27_byte",
    "atw_0x02_placeholder": true,
    "kjrh120l_zone1_capable": false,
@@ -3220,6 +3250,8 @@
   },
   "protocol": {
    "resolved_profile": "atw",
+   "resolved_sn8": "171H120F",
+   "sn8_source": "cloud",
    "matched_variant": "atw_27_byte",
    "atw_0x02_placeholder": true,
    "kjrh120l_zone1_capable": false,
@@ -3494,6 +3526,8 @@
   },
   "protocol": {
    "resolved_profile": "atw",
+   "resolved_sn8": "171H120F",
+   "sn8_source": "cloud",
    "matched_variant": "atw_25_byte",
    "atw_0x02_placeholder": true,
    "kjrh120l_zone1_capable": false,
@@ -3729,6 +3763,8 @@
   },
   "protocol": {
    "resolved_profile": "atw",
+   "resolved_sn8": "171H120F",
+   "sn8_source": "cloud",
    "matched_variant": "atw_25_byte",
    "atw_0x02_placeholder": true,
    "kjrh120l_zone1_capable": false,
@@ -3964,6 +4000,8 @@
   },
   "protocol": {
    "resolved_profile": "atw",
+   "resolved_sn8": "171H120F",
+   "sn8_source": "cloud",
    "matched_variant": "atw_25_byte",
    "atw_0x02_placeholder": null,
    "kjrh120l_zone1_capable": false,
@@ -4126,6 +4164,8 @@
   },
   "protocol": {
    "resolved_profile": "atw",
+   "resolved_sn8": "171H120F",
+   "sn8_source": "cloud",
    "matched_variant": "atw_25_byte",
    "atw_0x02_placeholder": null,
    "kjrh120l_zone1_capable": false,
@@ -4288,6 +4328,8 @@
   },
   "protocol": {
    "resolved_profile": "atw",
+   "resolved_sn8": "171H120F",
+   "sn8_source": "cloud",
    "matched_variant": "atw_25_byte",
    "atw_0x02_placeholder": true,
    "kjrh120l_zone1_capable": false,
@@ -4523,6 +4565,8 @@
   },
   "protocol": {
    "resolved_profile": "atw",
+   "resolved_sn8": "171H120F",
+   "sn8_source": "cloud",
    "matched_variant": "atw_25_byte",
    "atw_0x02_placeholder": true,
    "kjrh120l_zone1_capable": false,
@@ -4758,6 +4802,8 @@
   },
   "protocol": {
    "resolved_profile": "atw",
+   "resolved_sn8": "171H120F",
+   "sn8_source": "cloud",
    "matched_variant": "atw_25_byte",
    "atw_0x02_placeholder": true,
    "kjrh120l_zone1_capable": false,
@@ -4993,6 +5039,8 @@
   },
   "protocol": {
    "resolved_profile": "atw",
+   "resolved_sn8": "171H120F",
+   "sn8_source": "cloud",
    "matched_variant": "atw_25_byte",
    "atw_0x02_placeholder": true,
    "kjrh120l_zone1_capable": false,
@@ -5228,6 +5276,8 @@
   },
   "protocol": {
    "resolved_profile": "atw",
+   "resolved_sn8": "171H120F",
+   "sn8_source": "cloud",
    "matched_variant": "atw_25_byte",
    "atw_0x02_placeholder": true,
    "kjrh120l_zone1_capable": false,
@@ -5463,6 +5513,8 @@
   },
   "protocol": {
    "resolved_profile": "atw",
+   "resolved_sn8": "171H120F",
+   "sn8_source": "cloud",
    "matched_variant": "atw_25_byte",
    "atw_0x02_placeholder": true,
    "kjrh120l_zone1_capable": false,
@@ -5698,6 +5750,8 @@
   },
   "protocol": {
    "resolved_profile": "atw",
+   "resolved_sn8": "171H120F",
+   "sn8_source": "cloud",
    "matched_variant": "atw_27_byte",
    "atw_0x02_placeholder": true,
    "kjrh120l_zone1_capable": false,
@@ -5972,6 +6026,8 @@
   },
   "protocol": {
    "resolved_profile": "atw",
+   "resolved_sn8": "171H120F",
+   "sn8_source": "cloud",
    "matched_variant": "atw_27_byte",
    "atw_0x02_placeholder": true,
    "kjrh120l_zone1_capable": false,
@@ -6246,6 +6302,8 @@
   },
   "protocol": {
    "resolved_profile": "atw",
+   "resolved_sn8": "171H120F",
+   "sn8_source": "cloud",
    "matched_variant": "atw_27_byte",
    "atw_0x02_placeholder": true,
    "kjrh120l_zone1_capable": false,
@@ -6518,6 +6576,8 @@
   },
   "protocol": {
    "resolved_profile": "atw",
+   "resolved_sn8": "171H120F",
+   "sn8_source": "cloud",
    "matched_variant": "atw_27_byte",
    "atw_0x02_placeholder": true,
    "kjrh120l_zone1_capable": false,
@@ -6790,6 +6850,8 @@
   },
   "protocol": {
    "resolved_profile": "atw",
+   "resolved_sn8": "171H120F",
+   "sn8_source": "cloud",
    "matched_variant": "atw_rotenso_25_byte",
    "atw_0x02_placeholder": true,
    "kjrh120l_zone1_capable": false,
@@ -7025,6 +7087,8 @@
   },
   "protocol": {
    "resolved_profile": "atw",
+   "resolved_sn8": "171H120F",
+   "sn8_source": "cloud",
    "matched_variant": "atw_rotenso_25_byte",
    "atw_0x02_placeholder": true,
    "kjrh120l_zone1_capable": false,
@@ -7260,6 +7324,8 @@
   },
   "protocol": {
    "resolved_profile": "kjrh120l",
+   "resolved_sn8": "17100003",
+   "sn8_source": "cloud",
    "matched_variant": "kjrh120l_dual",
    "atw_0x02_placeholder": null,
    "kjrh120l_zone1_capable": false,
@@ -7517,6 +7583,8 @@
   },
   "protocol": {
    "resolved_profile": "kjrh120l",
+   "resolved_sn8": "17100003",
+   "sn8_source": "cloud",
    "matched_variant": "kjrh120l_dual",
    "atw_0x02_placeholder": null,
    "kjrh120l_zone1_capable": true,
@@ -7774,6 +7842,8 @@
   },
   "protocol": {
    "resolved_profile": "kjrh120l",
+   "resolved_sn8": "17100003",
+   "sn8_source": "cloud",
    "matched_variant": "kjrh120l_dual",
    "atw_0x02_placeholder": null,
    "kjrh120l_zone1_capable": false,
@@ -7982,6 +8052,8 @@
   },
   "protocol": {
    "resolved_profile": "kjrh120l",
+   "resolved_sn8": "17100003",
+   "sn8_source": "cloud",
    "matched_variant": "kjrh120l_dual",
    "atw_0x02_placeholder": null,
    "kjrh120l_zone1_capable": true,
@@ -8190,6 +8262,8 @@
   },
   "protocol": {
    "resolved_profile": "kjrh120l",
+   "resolved_sn8": "17100003",
+   "sn8_source": "cloud",
    "matched_variant": "kjrh120l_pure_dhw",
    "atw_0x02_placeholder": null,
    "kjrh120l_zone1_capable": false,
@@ -8398,6 +8472,8 @@
   },
   "protocol": {
    "resolved_profile": "kjrh120l",
+   "resolved_sn8": "17100003",
+   "sn8_source": "cloud",
    "matched_variant": "kjrh120l_pure_dhw",
    "atw_0x02_placeholder": null,
    "kjrh120l_zone1_capable": true,
@@ -8606,6 +8682,8 @@
   },
   "protocol": {
    "resolved_profile": "kjrh120l",
+   "resolved_sn8": "17100003",
+   "sn8_source": "cloud",
    "matched_variant": "kjrh120l_pure_dhw",
    "atw_0x02_placeholder": null,
    "kjrh120l_zone1_capable": false,
@@ -8814,6 +8892,8 @@
   },
   "protocol": {
    "resolved_profile": "kjrh120l",
+   "resolved_sn8": "17100003",
+   "sn8_source": "cloud",
    "matched_variant": "kjrh120l_pure_dhw",
    "atw_0x02_placeholder": null,
    "kjrh120l_zone1_capable": true,
@@ -9022,6 +9102,8 @@
   },
   "protocol": {
    "resolved_profile": "standard",
+   "resolved_sn8": null,
+   "sn8_source": "unknown",
    "matched_variant": "standard",
    "atw_0x02_placeholder": null,
    "kjrh120l_zone1_capable": false,
@@ -9231,6 +9313,8 @@
   },
   "protocol": {
    "resolved_profile": "standard",
+   "resolved_sn8": null,
+   "sn8_source": "unknown",
    "matched_variant": "standard",
    "atw_0x02_placeholder": null,
    "kjrh120l_zone1_capable": false,

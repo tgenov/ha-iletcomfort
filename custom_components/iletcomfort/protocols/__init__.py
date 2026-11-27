@@ -21,7 +21,7 @@ from .base import HeatPumpState, ProtocolAdapter, profile_climate_temp_bounds
 from .kjr86t3 import Kjr86t3Adapter
 from .kjrh120l import Kjrh120lAdapter
 from .probes import OptionalProbe
-from .profile import ModelProfile, resolve_profile
+from .profile import ModelProfile, appliance_sn8, resolve_profile, sn8_from_serial
 from .read import ReadPlan, run_read_plan
 from .snapshot import build_snapshot, flatten_status, merge_atw_energy_notify
 from .standard import StandardAdapter
@@ -58,6 +58,11 @@ def get_adapter(sn8_or_profile: str | ModelProfile | None) -> ProtocolAdapter:
         else resolve_profile(sn8_or_profile)
     )
     return _ADAPTERS[profile]
+
+
+def dialect_label(sn8: str | None) -> str:
+    """Return the selected dialect's name for log output (not for branching)."""
+    return get_adapter(sn8).profile.value
 
 
 def project_entity_capabilities(
@@ -123,7 +128,10 @@ __all__ = [
     "ReadPlan",
     "run_read_plan",
     "StandardAdapter",
+    "appliance_sn8",
     "build_snapshot",
+    "dialect_label",
+    "sn8_from_serial",
     "flatten_status",
     "WriteContext",
     "WritePlan",
