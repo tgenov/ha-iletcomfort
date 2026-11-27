@@ -366,7 +366,20 @@ Status `raw_body` (0-indexed; STANDARD misreads this 25-byte frame):
 ### AQUAPURA profile (`sn8 171000AU`, AQS Energie split HPWH, #12; discriminator collision under audit)
 - The real water/tank temp is in `status.box_bottom_temp` (status byte[17], offset-decoded → e.g. 40 °C).
 - The standard `sensors.twin_temp`/`twout_temp` (sensors bytes 25–26) are `0x23` null-fill → decode to 0
-  (that was the "water temp = 0" bug).
+  (that was the "water temp = 0" bug). On the #12 unit all five bytes of sensors `body[23..27]`
+  (T2, T2B, water inlet, water outlet, T1) hold `0x23`, while `body[21]`/`body[22]` are live.
+  `AquapuraAdapter.decode_sensors` sets those five fields to `None` only when the full block is
+  `0x23`. One or more `0x23` bytes next to a different value is a real 0 °C reading and stays. The
+  shared STANDARD decode is unchanged.
+- The corpus case `aquapura_issue12_tank_temp_in_box_bottom` and `_aquapura_status_body` /
+  `_aquapura_sensors_body` are **representative fixtures**, not captures: every byte is `0x23` except
+  the evidence bytes (status `body[17]`, sensors `body[22]`). The values `0x2323` (8995) for
+  `total_kwh`, `comp_frq`, EXV, pressures and run hours in that case are fixture artefacts.
+- The real #12 frames are in the diagnostics files attached to issue #12. The v0.6.0 pair is the
+  corpus case `aquapura_issue12_real_capture_v060`. On the real status frame, `total_kwh` is unknown
+  (raw `00,00`), run hours are 850, and `comp_frq` decodes to 512 from `body[42..43]` = `02,00`. 512
+  is not a plausible frequency, and it sets `comp_running` to True. This is an open decode question
+  for that unit. Do not change it without an app value from the reporter.
 - A second hardware variant with the same `sn8` publishes live inlet/outlet values and no tank
   temperature (see the next item). Climate current temperature therefore keeps a nonzero `th_temp` when present and
   otherwise falls back to `twout_temp`, then `twin_temp`. Do not assume `sn8` alone distinguishes these

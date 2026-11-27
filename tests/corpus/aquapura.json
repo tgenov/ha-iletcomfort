@@ -15,7 +15,32 @@
     },
     "expected_sensors": {
       "th_temp": 40.0,
-      "twin_temp": 0.0,
+      "twin_temp": null,
+      "twout_temp": null,
+      "t4_temp": 19.0
+    }
+  },
+  {
+    "id": "aquapura_issue12_real_capture_v060",
+    "source_issue": "#12",
+    "hardware": "AQS Energie AQUAPURA split HPWH (diagnostics attachment, v0.6.0)",
+    "sn8": "171000AU",
+    "expected_profile": "aquapura",
+    "expected_variant": "aquapura",
+    "frames": {
+      "0x01": "01,01,02,50,6e,37,5a,37,14,26,37,25,28,00,00,00,00,4b,28,3a,37,00,26,37,00,3a,00,00,00,00,00,00,00,00,00,00,01,e0,00,00,00,00,02,00,00,00,03,52,00,00,00",
+      "0x02": "02,01,00,00,00,02,00,00,00,00,00,00,01,00,00,00,12,12,00,00,00,35,36,23,23,23,23,23,00,00,00,00,2c,c1,1d,2c,c1,1d,2f,33,1e,00,00,00,00,00,00,00,00,00,00"
+    },
+    "expected_status": {
+      "box_bottom_temp": 40.0,
+      "total_kwh": null,
+      "comp_total_run_hours": 850
+    },
+    "expected_sensors": {
+      "th_temp": 40.0,
+      "twin_temp": null,
+      "twout_temp": null,
+      "t3_temp": 18.0,
       "t4_temp": 19.0
     }
   },
