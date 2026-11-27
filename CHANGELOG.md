@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.34.0](https://github.com/tgenov/ha-iletcomfort/compare/v0.33.5...v0.34.0) (2026-11-27)
+
+
+### Features
+
+* KJR-86T3 table dialect with DHW setpoint and silent mode ([#126](https://github.com/tgenov/ha-iletcomfort/issues/126)) ([#248](https://github.com/tgenov/ha-iletcomfort/issues/248)) ([c58a4b3](https://github.com/tgenov/ha-iletcomfort/commit/c58a4b388362d9be846962dd97205b877567b1cf))
+
 ## [0.33.5](https://github.com/tgenov/ha-iletcomfort/compare/v0.33.4...v0.33.5) (2026-11-27)
 
 
