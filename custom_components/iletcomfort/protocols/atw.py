@@ -123,6 +123,10 @@ _ATW_PLACEHOLDER_SENSOR_FIELDS = {
 _ATW_TEMPLATE_GROUP_LEN = 6
 _ATW_TEMPLATE_MIN_GROUPS = 6
 _ATW_ACTIVE_SCHEDULE_LEN = 2 + _ATW_TEMPLATE_MIN_GROUPS * _ATW_TEMPLATE_GROUP_LEN
+# Two schedule blocks joined by a 00 separator (#120 NØRDIS, 75 bytes).
+_ATW_ACTIVE_SCHEDULE_TWO_BLOCK_LEN = (
+    _ATW_ACTIVE_SCHEDULE_LEN + 1 + _ATW_TEMPLATE_MIN_GROUPS * _ATW_TEMPLATE_GROUP_LEN
+)
 _ATW_TEMPLATE_MODE_TAGS = (0x02, 0x03)
 _ATW_ACTIVE_SCHEDULE_TAGS = (0x02, 0x03, 0x05)
 
@@ -277,17 +281,36 @@ def _atw_sensors_match_template_shape(raw_body: bytes) -> bool:
     return groups >= _ATW_TEMPLATE_MIN_GROUPS and not after_separator
 
 
-def _atw_sensors_match_active_schedule_shape(raw_body: bytes) -> bool:
-    """Match 38-byte ATW 0x02 schedule frames with active 02/03/05 timer slots."""
+def _atw_active_schedule_slot_offsets(raw_body: bytes) -> list[int] | None:
+    """Return the slot offsets of a 38- or 75-byte active-schedule frame.
+
+    38 bytes (#128, #150): ``02``, mask, six slots. 75 bytes (#120): the same
+    38 bytes, a ``00`` separator, then six more slots.
+    """
+    slots = range(2, _ATW_ACTIVE_SCHEDULE_LEN, _ATW_TEMPLATE_GROUP_LEN)
+    if len(raw_body) == _ATW_ACTIVE_SCHEDULE_LEN:
+        return list(slots)
     if (
-        len(raw_body) != _ATW_ACTIVE_SCHEDULE_LEN
-        or raw_body[0] != 0x02
-        or raw_body[1] > 0x3F
+        len(raw_body) == _ATW_ACTIVE_SCHEDULE_TWO_BLOCK_LEN
+        and raw_body[_ATW_ACTIVE_SCHEDULE_LEN] == 0x00
     ):
+        second = range(
+            _ATW_ACTIVE_SCHEDULE_LEN + 1,
+            _ATW_ACTIVE_SCHEDULE_TWO_BLOCK_LEN,
+            _ATW_TEMPLATE_GROUP_LEN,
+        )
+        return [*slots, *second]
+    return None
+
+
+def _atw_sensors_match_active_schedule_shape(raw_body: bytes) -> bool:
+    """Match ATW 0x02 schedule frames with active 02/03/05 timer slots."""
+    offsets = _atw_active_schedule_slot_offsets(raw_body)
+    if offsets is None or raw_body[0] != 0x02 or raw_body[1] > 0x3F:
         return False
     idle_headers: set[tuple[int, int]] = set()
     has_active_slot = False
-    for offset in range(2, len(raw_body), _ATW_TEMPLATE_GROUP_LEN):
+    for offset in offsets:
         tag, val, start_h, start_m, end_h, end_m = raw_body[
             offset : offset + _ATW_TEMPLATE_GROUP_LEN
         ]

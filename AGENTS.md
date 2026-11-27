@@ -155,7 +155,11 @@ Status `raw_body` (0-indexed; STANDARD misreads this 25-byte frame):
   the structure: `02,00`, then only `03,<c>,x,x,x,x` groups sharing one `c` (≥ 6 groups, at most a
   single `00` between groups), plus the 38-byte active-schedule form (#128 Airwell Wellea M, #150
   Sinclair MSH-100IB-3/9) with a 6-bit enable mask in `body[1]` and six `[03|05, temp, sh, sm, eh, em]`
-  slots carrying valid `HH:MM` clock bytes and uniform `03,<c>` idle slots.
+  slots carrying valid `HH:MM` clock bytes and uniform `03,<c>` idle slots. The active-schedule
+  form also comes as **75 bytes** (#120 NØRDIS, `02,05,…`): the same 38 bytes, a `00` separator at
+  `body[38]`, then six more slots validated by the same per-slot rules (at most two idle headers
+  across both blocks, at least one active slot). Before this was matched, the unit showed bogus
+  −35/−32 °C sensors and was never probed for `0x10`/`0x0A`, which it does answer.
 - **27-byte status variant (#38 Galmet Prima 8GT, #132 NØRDIS Optimus Pro):** the same `sn8` also
   emits a 27-byte status layout. Galmet ends `e0,03,03`; two NØRDIS units end `60,04,03` and `40,05,00`
   and differ at `body[2]` (`0x15`/`0x17`). The shared signature is length 27 with
