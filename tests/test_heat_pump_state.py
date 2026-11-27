@@ -18,7 +18,10 @@ from custom_components.iletcomfort.api import (
 )
 from custom_components.iletcomfort.binary_sensor import BINARY_SENSOR_DESCRIPTIONS
 from custom_components.iletcomfort.protocols.atw import decode_atw_status
-from custom_components.iletcomfort.protocols.kjrh120l import decode_kjrh120l_status
+from custom_components.iletcomfort.protocols.kjrh120l import (
+    decode_kjrh120l_status,
+    kjrh120l_status,
+)
 from custom_components.iletcomfort.protocols.profile import ATW_SN8, KJRH120L_SN8
 from custom_components.iletcomfort.sensor import SENSOR_DESCRIPTIONS
 from tests.kjrh120l_snapshots import KJRH120L_SNAPSHOT_A, KJRH120L_SNAPSHOT_B
@@ -225,17 +228,17 @@ def test_silent_and_eco_routing() -> None:
 def test_zone_and_dhw_routing_per_dialect() -> None:
     dual_status = decode_kjrh120l_status(KJRH120L_SNAPSHOT_A)
     dual = make_state(dual_status, ITSSensors(), sn8=KJRH120L_SN8)
-    assert dual.zone1_target_temp == dual_status.kjrh120l_zone1_setpoint == 50.0
+    assert dual.zone1_target_temp == dual_status.kjrh120l.zone1_setpoint == 50.0
     assert dual.zone1_run_mode == "heat"
-    assert dual.zone1_power is dual_status.kjrh120l_zone1_power
-    assert dual.dhw_power is dual_status.kjrh120l_dhw_power
-    assert dual.dhw_target_temp == dual_status.kjrh120l_dhw_setpoint
+    assert dual.zone1_power is dual_status.kjrh120l.zone1_power
+    assert dual.dhw_power is dual_status.kjrh120l.dhw_power
+    assert dual.dhw_target_temp == dual_status.kjrh120l.dhw_setpoint
     assert dual.zone1_target_range is not None
 
     # Zone 1 off: the DHW setpoint sits in t5s_def (pure-DHW behavior).
     off_status = decode_kjrh120l_status(KJRH120L_SNAPSHOT_B)
     off = make_state(off_status, ITSSensors(), sn8=KJRH120L_SN8)
-    assert off_status.kjrh120l_dhw_setpoint is None
+    assert kjrh120l_status(off_status).dhw_setpoint is None
     assert off_status.t5s_def is not None
     assert off.dhw_target_temp == off_status.t5s_def
 

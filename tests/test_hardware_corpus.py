@@ -34,6 +34,7 @@ from custom_components.iletcomfort.binary_sensor import BINARY_SENSOR_DESCRIPTIO
 from custom_components.iletcomfort.climate import ILetComfortClimate
 from custom_components.iletcomfort.protocols import (
     build_snapshot,
+    flatten_status,
     get_adapter,
     project_entity_capabilities,
     ViewContext,
@@ -109,8 +110,10 @@ def test_hardware_corpus_decode_contract(case: dict[str, Any]) -> None:
     status = state.status
     sensors = state.sensors
 
+    # Corpus keys use the flat diagnostics names (kjrh120l_* / atw_*, #236).
+    flat_status = flatten_status(status)
     for field, expected in case.get("expected_status", {}).items():
-        assert getattr(status, field) == expected, (
+        assert flat_status[field] == expected, (
             f"{case['id']} ({case['source_issue']}): status.{field}"
         )
 

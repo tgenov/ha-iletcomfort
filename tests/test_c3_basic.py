@@ -6,6 +6,7 @@ Rotenso frames are real captures from 2026-11-17 (EU cloud).
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import threading
 from unittest.mock import AsyncMock, MagicMock, call, patch
 
@@ -74,7 +75,7 @@ from custom_components.iletcomfort.const import (
     REGION_EU,
 )
 from custom_components.iletcomfort.coordinator import ILetComfortCoordinator
-from custom_components.iletcomfort.protocols.atw import decode_atw_status
+from custom_components.iletcomfort.protocols.atw import atw_features, decode_atw_status
 from custom_components.iletcomfort.protocols.profile import AQUAPURA_SN8, ATW_SN8
 from custom_components.iletcomfort.protocols import (
     WriteContext,
@@ -1032,7 +1033,7 @@ async def test_switches(hass: HomeAssistant):
     await silent.async_turn_on()
     assert sent_commands(coordinator, fresh)[-1] == SET_SILENT_ON
 
-    # ECO switch reads live 0x07 atw_eco_mode even when 0x01 basic.eco_mode is False.
+    # ECO switch reads live 0x07 status.atw.eco_mode even when 0x01 basic.eco_mode is False.
     eco = ILetComfortC3FeatureSwitch(
         coordinator,
         FEATURE_ECO,
@@ -1041,7 +1042,9 @@ async def test_switches(hass: HomeAssistant):
         lambda state: state.eco_enabled,
     )
     assert eco.is_on is False
-    coordinator.data.status.atw_eco_mode = True
+    coordinator.data.status.atw = dataclasses.replace(
+        atw_features(coordinator.data.status), eco_mode=True
+    )
     assert eco.is_on is True
 
     fast_dhw = ILetComfortC3FastDhwSwitch(coordinator)

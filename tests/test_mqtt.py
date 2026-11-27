@@ -19,7 +19,8 @@ from custom_components.iletcomfort.mqtt import (
     push_topics,
     ILetComfortPushClient,
 )
-from custom_components.iletcomfort.protocols import HeatPumpState
+from custom_components.iletcomfort.protocols import HeatPumpState, flatten_status
+from custom_components.iletcomfort.protocols.atw import atw_features
 from tests.snapshot_helpers import make_state
 
 # A real C3 subtype-0x01 status push captured on hardware (issue #55). The
@@ -681,18 +682,20 @@ async def test_atw_status_push_keeps_subtype_overlays_issue225(hass):
     coord.data = _polled_atw_snapshot()
     before_status = coord.data.status
     before_sensors = coord.data.sensors
+    before_flat = flatten_status(before_status)
     for field in _RETAINED_STATUS_FIELDS + _INSTANT_0X10_STATUS_FIELDS:
-        assert getattr(before_status, field) is not None, field
-    assert before_status.atw_silent_level == 1
+        assert before_flat[field] is not None, field
+    assert before_status.atw.silent_level == 1
 
     coord._apply_push_status(decode_atw_status(_ATW_STATUS_SILENT_ON))
 
     after = coord.data
+    after_flat = flatten_status(after.status)
     for field in _RETAINED_STATUS_FIELDS:
-        assert getattr(after.status, field) == getattr(before_status, field), field
-    assert after.status.atw_silent_mode is True
-    assert after.status.atw_silent_level == 1
-    assert after.status.atw_silent_super_selected is False
+        assert after_flat[field] == before_flat[field], field
+    assert after.status.atw.silent_mode is True
+    assert after.status.atw.silent_level == 1
+    assert after.status.atw.silent_super_selected is False
     for field in _OVERLAY_SENSOR_FIELDS:
         assert getattr(after.sensors, field) == getattr(before_sensors, field), field
     assert after.has_atw_0x10 is True
@@ -752,8 +755,8 @@ async def test_atw_status_push_updates_status_fields_and_keeps_overlays_issue225
     assert after.mode != before.mode
     assert after.total_kwh == before.total_kwh
     assert after.comp_total_run_hours == before.comp_total_run_hours
-    assert after.atw_silent_level == before.atw_silent_level
-    assert after.atw_eco_mode == before.atw_eco_mode
+    assert after.atw.silent_level == before.atw.silent_level
+    assert after.atw.eco_mode == before.atw.eco_mode
 
     coord._cancel_push_status_watchdog()
     await coord.async_shutdown()
@@ -765,20 +768,20 @@ async def test_atw_status_push_silent_off_overrides_retained_0x05_issue225(hass)
 
     coord = _atw_phone_app_coordinator(hass)
     coord.data = _polled_atw_snapshot()
-    assert coord.data.status.atw_silent_level == 1
+    assert coord.data.status.atw.silent_level == 1
 
     off = _with_silent_bit(_ATW_STATUS_SILENT_ON, False)
     coord._apply_push_status(decode_atw_status(off))
     status = coord.data.status
     assert status.c3_basic.silent_mode is False
-    assert status.atw_silent_mode is False
-    assert status.atw_silent_level == 0
-    assert status.atw_silent_super_selected is False
+    assert status.atw.silent_mode is False
+    assert status.atw.silent_level == 0
+    assert status.atw.silent_super_selected is False
 
     # Turned back on in the app: the retained 0x05 level applies again.
     coord._apply_push_status(decode_atw_status(_ATW_STATUS_SILENT_ON))
-    assert coord.data.status.atw_silent_mode is True
-    assert coord.data.status.atw_silent_level == 1
+    assert coord.data.status.atw.silent_mode is True
+    assert coord.data.status.atw.silent_level == 1
 
     coord._cancel_push_status_watchdog()
     await coord.async_shutdown()
@@ -792,15 +795,15 @@ async def test_atw_status_push_silent_off_keeps_super_selected_issue225(hass):
     super_on[1] = 0x09  # on + Super Silent
     coord = _atw_phone_app_coordinator(hass)
     coord.data = _polled_atw_snapshot(silent_frame=bytes(super_on))
-    assert coord.data.status.atw_silent_level == 2
+    assert coord.data.status.atw.silent_level == 2
 
     coord._apply_push_status(
         decode_atw_status(_with_silent_bit(_ATW_STATUS_SILENT_ON, False))
     )
     status = coord.data.status
-    assert status.atw_silent_mode is False
-    assert status.atw_silent_level == 0
-    assert status.atw_silent_super_selected is True
+    assert status.atw.silent_mode is False
+    assert status.atw.silent_level == 0
+    assert status.atw.silent_super_selected is True
 
     coord._cancel_push_status_watchdog()
     await coord.async_shutdown()
@@ -822,13 +825,13 @@ async def test_atw_status_push_silent_on_with_stale_off_0x05_falls_back_issue225
     coord.data = _polled_atw_snapshot(
         status_frame=off_status, silent_frame=bytes(silent_off)
     )
-    assert coord.data.status.atw_silent_level == 0
+    assert coord.data.status.atw.silent_level == 0
 
     coord._apply_push_status(decode_atw_status(_ATW_STATUS_SILENT_ON))
     status = coord.data.status
-    assert status.atw_silent_mode is None
-    assert status.atw_silent_level is None
-    assert status.atw_silent_super_selected is None
+    assert atw_features(status).silent_mode is None
+    assert atw_features(status).silent_level is None
+    assert atw_features(status).silent_super_selected is None
 
     select = ILetComfortMuteSelect.__new__(ILetComfortMuteSelect)
     select.coordinator = coord
@@ -858,8 +861,9 @@ async def test_atw_energy_push_keeps_subtype_overlays_issue225(hass):
     assert after.total_kwh == 14126
     assert after.total_thermal_kwh == 32181
     assert coord.data.sensors.t4_temp == 0.0
+    after_flat, before_flat = flatten_status(after), flatten_status(before)
     for field in ("comp_total_run_hours", "atw_silent_level", "atw_eco_mode"):
-        assert getattr(after, field) == getattr(before, field), field
+        assert after_flat[field] == before_flat[field], field
 
     # A later 0x01 push re-derives the snapshot from all retained frames:
     # the 0x04 energy (applied last) and the retained overlays both survive.
@@ -871,7 +875,7 @@ async def test_atw_energy_push_keeps_subtype_overlays_issue225(hass):
     assert after.total_thermal_kwh == 32181
     assert coord.data.sensors.t4_temp == 0.0
     assert after.comp_total_run_hours == before.comp_total_run_hours
-    assert after.atw_eco_mode == before.atw_eco_mode
+    assert after.atw.eco_mode == before.atw.eco_mode
 
     coord._cancel_push_status_watchdog()
     await coord.async_shutdown()

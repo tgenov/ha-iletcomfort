@@ -93,6 +93,38 @@ KJRH120L_ZONE1_POWER_OFF = "00000100ff"
 _KJRH120L_CAPTURED_RUN_MODES = (KJRH120L_RUN_MODE_HEAT, KJRH120L_RUN_MODE_COOL)
 
 
+@dataclasses.dataclass(frozen=True)
+class Kjrh120lStatus:
+    """KJRH-120L fields of the subtype 0x01 status body (``ITSStatus.kjrh120l``).
+
+    Zone 1 fields are decoded on every KJRH-120L frame regardless of
+    body[8:10] (app capture 2026-11-12/14). ``None`` means not decoded.
+    """
+
+    # Dual variant's separate DHW target (body[15], issue #5).
+    dhw_setpoint: float | None = None
+    zone1_power: bool | None = None  # body[8]
+    dhw_power: bool | None = None  # body[10]
+    run_mode: int | None = None  # body[11], heat=3, cool=2
+    zone1_setpoint: float | None = None  # body[12]
+    zone1_heat_max: int | None = None  # body[37]
+    zone1_heat_min: int | None = None  # body[38]
+    zone1_cool_max: int | None = None  # body[39]
+    zone1_cool_min: int | None = None  # body[40]
+    # Outdoor ambient temp (body[57] - 196; #148/#142/#136/#119).
+    outdoor_temp: float | None = None
+
+
+_NO_KJRH120L_STATUS = Kjrh120lStatus()
+
+
+def kjrh120l_status(status: ITSStatus | None) -> Kjrh120lStatus:
+    """Return the KJRH-120L fields of ``status`` (all ``None`` when absent)."""
+    if status is None or status.kjrh120l is None:
+        return _NO_KJRH120L_STATUS
+    return status.kjrh120l
+
+
 def kjrh120l_has_zone1(body: bytearray | bytes) -> bool:
     """Return whether a KJRH-120L frame carries the validated Zone-1 variant."""
     return (
@@ -113,9 +145,10 @@ def decode_kjrh120l_status(body: bytearray | bytes) -> ITSStatus:
     # Compressor frequency, energy, run hours, EXV and pressures are not in
     # this frame and keep the ITSStatus default None (unknown, not 0).
 
+    fields: dict[str, Any] = {}
     if body_len > KJRH120L_POWER_INDEX:
         dhw_on = body[KJRH120L_POWER_INDEX] != 0
-        status.kjrh120l_dhw_power = dhw_on
+        fields["dhw_power"] = dhw_on
         status.mode = KJRH120L_MODE_ON if dhw_on else KJRH120L_MODE_OFF
         status.mode_name = _KJRH120L_MODES.get(
             status.mode, f"Unknown({status.mode})"
@@ -127,37 +160,43 @@ def decode_kjrh120l_status(body: bytearray | bytes) -> ITSStatus:
             zone1_setpoint = body[KJRH120L_ZONE1_SETPOINT_INDEX]
             status.t5s_def = float(zone1_setpoint)
             status.set_temperature = zone1_setpoint
-            status.kjrh120l_dhw_setpoint = float(dhw_setpoint)
+            fields["dhw_setpoint"] = float(dhw_setpoint)
         else:
             status.t5s_def = float(dhw_setpoint)
             status.set_temperature = dhw_setpoint
 
-    _decode_kjrh120l_zone1(status, body)
+    fields.update(_decode_kjrh120l_zone1(body))
+    decoded = Kjrh120lStatus(**fields)
+    # None when nothing was decoded, so an empty sub-struct never differs
+    # from an absent one.
+    status.kjrh120l = None if decoded == _NO_KJRH120L_STATUS else decoded
     return status
 
 
-def _decode_kjrh120l_zone1(status: ITSStatus, body: bytearray | bytes) -> None:
-    """Fill the Zone 1 fields of ``status`` from a KJRH-120L status body."""
+def _decode_kjrh120l_zone1(body: bytearray | bytes) -> dict[str, Any]:
+    """Return the Zone 1 ``Kjrh120lStatus`` fields of a KJRH-120L status body."""
+    fields: dict[str, Any] = {}
     body_len = len(body)
     if body_len > KJRH120L_ZONE1_POWER_INDEX:
-        status.kjrh120l_zone1_power = {0: False, 1: True}.get(
+        fields["zone1_power"] = {0: False, 1: True}.get(
             body[KJRH120L_ZONE1_POWER_INDEX]
         )
     if body_len > KJRH120L_RUN_MODE_INDEX:
-        status.kjrh120l_run_mode = body[KJRH120L_RUN_MODE_INDEX]
+        fields["run_mode"] = body[KJRH120L_RUN_MODE_INDEX]
     if body_len > KJRH120L_ZONE1_SETPOINT_INDEX:
-        status.kjrh120l_zone1_setpoint = float(body[KJRH120L_ZONE1_SETPOINT_INDEX])
+        fields["zone1_setpoint"] = float(body[KJRH120L_ZONE1_SETPOINT_INDEX])
     if body_len > KJRH120L_ZONE1_COOL_MIN_INDEX:
-        status.kjrh120l_zone1_heat_max = body[KJRH120L_ZONE1_HEAT_MAX_INDEX]
-        status.kjrh120l_zone1_heat_min = body[KJRH120L_ZONE1_HEAT_MIN_INDEX]
-        status.kjrh120l_zone1_cool_max = body[KJRH120L_ZONE1_COOL_MAX_INDEX]
-        status.kjrh120l_zone1_cool_min = body[KJRH120L_ZONE1_COOL_MIN_INDEX]
+        fields["zone1_heat_max"] = body[KJRH120L_ZONE1_HEAT_MAX_INDEX]
+        fields["zone1_heat_min"] = body[KJRH120L_ZONE1_HEAT_MIN_INDEX]
+        fields["zone1_cool_max"] = body[KJRH120L_ZONE1_COOL_MAX_INDEX]
+        fields["zone1_cool_min"] = body[KJRH120L_ZONE1_COOL_MIN_INDEX]
     if body_len > KJRH120L_OUTDOOR_TEMP_INDEX:
         raw_t4 = body[KJRH120L_OUTDOOR_TEMP_INDEX]
         if raw_t4 != 0xFF:
             t4 = raw_t4 - KJRH120L_OUTDOOR_TEMP_OFFSET
             if KJRH120L_OUTDOOR_TEMP_MIN <= t4 <= KJRH120L_OUTDOOR_TEMP_MAX:
-                status.kjrh120l_outdoor_temp = float(t4)
+                fields["outdoor_temp"] = float(t4)
+    return fields
 
 
 def build_kjrh120l_set_temperature(temp: int) -> str:
@@ -209,16 +248,13 @@ def kjrh120l_zone1_range(
     status: ITSStatus, run_mode: int | None = None
 ) -> tuple[int, int] | None:
     """Return the device-reported Zone 1 ``(min, max)`` for ``run_mode``."""
+    kjrh = kjrh120l_status(status)
     if run_mode is None:
-        run_mode = status.kjrh120l_run_mode
+        run_mode = kjrh.run_mode
     if run_mode == KJRH120L_RUN_MODE_HEAT:
-        return _kjrh120l_valid_range(
-            status.kjrh120l_zone1_heat_min, status.kjrh120l_zone1_heat_max
-        )
+        return _kjrh120l_valid_range(kjrh.zone1_heat_min, kjrh.zone1_heat_max)
     if run_mode == KJRH120L_RUN_MODE_COOL:
-        return _kjrh120l_valid_range(
-            status.kjrh120l_zone1_cool_min, status.kjrh120l_zone1_cool_max
-        )
+        return _kjrh120l_valid_range(kjrh.zone1_cool_min, kjrh.zone1_cool_max)
     return None
 
 
@@ -229,7 +265,7 @@ def kjrh120l_mode_change_setpoint(status: ITSStatus, run_mode: int) -> int:
     limits = kjrh120l_zone1_range(status, run_mode)
     if limits is None:
         raise ValueError("The device has not reported a valid Zone 1 range for that mode")
-    current = status.kjrh120l_zone1_setpoint
+    current = kjrh120l_status(status).zone1_setpoint
     if current is None or not math.isfinite(current):
         raise ValueError("The device has not reported a Zone 1 setpoint")
     low, high = limits
@@ -275,7 +311,7 @@ def kjrh120l_climate_view(status: ITSStatus | None, ctx: ViewContext) -> Climate
     Zone 1 is switched off, rather than flipping to the DHW setpoint (body[15]).
     """
     dual = kjrh120l_is_dual(status, ctx.kjrh120l_zone1_latched)
-    zone1 = status.kjrh120l_zone1_setpoint if dual and status is not None else None
+    zone1 = kjrh120l_status(status).zone1_setpoint if dual else None
     return legacy_climate_view(
         status,
         lambda _set_mode: (float(KJRH120L_TEMP_MIN), float(KJRH120L_TEMP_MAX)),
@@ -396,8 +432,9 @@ class Kjrh120lAdapter:
         self, sensors: ITSSensors, status: ITSStatus
     ) -> ITSSensors:
         overrides: dict[str, Any] = dict(_KJRH120L_SUPPRESSED_TEMPS)
-        if status is not None and status.kjrh120l_outdoor_temp is not None:
-            overrides["t4_temp"] = status.kjrh120l_outdoor_temp
+        outdoor_temp = kjrh120l_status(status).outdoor_temp
+        if outdoor_temp is not None:
+            overrides["t4_temp"] = outdoor_temp
         return dataclasses.replace(sensors, **overrides)
 
     def sensors_placeholder(self, raw_0x02: bytes) -> bool | None:
@@ -455,8 +492,9 @@ class Kjrh120lAdapter:
         return None
 
     def dhw_target_temp(self, status: ITSStatus) -> float | None:
-        if status.kjrh120l_dhw_setpoint is not None:
-            return status.kjrh120l_dhw_setpoint
+        dhw_setpoint = kjrh120l_status(status).dhw_setpoint
+        if dhw_setpoint is not None:
+            return dhw_setpoint
         # When Zone 1 is off (body[8:10] == 00 00), decode_kjrh120l_status
         # leaves body[15] (the DHW setpoint) in t5s_def so pure-DHW units
         # keep their existing single-setpoint behavior.

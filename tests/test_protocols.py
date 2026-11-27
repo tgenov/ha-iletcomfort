@@ -21,7 +21,7 @@ from custom_components.iletcomfort.const import (
     REGION_EU,
 )
 from custom_components.iletcomfort.coordinator import ILetComfortCoordinator
-from custom_components.iletcomfort.protocols.atw import decode_atw_status
+from custom_components.iletcomfort.protocols.atw import atw_features, decode_atw_status
 from custom_components.iletcomfort.protocols.profile import (
     AQUAPURA_SN8,
     ATW_SN8,
@@ -400,8 +400,8 @@ def test_build_snapshot_applies_atw_overlays_and_energy_last() -> None:
     assert state.status is not None and state.sensors is not None
     assert state.status.comp_frq == NORDIS_UNIT_PARAMS_0X10[1]
     assert state.status.comp_total_run_hours == 0x0929
-    assert state.status.atw_silent_level == 2
-    assert state.status.atw_eco_mode is True
+    assert state.status.atw.silent_level == 2
+    assert state.status.atw.eco_mode is True
     # 0x04 is applied after 0x10, so the push energy/outdoor values win.
     assert state.status.total_kwh == 99999
     assert state.status.total_thermal_kwh == 88888
@@ -426,8 +426,8 @@ def test_build_snapshot_skips_silent_eco_without_c3_basic() -> None:
         {0x05: b"\x05\x01\x00\x00\x00\x00\x00", 0x07: b"\x07\x01\x00\x00"},
     )
     assert state.status is not None
-    assert state.status.atw_silent_mode is None
-    assert state.status.atw_eco_mode is None
+    assert atw_features(state.status).silent_mode is None
+    assert atw_features(state.status).eco_mode is None
     assert state.sensors is None
 
 
@@ -484,16 +484,16 @@ def test_build_snapshot_retained_mode_reconciles_airwell_silent_with_0x01() -> N
 
     polled = build_snapshot(adapter, status, None, frames)
     assert polled.status is not None
-    assert polled.status.atw_silent_mode is True
-    assert polled.status.atw_silent_level == 1
+    assert polled.status.atw.silent_mode is True
+    assert polled.status.atw.silent_level == 1
 
     pushed = build_snapshot(adapter, status, None, frames, retained_subtypes=True)
     assert pushed.status is not None
-    assert pushed.status.atw_silent_mode is False
-    assert pushed.status.atw_silent_level == 0
-    assert pushed.status.atw_silent_super_selected is False
+    assert pushed.status.atw.silent_mode is False
+    assert pushed.status.atw.silent_level == 0
+    assert pushed.status.atw.silent_super_selected is False
     # ECO and run hours are re-applied unchanged in retained mode.
-    assert pushed.status.atw_eco_mode is True
+    assert pushed.status.atw.eco_mode is True
     assert pushed.status.comp_total_run_hours == 2432
 
 

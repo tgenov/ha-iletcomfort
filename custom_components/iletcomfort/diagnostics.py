@@ -17,10 +17,10 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
 from homeassistant.core import HomeAssistant
 
-from .api import SENSOR_DISCONNECTED, TEMP_OFFSET, mask_identifier
+from .api import SENSOR_DISCONNECTED, TEMP_OFFSET, ITSStatus, mask_identifier
 from .const import CONF_APPLIANCE_CODE, DOMAIN
 from .coordinator import ILetComfortCoordinator
-from .protocols import get_adapter
+from .protocols import flatten_status, get_adapter
 
 # Account credentials are the only secrets in the entry. Region is kept as-is.
 # appliance_code is a device-unique identifier, so it is suffix-masked (see
@@ -70,11 +70,12 @@ def _serialize_frame(obj: Any) -> Any:
     """Convert a decoded status/sensors dataclass into a JSON-safe dict.
 
     ``raw_body`` is bytes (not JSON-serializable), so it is replaced with its
-    hex rendering; every other field is a primitive already.
+    hex rendering; every other field is a primitive already. ``ITSStatus``
+    per-dialect sub-structs keep their flat ``kjrh120l_*`` / ``atw_*`` keys.
     """
     if not is_dataclass(obj) or isinstance(obj, type):
         return obj
-    data = asdict(obj)
+    data = flatten_status(obj) if isinstance(obj, ITSStatus) else asdict(obj)
     raw = data.pop("raw_body", b"")
     data["raw_body"] = _format_hex(raw)
     return data
