@@ -187,6 +187,17 @@ Status `raw_body` (0-indexed; STANDARD misreads this 25-byte frame):
   mode (3 heat, 2 cool), `[6]` zone1 water target, `[7]` zone2, `[8]` DHW target, `[9]` room target
   ×2, `[10..21]` limits, `[22]` tank, `[23]` error. `decode_c3_basic` decodes the raw fields into
   `ITSStatus.c3_basic`; `ProtocolAdapter.c3_basic(status)` returns it only for the ATW dialect.
+- **DHW tank is gated on `cap_dhw` (#138):** units without DHW (`body[2] & 0x04` clear) still fill
+  `[22]` with a non-reading: `0xf1` (shown as 241 °C) on an Italtherm Hydrablock 12 M (#138), and a
+  constant `0x19` (25 °C) on three other no-DHW units (#123 Kaisai KMK-100RY, #128 Airwell Wellea M,
+  #139 Airwell Wellea Split). When the status matches the C3 basic layout and `cap_dhw` is False,
+  `decode_atw_status` leaves `box_bottom_temp` unset, `AtwAdapter.decode_sensors` sets `th_temp=None`,
+  and the `0x10` `body[38]` tank fallback is skipped. The "DHW Tank Temperature" sensor and the
+  climate `th_temp` fallback therefore read unavailable (the water heater is not created without
+  `cap_dhw`). The raw `C3BasicStatus.dhw_tank_temp` is still decoded for diagnostics. Frames without
+  a C3 basic match keep `[22]` (no capability evidence). There is deliberately no plausibility/range
+  gate: every `cap_dhw` capture reads 37–58 °C and `midea-local` reads `[22]` directly with no
+  sentinel, so a range bound would be unfounded.
 - **Unified `C3BasicStatus` read decode (`171H120F`):** Cross-checking `midea-local`
   (`MideaC3Device.process_message`) against 10+ Dollin hardware captures (`#22`, `#38`, `#120`, `#125`,
   `#129`, `#132`, `#134`, `#143`, `#150`, `#151`) confirms all `C3BasicStatus` frames use `[1] & 0x01`
