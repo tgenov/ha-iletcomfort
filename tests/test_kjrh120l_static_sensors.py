@@ -1,10 +1,10 @@
-"""KJRH-120L (sn8 17100003): the 0x02 sensors frame is not live telemetry.
+"""KJRH-120L (sn8 17100003): nothing from the 0x02 sensors frame is published.
 
-On every KJRH-120L capture the 0x02 response is a static block (mostly
-zeroes plus a repeating ``32,00,00,00,00`` trailer), and in one capture
-(#142 keramys v0.18.3) it carried a stray ``03,64,08`` that decoded as
-refrigerant 100 °C / plate HX 8 °C. No field of it has ever matched the
-official app, so nothing decoded from it may reach an entity; only the
+The KJRH-120L 0x02 frame is mostly zero and no field in it has ever matched
+the official app, so nothing from it is published. It is not byte-identical
+across captures (#119's two differ at body[12]; #142 keramys v0.18.3 has
+``03,64,08`` at body[14..16], decoded as refrigerant 100 °C / plate HX 8 °C),
+but none of those bytes has been tied to an app value; only the
 status-frame outdoor temperature (body[57] - 196) is published as ``t4``.
 The status frame also has no confirmed compressor-running signal, so
 ``comp_running`` is unknown (``None``), never ``False`` (#231).
@@ -165,7 +165,7 @@ def _decode(status_csv: str, sensors_csv: str) -> tuple[Any, Any]:
     ALL_FRAMES,
     ids=[frame[0] for frame in ALL_FRAMES],
 )
-def test_kjrh120l_publishes_nothing_from_static_0x02(
+def test_kjrh120l_publishes_nothing_from_0x02(
     case_id: str, status_csv: str, sensors_csv: str, outdoor: float
 ) -> None:
     _adapter, state = _decode(status_csv, sensors_csv)

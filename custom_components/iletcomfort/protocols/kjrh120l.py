@@ -73,9 +73,9 @@ KJRH120L_OUTDOOR_TEMP_MAX = 58
 
 _KJRH120L_MODES = {0: "Off", 1: "Heat", 2: "Cool", 3: "Auto", 4: "Water Pump"}
 
-# The KJRH-120L 0x02 sensors response is a static block, not live telemetry
-# (#131/#136/#142/#119): no field of it has ever matched the official app,
-# and one capture carried stray bytes that decoded as refrigerant 100 °C /
+# The KJRH-120L 0x02 sensors frame is mostly zero and no field in it has ever
+# matched the official app (#131/#136/#142/#119), so nothing from it is
+# published; one capture carried bytes that decoded as refrigerant 100 °C /
 # plate HX 8 °C. decode_sensors is therefore an allowlist: it keeps only the
 # raw body (for diagnostics) and fields validated from another frame. Today
 # that is t4, taken from status body[57]; nothing from 0x02 is published.
