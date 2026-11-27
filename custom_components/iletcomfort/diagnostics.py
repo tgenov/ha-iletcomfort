@@ -115,9 +115,10 @@ async def async_get_config_entry_diagnostics(
             raw_frames[raw_sensors[0]] = raw_sensors
 
     adapter = get_adapter(coordinator.sn8)
-    energy_merged = getattr(coordinator, "_atw_energy_notify", None)
+    energy_merged = getattr(coordinator, "atw_energy_notify", None)
     if not isinstance(energy_merged, bytes):
         energy_merged = None
+    health = coordinator.health_snapshot
     raw_0x02 = raw_frames.get(0x02, b"")
     # Preserve legacy synthetic tests whose sensors.raw_body does not start with
     # 0x02 (e.g. b"\xbb\x02...") while ensuring ATW 0x10 frames are never
@@ -147,9 +148,9 @@ async def async_get_config_entry_diagnostics(
                 if coordinator.update_interval
                 else None
             ),
-            "status_degraded": coordinator._status_degraded,
-            "sensors_degraded": coordinator._sensors_degraded,
-            "repair_issued": coordinator._repair_issued,
+            "status_degraded": health.status_degraded,
+            "sensors_degraded": health.sensors_degraded,
+            "repair_issued": health.repair_issued,
         },
         "protocol": {
             "resolved_profile": adapter.profile.value,

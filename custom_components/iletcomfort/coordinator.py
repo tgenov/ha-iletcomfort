@@ -20,7 +20,6 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 import requests
 
 from .api import (
-    QUERY_TO_SET_MODE,
     ApiError,
     AppCert,
     AuthError,
@@ -49,6 +48,13 @@ from .const import (
     REGION_URLS,
     MQTT_STATUS_STALE_AFTER,
 )
+from .health import (
+    OFFLINE_REPAIR_THRESHOLD as OFFLINE_REPAIR_THRESHOLD,
+    SUSTAINED_FAILURE_THRESHOLD as SUSTAINED_FAILURE_THRESHOLD,
+    AcquisitionHealthStateMachine,
+    AcquisitionTransition,
+    HealthSnapshot,
+)
 from .mqtt import ILetComfortPushClient
 from .protocols.atw import (
     ATW_ECO_SUBTYPE,
@@ -62,9 +68,7 @@ from .protocols import (
     EntityCapabilities,
     HeatPumpState,
     ViewContext,
-    build_snapshot,
     get_adapter,
-    merge_atw_energy_notify,
     project_climate_view,
     project_entity_capabilities,
     project_zone2_climate_view,
@@ -77,22 +81,7 @@ from .session import DollinSessionManager, SessionPolicyError
 
 _LOGGER = logging.getLogger(__name__)
 
-# Number of consecutive polls in which both status and sensors fall back to
-# cache before we surface a "device appears offline" Repair card. At the
-# default 60s poll interval this is ~5 minutes — long enough to ignore a
-# one-off cloud blip, short enough to be useful when the device is really
-# stuck (issue #5).
-OFFLINE_REPAIR_THRESHOLD = 5
 OFFLINE_REPAIR_ID = "device_offline_{entry_id}"
-
-# Number of *consecutive* polls a single query (status or sensors) must fall
-# back to cache before its cache-fallback is escalated to a WARNING. On a flaky
-# vendor cloud (transient 502/RemoteDisconnected/code=1214 or a local DNS blip)
-# an isolated or intermittent failure is expected and harmless — the poll reuses
-# the last good data and recovers next time — so those stay at DEBUG. Only a
-# failure that *persists* this many polls (~5 min at the 60s interval, the same
-# cadence as the offline Repair card) warrants a single WARNING (issue #44).
-SUSTAINED_FAILURE_THRESHOLD = 5
 
 
 class _ClientFileTokenStore:
@@ -165,7 +154,10 @@ class ILetComfortCoordinator(DataUpdateCoordinator[HeatPumpState]):
             run_blocking=hass.async_add_executor_job,
             reauth_hook=lambda: self._async_login(),
         )
-        self._last_on_state: tuple[int, int] | None = None
+        # Framework-independent acquisition & health state machine (#112).
+        self.health_machine = AcquisitionHealthStateMachine(
+            operation_mode=operation_mode,
+        )
         # Serialises writes for this appliance: a C3 basic SET is built from a
         # fresh status read, so overlapping read/modify/write transactions
         # would otherwise undo each other's changes.
@@ -173,18 +165,6 @@ class ILetComfortCoordinator(DataUpdateCoordinator[HeatPumpState]):
         self._c3_basic_control: bool = bool(
             entry.options.get(CONF_C3_BASIC_CONTROL, DEFAULT_C3_BASIC_CONTROL)
         )
-        # Track per-query cache-fallback state. ``_status_degraded`` /
-        # ``_sensors_degraded`` drive the offline Repair card (issue #5). The
-        # ``*_fail_streak`` counters drive log-level escalation: a query only
-        # WARNs once its cache-fallback has persisted SUSTAINED_FAILURE_THRESHOLD
-        # consecutive polls, so a flaky-cloud blip stays at DEBUG (issue #44).
-        self._status_degraded = False
-        self._sensors_degraded = False
-        self._status_fail_streak = 0
-        self._sensors_fail_streak = 0
-        self._consecutive_both_degraded = 0
-        self._repair_issued = False
-        self._last_push_status_at: float | None = None
         self._push_status_watchdog: Callable[[], None] | None = None
         # Centralized runtime probe / capability state (#171).
         self.capabilities = DeviceCapabilities()
@@ -192,9 +172,48 @@ class ILetComfortCoordinator(DataUpdateCoordinator[HeatPumpState]):
         # retained as transient-error fallback so a single cloud blip never
         # drops telemetry to unknown or resets TOTAL_INCREASING energy (#118).
         self._last_atw_subtypes: dict[int, bytes] = {}
-        # Sentinel-filtered ATW 0x04 energy state from MQTT pushes (latest
-        # valid value of each field). raw_frames[0x04] keeps the literal frame.
-        self._atw_energy_notify: bytes | None = None
+
+    @property
+    def health_snapshot(self) -> HealthSnapshot:
+        """Public immutable health projection consumed by diagnostics (#112)."""
+        return self.health_machine.health
+
+    @property
+    def atw_energy_notify(self) -> bytes | None:
+        """Public accessor for the merged sentinel-filtered ATW 0x04 energy state."""
+        return self.health_machine.atw_energy_notify
+
+    @property
+    def _atw_energy_notify(self) -> bytes | None:
+        return self.health_machine.atw_energy_notify
+
+    @_atw_energy_notify.setter
+    def _atw_energy_notify(self, value: bytes | None) -> None:
+        self.health_machine.atw_energy_notify = value
+
+    @property
+    def _last_on_state(self) -> tuple[int, int] | None:
+        return self.health_machine.last_on_state
+
+    @_last_on_state.setter
+    def _last_on_state(self, value: tuple[int, int] | None) -> None:
+        self.health_machine.last_on_state = value
+
+    @property
+    def _last_push_status_at(self) -> float | None:
+        return self.health_machine.health.last_push_status_at
+
+    @property
+    def _status_degraded(self) -> bool:
+        return self.health_machine.health.status_degraded
+
+    @property
+    def _sensors_degraded(self) -> bool:
+        return self.health_machine.health.sensors_degraded
+
+    @property
+    def _repair_issued(self) -> bool:
+        return self.health_machine.health.repair_issued
 
     @property
     def _operation_mode(self) -> str:
@@ -203,6 +222,7 @@ class ILetComfortCoordinator(DataUpdateCoordinator[HeatPumpState]):
     @_operation_mode.setter
     def _operation_mode(self, value: str) -> None:
         self.session.set_operation_mode(value)
+        self.health_machine.set_operation_mode(value)
 
     @property
     def _atw_unit_params_supported(self) -> bool | None:
@@ -335,53 +355,64 @@ class ILetComfortCoordinator(DataUpdateCoordinator[HeatPumpState]):
                 return self.data
             raise UpdateFailed(f"Error: {err}") from err
 
-    @staticmethod
-    def _log_cache_fallback(what: str, err: Exception, fail_streak: int) -> int:
-        """Log a query cache-fallback and return the updated failure streak.
+    def _apply_transition(
+        self,
+        transition: AcquisitionTransition,
+        *,
+        publish: bool = True,
+    ) -> None:
+        """Execute HA side effects described by a state-machine transition (#112)."""
+        for level, message in transition.log_events:
+            _LOGGER.log(level, "%s", message)
 
-        ``fail_streak`` is the number of consecutive polls this query has fallen
-        back to cache, *before* this failure. A one-off or intermittent blip on a
-        flaky vendor cloud is expected and harmless (the poll reuses cached data
-        and recovers next time), so it logs at DEBUG. Only when the streak reaches
-        SUSTAINED_FAILURE_THRESHOLD do we escalate to a single WARNING; further
-        sustained failures fall back to DEBUG so the log isn't flooded (issue #44).
-        """
-        fail_streak += 1
-        msg = "%s query failed, using cache: %s"
-        if fail_streak == SUSTAINED_FAILURE_THRESHOLD:
-            _LOGGER.warning(msg, what, err)
-        else:
-            _LOGGER.debug(msg, what, err)
-        return fail_streak
+        if transition.reset_capabilities:
+            self.data = None  # type: ignore[assignment]
+            self._last_atw_subtypes.clear()
+            self.capabilities.reset_probes()
 
-    @staticmethod
-    def _note_query_recovery(what: str, fail_streak: int) -> int:
-        """Reset a query's failure streak on success, returning 0.
+        if transition.disable_polling:
+            self.update_interval = None
 
-        If the query had been in the sustained-WARNING state (its streak reached
-        SUSTAINED_FAILURE_THRESHOLD), emit a single INFO so a genuinely stuck
-        query that recovers leaves a matching "recovered" breadcrumb; ordinary
-        blips below the threshold recover silently (issue #44).
-        """
-        if fail_streak >= SUSTAINED_FAILURE_THRESHOLD:
-            _LOGGER.info(
-                "%s query recovered after %d sustained cache-fallback polls",
-                what,
-                fail_streak,
+        if transition.repair_action == "create":
+            ir.async_create_issue(
+                self.hass,
+                DOMAIN,
+                OFFLINE_REPAIR_ID.format(entry_id=self.entry.entry_id),
+                is_fixable=False,
+                severity=ir.IssueSeverity.WARNING,
+                translation_key="device_offline",
+                translation_placeholders={
+                    "appliance_code": mask_identifier(self.appliance_code),
+                },
             )
-        return 0
+        elif transition.repair_action == "delete":
+            ir.async_delete_issue(
+                self.hass,
+                DOMAIN,
+                OFFLINE_REPAIR_ID.format(entry_id=self.entry.entry_id),
+            )
+
+        if transition.watchdog_action == "schedule":
+            self._schedule_push_status_watchdog()
+        elif transition.watchdog_action == "cancel":
+            self._cancel_push_status_watchdog()
+
+        if publish:
+            if transition.update_error is not None:
+                self.async_set_update_error(UpdateFailed(transition.update_error))
+            elif transition.publish_state and transition.state is not None:
+                self.async_set_updated_data(transition.state)
 
     async def _poll(self) -> HeatPumpState:
         """Run the actual polling calls in the executor."""
-        previous_adapter = get_adapter(self.sn8)
+        previous_sn8 = self.sn8
         await self._ensure_appliance_meta()
-        if get_adapter(self.sn8) is not previous_adapter:
-            # Cached values and power-restore state used the old byte layout.
-            # They cannot be used as fallback for the newly discovered model.
-            self.data = None  # type: ignore[assignment]
-            self._last_on_state = None
-            self._last_atw_subtypes.clear()
-            self.capabilities.reset_probes()
+        self._apply_transition(
+            self.health_machine.on_profile_check(
+                self.sn8, previous_sn8=previous_sn8
+            ),
+            publish=False,
+        )
         cached: HeatPumpState | None = self.data
         sn8 = self.sn8
 
@@ -389,9 +420,9 @@ class ILetComfortCoordinator(DataUpdateCoordinator[HeatPumpState]):
             status: ITSStatus = await self.hass.async_add_executor_job(
                 self.client.query_status, self.appliance_code, sn8,
             )
-            self._status_degraded = False
-            self._status_fail_streak = self._note_query_recovery(
-                "Status", self._status_fail_streak,
+            self._apply_transition(
+                self.health_machine.record_query_result("status", succeeded=True),
+                publish=False,
             )
         except AuthError:
             raise  # bubble up for re-auth
@@ -399,9 +430,11 @@ class ILetComfortCoordinator(DataUpdateCoordinator[HeatPumpState]):
             if cached is None:
                 raise
             status = cached.status
-            self._status_degraded = True
-            self._status_fail_streak = self._log_cache_fallback(
-                "Status", err, self._status_fail_streak,
+            self._apply_transition(
+                self.health_machine.record_query_result(
+                    "status", succeeded=False, error=err
+                ),
+                publish=False,
             )
 
         await asyncio.sleep(2)
@@ -410,9 +443,9 @@ class ILetComfortCoordinator(DataUpdateCoordinator[HeatPumpState]):
             sensors: ITSSensors = await self.hass.async_add_executor_job(
                 self.client.query_sensors, self.appliance_code, sn8,
             )
-            self._sensors_degraded = False
-            self._sensors_fail_streak = self._note_query_recovery(
-                "Sensors", self._sensors_fail_streak,
+            self._apply_transition(
+                self.health_machine.record_query_result("sensors", succeeded=True),
+                publish=False,
             )
         except AuthError:
             raise  # bubble up for re-auth
@@ -421,9 +454,11 @@ class ILetComfortCoordinator(DataUpdateCoordinator[HeatPumpState]):
             if cached_sensors is None:
                 raise
             sensors = cached_sensors
-            self._sensors_degraded = True
-            self._sensors_fail_streak = self._log_cache_fallback(
-                "Sensors", err, self._sensors_fail_streak,
+            self._apply_transition(
+                self.health_machine.record_query_result(
+                    "sensors", succeeded=False, error=err
+                ),
+                publish=False,
             )
 
         if status.raw_body:
@@ -462,19 +497,12 @@ class ILetComfortCoordinator(DataUpdateCoordinator[HeatPumpState]):
                 sensors.t1_temp,
             )
 
-        # Track last on-state for power restore
-        if status.mode != 0:
-            set_mode = QUERY_TO_SET_MODE.get(status.mode)
-            if set_mode is not None:
-                temp = int(status.t5s_def) if status.t5s_def is not None else status.set_temperature
-                self._last_on_state = (set_mode, temp)
-
         adapter = get_adapter(sn8)
 
         raw_frames: dict[int, bytes] = {}
         if status.raw_body:
             raw_frames[0x01] = bytes(status.raw_body)
-        if self._sensors_degraded:
+        if self.health_snapshot.sensors_degraded:
             cached_0x02 = cached.raw_frames.get(0x02) if cached is not None else None
             if cached_0x02:
                 raw_frames[0x02] = bytes(cached_0x02)
@@ -491,15 +519,17 @@ class ILetComfortCoordinator(DataUpdateCoordinator[HeatPumpState]):
                 continue
             await self._async_probe_optional_subtype(spec, raw_frames)
 
-        self._update_offline_repair()
         self._observe_kjrh120l_zone1(status)
 
-        # A poll's freshly queried 0x10 counters supersede any pushed 0x04
-        # energy state (raw_frames is rebuilt without 0x04 too).
-        self._atw_energy_notify = None
-        # Decode + overlay every successfully probed subtype in one pure step,
-        # shared with the MQTT push paths so push and poll stay in parity (#225).
-        return build_snapshot(adapter, status, sensors, raw_frames)
+        transition = self.health_machine.on_poll_complete(
+            sn8=sn8,
+            status=status,
+            sensors=sensors,
+            raw_frames=raw_frames,
+        )
+        self._apply_transition(transition, publish=False)
+        assert transition.state is not None
+        return transition.state
 
     def _probe_target(
         self, subtype: int
@@ -579,46 +609,6 @@ class ILetComfortCoordinator(DataUpdateCoordinator[HeatPumpState]):
             raw_frames[subtype] = cached
             return cached
         return None
-
-    def _update_offline_repair(self) -> None:
-        """Surface or clear the 'device appears offline' Repair card.
-
-        A user-visible Repair card is created once both queries have been
-        falling back to cache for OFFLINE_REPAIR_THRESHOLD consecutive polls
-        (issue #5 — vendor cloud / device-offline state). The card is cleared
-        on the first poll where either query succeeds, so transient blips
-        don't churn the Repairs panel.
-        """
-        both_degraded = self._status_degraded and self._sensors_degraded
-
-        if both_degraded:
-            self._consecutive_both_degraded += 1
-            if (
-                self._consecutive_both_degraded >= OFFLINE_REPAIR_THRESHOLD
-                and not self._repair_issued
-            ):
-                ir.async_create_issue(
-                    self.hass,
-                    DOMAIN,
-                    OFFLINE_REPAIR_ID.format(entry_id=self.entry.entry_id),
-                    is_fixable=False,
-                    severity=ir.IssueSeverity.WARNING,
-                    translation_key="device_offline",
-                    translation_placeholders={
-                        "appliance_code": mask_identifier(self.appliance_code),
-                    },
-                )
-                self._repair_issued = True
-            return
-
-        self._consecutive_both_degraded = 0
-        if self._repair_issued:
-            ir.async_delete_issue(
-                self.hass,
-                DOMAIN,
-                OFFLINE_REPAIR_ID.format(entry_id=self.entry.entry_id),
-            )
-            self._repair_issued = False
 
     async def _async_login(self) -> None:
         """Authenticate and store the token."""
@@ -773,9 +763,7 @@ class ILetComfortCoordinator(DataUpdateCoordinator[HeatPumpState]):
                 err,
             )
             self._push_client = None
-            self.async_set_update_error(
-                UpdateFailed("MQTT push failed to start in phone app mode")
-            )
+            self._apply_transition(self.health_machine.on_push_start_failed())
 
     async def _async_get_push_certificate(self) -> AppCert:
         """Mint a push certificate, re-authenticating only when required."""
@@ -783,8 +771,7 @@ class ILetComfortCoordinator(DataUpdateCoordinator[HeatPumpState]):
 
     async def async_stop_push(self) -> None:
         """Stop the MQTT push listener, if running."""
-        self._cancel_push_status_watchdog()
-        self._last_push_status_at = None
+        self._apply_transition(self.health_machine.on_push_stopped(), publish=False)
         if self._push_client is None:
             return
         try:
@@ -804,71 +791,26 @@ class ILetComfortCoordinator(DataUpdateCoordinator[HeatPumpState]):
         self.hass.loop.call_soon_threadsafe(self._apply_push_connected, connected)
 
     def _apply_push_energy(self, energy_body: bytes) -> None:
-        """Handle an unsolicited MQTT 0x04 (C3EnergyBody) push frame (#129).
-
-        Always records push activity and re-arms the status heartbeat where the
-        dialect has one (ATW units do not; their availability follows the MQTT
-        link). On ATW units with an existing snapshot, also overlays outdoor
-        temp and energy.
-        """
-        self._last_push_status_at = time.monotonic()
-        self._schedule_push_status_watchdog()
-        if self.data is None:
-            return
-        adapter = get_adapter(self.sn8)
-        if not adapter.accepts_energy_notify:
-            return
-        raw_frames = dict(self.data.raw_frames)
-        raw_frames[0x04] = bytes(energy_body)
-        # Keep the last valid value of each 0x04 field separately: the
-        # snapshot is re-derived, so a sentinel field must not clobber it.
-        self._atw_energy_notify = merge_atw_energy_notify(
-            self._atw_energy_notify, bytes(energy_body)
+        """Handle an unsolicited MQTT 0x04 (C3EnergyBody) push frame (#129)."""
+        transition = self.health_machine.on_push_energy(
+            energy_body,
+            sn8=self.sn8,
+            now=time.monotonic(),
+            cached_state=self.data,
         )
-        state = build_snapshot(
-            adapter,
-            self.data.status,
-            self.data.sensors,
-            raw_frames,
-            retained_subtypes=True,
-            energy_notify=self._atw_energy_notify,
-        )
-        self.async_set_updated_data(state)
+        self._apply_transition(transition)
 
     def _apply_push_status(self, status: ITSStatus) -> None:
-        """Publish a pushed status to entities, reusing the last polled sensors.
-
-        The push carries only the status frame, so sensor-only values retain the
-        initial snapshot from setup. Profile re-decoding matches the poll path so
-        push and poll agree for values carried by the status frame.
-        """
-        self._last_push_status_at = time.monotonic()
-        self._schedule_push_status_watchdog()
-        if self.data is None:
-            # Push started after the first poll, so this is only reached if a
-            # push races ahead of it. Ignore it rather than publish a status
-            # with no sensors (entities read coordinator.data.sensors); the
-            # imminent first poll delivers a complete snapshot.
-            return
-        adapter = get_adapter(self.sn8)
-        status = adapter.decode_status(status)
-        self._observe_kjrh120l_zone1(status)
-        raw_frames = dict(self.data.raw_frames)
-        if status.raw_body:
-            raw_frames[0x01] = bytes(status.raw_body)
-        # Re-apply every retained subtype overlay (0x10/0x0A/0x05/0x07/0x04)
-        # exactly as the poll does; the push carries only the 0x01 frame (#225).
-        # Optional subtype frames date from the last poll: re-apply counters,
-        # run hours and ECO, reconcile Silent with this 0x01 frame.
-        state = build_snapshot(
-            adapter,
+        """Publish a pushed status to entities, reusing the last polled sensors."""
+        transition, decoded_status = self.health_machine.on_push_status(
             status,
-            self.data.sensors,
-            raw_frames,
-            retained_subtypes=True,
-            energy_notify=self._atw_energy_notify,
+            sn8=self.sn8,
+            now=time.monotonic(),
+            cached_state=self.data,
         )
-        self.async_set_updated_data(state)
+        if transition.publish_state:
+            self._observe_kjrh120l_zone1(decoded_status)
+        self._apply_transition(transition)
 
     def _cancel_push_status_watchdog(self) -> None:
         if self._push_status_watchdog is not None:
@@ -881,10 +823,7 @@ class ILetComfortCoordinator(DataUpdateCoordinator[HeatPumpState]):
         self._check_push_status_freshness()
 
     def _push_status_heartbeat_expected(self) -> bool:
-        """Return whether silence on a live MQTT link means status is stale.
-
-        Unknown sn8 resolves to STANDARD and keeps the heartbeat (safe default).
-        """
+        """Return whether silence on a live MQTT link means status is stale."""
         return get_adapter(self.sn8).periodic_status_push
 
     def _schedule_push_status_watchdog(self) -> None:
@@ -905,34 +844,19 @@ class ILetComfortCoordinator(DataUpdateCoordinator[HeatPumpState]):
     def _check_push_status_freshness(self) -> None:
         """Mark push unavailable when the connected device stops publishing status."""
         self._push_status_watchdog = None
-        if not self._push_enabled or self._operation_mode != OPERATION_MODE_PHONE_APP:
-            return
-        if not self._push_status_heartbeat_expected():
-            return
-        if self._last_push_status_at is None or (
-            time.monotonic() - self._last_push_status_at
-            >= MQTT_STATUS_STALE_AFTER
-        ):
-            self.async_set_update_error(
-                UpdateFailed("MQTT device status heartbeat expired")
-            )
-            return
-        self._schedule_push_status_watchdog()
+        transition = self.health_machine.on_freshness_check(
+            sn8=self.sn8,
+            now=time.monotonic(),
+            push_enabled=self._push_enabled,
+        )
+        self._apply_transition(transition)
 
     def _apply_push_connected(self, connected: bool) -> None:
         """Expose transport and device-status freshness without account polling."""
-        if not self.session.policy.allows_background_polling:
-            # Polling requires the account session and would periodically evict
-            # the official app. Certificate push is the sole transport in this
-            # explicitly read-only coexistence mode.
-            self.update_interval = None
-            if connected:
-                self._schedule_push_status_watchdog()
-                if not self.last_update_success and self.data is not None:
-                    self.async_set_updated_data(self.data)
-            else:
-                self._cancel_push_status_watchdog()
-                self._last_push_status_at = None
-                self.async_set_update_error(
-                    UpdateFailed("MQTT push disconnected in phone app mode")
-                )
+        transition = self.health_machine.on_push_connected(
+            connected,
+            sn8=self.sn8,
+            cached_state=self.data,
+            last_update_success=self.last_update_success,
+        )
+        self._apply_transition(transition)
