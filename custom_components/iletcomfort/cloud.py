@@ -16,6 +16,13 @@ import requests
 from cryptography.hazmat.primitives import padding as crypto_padding
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
+from .session import (
+    AuthError,
+    FileTokenStore,
+    is_login_auth_error_code,
+    is_token_rejected_code,
+)
+
 # ---------------------------------------------------------------------------
 # App constants extracted from the iLetComfort iOS binary
 # ---------------------------------------------------------------------------
@@ -27,10 +34,6 @@ CLIENT_SECRET = "35b965531383ce9f37f829a19712bf3a"
 ENCRYPT_KEY = "4dbc9ff6c15944d78eebb581c2b23de3"
 APP_ID = "8010"
 API_BASE = "https://us.dollin.net"
-
-
-class AuthError(Exception):
-    """Authentication or authorization error."""
 
 
 class ApiError(Exception):
@@ -215,7 +218,7 @@ class DollinCloudClient:
         result = response.json()
 
         code = result.get("code")
-        if code in (14005, 12001):
+        if is_token_rejected_code(code):
             raise AuthError("Access token expired or invalid.")
 
         return result
@@ -224,30 +227,16 @@ class DollinCloudClient:
         """Save the access token to a JSON file."""
         if filepath is None:
             return
-        data: dict[str, Any] = {}
-        if filepath.exists():
-            try:
-                data = json.loads(filepath.read_text(encoding="utf-8"))
-            except (json.JSONDecodeError, OSError):
-                pass
-        data["access_token"] = self._access_token
-        data["saved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S%z")
-        filepath.write_text(
-            json.dumps(data, indent=2) + "\n", encoding="utf-8",
-        )
+        FileTokenStore(filepath).save(self._access_token)
 
     def load_token(self, filepath: Path | None = None) -> bool:
         """Load access token from a saved file."""
-        if filepath is None or not filepath.exists():
+        if filepath is None:
             return False
-        try:
-            data = json.loads(filepath.read_text(encoding="utf-8"))
-            token = data.get("access_token")
-            if token:
-                self._access_token = token
-                return True
-        except (json.JSONDecodeError, OSError, KeyError):
-            pass
+        token = FileTokenStore(filepath).load()
+        if token is not None:
+            self._access_token = token
+            return True
         return False
 
     def login(
@@ -270,7 +259,7 @@ class DollinCloudClient:
 
         code = result.get("code")
         msg = f"Login failed: code={code}, msg={result.get('msg')}"
-        if isinstance(code, int) and 14000 <= code < 15000:
+        if is_login_auth_error_code(code):
             raise AuthError(msg)
         raise ApiError(msg)
 
@@ -321,7 +310,10 @@ class DollinCloudClient:
                 endpoint=str(data["endpoint"]),
                 port=int(data["port"]),
             )
+        code = result.get("code")
+        if is_token_rejected_code(code):
+            raise AuthError("Access token expired or invalid.")
         raise ApiError(
-            f"Certificate request failed: code={result.get('code')}, "
+            f"Certificate request failed: code={code}, "
             f"msg={result.get('msg')}"
         )
