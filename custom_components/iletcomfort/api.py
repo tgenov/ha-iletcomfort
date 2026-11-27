@@ -43,7 +43,9 @@ from .cloud import (
 
 if TYPE_CHECKING:
     # The dialect modules import this one, so their sub-structs are only
-    # imported for type checking (annotations are lazy).
+    # imported for type checking (annotations are lazy). Consequence:
+    # ``typing.get_type_hints(ITSStatus)`` raises NameError at runtime; use
+    # ``dataclasses.fields`` / ``protocols.flatten_status`` for introspection.
     from .protocols.atw import AtwFeatureStatus
     from .protocols.kjrh120l import Kjrh120lStatus
 
