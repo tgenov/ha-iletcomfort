@@ -23,6 +23,7 @@ from homeassistant.helpers.selector import (
 )
 
 from .api import ApiError, AuthError, ILetComfortClient
+from .session import DollinSessionManager, MemoryTokenStore
 from .const import (
     CONF_APPLIANCE_CODE,
     CONF_C3_BASIC_CONTROL,
@@ -98,12 +99,17 @@ class ILetComfortConfigFlow(ConfigFlow, domain=DOMAIN):
             api_base = REGION_URLS.get(region, REGION_URLS[DEFAULT_REGION])
 
             client = ILetComfortClient(api_base=api_base)
+            session = DollinSessionManager(
+                client,
+                email=email,
+                password=password,
+                token_store=MemoryTokenStore(),
+                run_blocking=self.hass.async_add_executor_job,
+            )
             appliances: list[dict[str, Any]] | None = None
 
             try:
-                await self.hass.async_add_executor_job(
-                    client.login, email, password,
-                )
+                await session.async_login()
             except AuthError as err:
                 _LOGGER.warning("Auth error during login: %s", err)
                 errors["base"] = "invalid_auth"
@@ -119,9 +125,7 @@ class ILetComfortConfigFlow(ConfigFlow, domain=DOMAIN):
 
             if not errors:
                 try:
-                    appliances = await self.hass.async_add_executor_job(
-                        client.list_appliances,
-                    )
+                    appliances = await session.async_discover_appliances()
                 except requests.exceptions.RequestException as err:
                     _LOGGER.warning("Network error during device discovery: %s", err)
                     errors["base"] = "cannot_connect"
