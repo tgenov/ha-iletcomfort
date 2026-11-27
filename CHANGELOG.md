@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.35.2](https://github.com/tgenov/ha-iletcomfort/compare/v0.35.1...v0.35.2) (2026-11-27)
+
+
+### Bug Fixes
+
+* debug-log every applied MQTT push frame with the retain flag ([#261](https://github.com/tgenov/ha-iletcomfort/issues/261)) ([7be4a4a](https://github.com/tgenov/ha-iletcomfort/commit/7be4a4ae4f12be0141b440697451419d6a8dcf3a))
+
 ## [0.35.1](https://github.com/tgenov/ha-iletcomfort/compare/v0.35.0...v0.35.1) (2026-11-27)
 
 
