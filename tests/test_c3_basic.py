@@ -519,25 +519,39 @@ def test_dhw_capability_guard_and_fast_dhw_write():
 
 
 def test_build_feature_set_explicit_silent_levels_preserve_schedule():
-    # Airwell #139 C8 capture: Super Silent bit (0x08) retained even when OFF.
+    # Airwell #139 C8/C10 captures:
+    # QUERY flags: bit 0 = ON, bit 1 = timer1, bit 2 = timer2, bit 3 = Super Silent.
+    # SET flags:   bit 0 = ON, bit 1 = Super Silent (0x03), bit 2 = timer1, bit 3 = timer2.
     airwell_off_super = bytes.fromhex("05 08 06 1e 09 1e 16 00 07 00")
 
-    # Level 1 must set bit 0 and explicitly clear bit 3 (0x08 -> 0x01).
+    # Level 1 encodes 0x01 (ON, Super Silent cleared) and keeps schedule bytes.
     lvl1 = bytes.fromhex(build_feature_set(airwell_off_super, True, silent_level=1))
     assert lvl1[10] == 0x05
     assert lvl1[11] == 0x01
     assert lvl1[12:20] == airwell_off_super[2:]
 
-    # Level 2 sets both bit 0 and bit 3 (0x08 -> 0x09).
+    # Level 2 (Super Silent) encodes 0x03 (bit 0 + bit 1, matching midea-local).
     lvl2 = bytes.fromhex(build_feature_set(airwell_off_super, True, silent_level=2))
-    assert lvl2[11] == 0x09
+    assert lvl2[11] == 0x03
     assert lvl2[12:20] == airwell_off_super[2:]
 
-    # Level 0 clears bit 0 while keeping bit 3 & schedule intact (0x09 -> 0x08).
+    # Level 0 encodes 0x00 (OFF) and preserves schedule bytes.
     airwell_on_super = bytes.fromhex("05 09 06 1e 09 1e 16 00 07 00")
     lvl0 = bytes.fromhex(build_feature_set(airwell_on_super, False, silent_level=0))
-    assert lvl0[11] == 0x08
+    assert lvl0[11] == 0x00
     assert lvl0[12:20] == airwell_on_super[2:]
+
+    # Scheduled Super Silent (QUERY 0x0b = ON | timer1 | super) translates timer1
+    # from QUERY bit 1 (0x02) -> SET bit 2 (0x04) without clobbering schedules:
+    airwell_super_sched = bytes.fromhex("05 0b 06 1e 09 1e 16 00 07 00")
+    assert bytes.fromhex(build_feature_set(airwell_super_sched, True, silent_level=1))[11] == 0x05
+    assert bytes.fromhex(build_feature_set(airwell_super_sched, True, silent_level=2))[11] == 0x07
+    assert bytes.fromhex(build_feature_set(airwell_super_sched, False, silent_level=0))[11] == 0x04
+
+    # Timer 2 (QUERY bit 2 = 0x04) translates to SET bit 3 (0x08).
+    airwell_timer2 = bytes.fromhex("05 05 06 1e 09 1e 16 00 07 00")
+    assert bytes.fromhex(build_feature_set(airwell_timer2, True, silent_level=1))[11] == 0x09
+    assert bytes.fromhex(build_feature_set(airwell_timer2, True, silent_level=2))[11] == 0x0B
 
     # Invalid silent_level, mismatched on/silent_level, or ECO with silent_level is rejected.
     with pytest.raises(ValueError, match="silent_level"):
@@ -591,10 +605,11 @@ def test_feature_set_rejects_other_bodies():
 
 
 def test_feature_set_preserves_upper_bits_and_accepts_full_eco_payload():
+    # Binary silent toggle preserves QUERY bit 3 (Super Silent -> SET 0x02) and upper nibble.
     silence_upper = bytearray(ROTENSO_SILENCE_QUERY)
-    silence_upper[1] = 0x08
+    silence_upper[1] = 0x28  # upper 0x20 + QUERY Super Silent 0x08
     frame = bytes.fromhex(build_feature_set(silence_upper, True))
-    assert frame[11] == 0x09
+    assert frame[11] == 0x23  # upper 0x20 + SET Super Silent 0x03
 
     eco_six_bytes = ROTENSO_ECO_QUERY + b"\x2a"
     eco_frame = bytes.fromhex(build_feature_set(eco_six_bytes, True))
@@ -1068,14 +1083,15 @@ async def test_mute_select_routes_to_c3_feature_when_opt_in(hass: HomeAssistant)
     await select.async_select_option("Off")
     plans = [c.args[0] for c in coordinator.async_execute_plan.await_args_list]
     assert {plan.fresh_read.subtype for plan in plans} == {0x05}  # never legacy ITS
-    # Encoded from a Super-Silent reply: Level 1 clears bit 3, Level 2 keeps
-    # it, Off clears only bit 0; the schedule bytes are copied unchanged.
+    # Encoded from a Super-Silent reply (0x05 0x09): Level 1 writes 0x01,
+    # Level 2 writes 0x03 (bit 0 + bit 1 per midea-local / #139), Off writes
+    # 0x00; the schedule bytes are copied unchanged.
     super_silent = bytes([0x05, 0x09]) + ROTENSO_SILENCE_QUERY[2:]
     schedule = ROTENSO_SILENCE_QUERY[2:]
     assert sent_commands(coordinator, super_silent) == [
         build_c3_frame(0x02, bytes([0x05, 0x01]) + schedule),
-        build_c3_frame(0x02, bytes([0x05, 0x09]) + schedule),
-        build_c3_frame(0x02, bytes([0x05, 0x08]) + schedule),
+        build_c3_frame(0x02, bytes([0x05, 0x03]) + schedule),
+        build_c3_frame(0x02, bytes([0x05, 0x00]) + schedule),
     ]
 
     # Without opt-in, legacy set_device refuses ATW without sending any command.
