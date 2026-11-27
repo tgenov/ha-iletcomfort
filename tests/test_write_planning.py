@@ -213,19 +213,19 @@ ROWS: dict[str, Row] = {
         ATW_SN8, _atw_ctx(), SetSilentModeCommand(enabled=False), (Q05, SET_SILENT_OFF),
         {Q05: SILENCE_REPLY},
     ),
-    "atw_silent_level1_clears_super_silent_bit3": Row(
+    "atw_silent_level1_sets_bit_0_only": Row(
         ATW_SN8, _atw_ctx(), SetSilentModeCommand(level=1),
         (Q05, build_c3_frame(0x02, bytes.fromhex("0501061e091e16000700"))),
         {Q05: _reply(AIRWELL_SILENCE_OFF_SUPER)},
     ),
-    "atw_silent_level2_sets_bits_0_and_3": Row(
+    "atw_silent_level2_sets_bits_0_and_1": Row(
         ATW_SN8, _atw_ctx(), SetSilentModeCommand(level=2),
-        (Q05, build_c3_frame(0x02, bytes.fromhex("0509061e091e16000700"))),
+        (Q05, build_c3_frame(0x02, bytes.fromhex("0503061e091e16000700"))),
         {Q05: _reply(AIRWELL_SILENCE_OFF_SUPER)},
     ),
-    "atw_silent_level0_keeps_super_silent_bit3": Row(
+    "atw_silent_level0_clears_mode_bits": Row(
         ATW_SN8, _atw_ctx(), SetSilentModeCommand(level=0),
-        (Q05, build_c3_frame(0x02, bytes.fromhex("0508061e091e16000700"))),
+        (Q05, build_c3_frame(0x02, bytes.fromhex("0500061e091e16000700"))),
         {Q05: _reply(AIRWELL_SILENCE_OFF_SUPER)},
     ),
     "atw_eco_on_keeps_schedule": Row(

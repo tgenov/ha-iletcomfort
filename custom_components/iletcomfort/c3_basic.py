@@ -35,11 +35,13 @@ C3 SET with the same AA header as the status query (``c3_frame.build_c3_frame``)
   0.5 °C resolution), plus DHW target/power/fast DHW (gated on ``cap_dhw``)
   and Zone-1/Zone-2 curve and power. Refuses mode changes and Zone Heat writes
   while the unit is in Cool mode.
-* silence SET — body ``05`` + 9 bytes, ECO SET — body ``07`` + 6 bytes. Bit 0
-  of the first byte is on/off (and bit 3 is Super Silent for ``0x05``, cleared
-  explicitly when selecting Silent Level 1); the rest is the device's timer
-  schedule, copied from a fresh query of the same body type so the owner's
-  schedule is preserved.
+* silence SET — body ``05`` + 9 bytes, ECO SET — body ``07`` + 6 bytes. For
+  ``0x05`` SET, bit 0 is on/off, bit 1 is Super Silent (``0x03`` = Level 2,
+  matching ``midea-local`` ``C3SilentLevel.SUPER_SILENT``), and bits 2–3 are
+  timer 1 / timer 2 enable (translated from QUERY bits 1–2); the remaining
+  bytes are the device's timer schedule, copied from a fresh query of the same
+  body type so the owner's schedule is preserved. For ``0x07`` ECO SET, bit 0
+  is on/off.
 
 Every basic SET is built from a fresh status, so only the requested field
 changes.
@@ -337,6 +339,34 @@ def build_basic_set(status: C3BasicStatus) -> str:
     return build_c3_frame(MSG_SET, body)
 
 
+def _encode_silence_set_flags(
+    query_flags: int, on: bool, silent_level: int | None
+) -> int:
+    """Translate 0x05 QUERY flags byte to 0x05 SET flags byte (#139).
+
+    Midea C3 uses different bit positions in 0x05 QUERY replies vs 0x05 SET
+    commands (confirmed against ``midea-local`` ``C3SilentLevel`` /
+    ``C3SilenceBody`` and Airwell Wellea Split live tests on #139):
+
+      QUERY (0x05 reply):  bit 0 = ON, bit 1 = timer1, bit 2 = timer2, bit 3 = Super Silent
+      SET   (0x05 write):  bit 0 = ON, bit 1 = Super Silent (0x03), bit 2 = timer1, bit 3 = timer2
+    """
+    upper = query_flags & 0xF0
+    timer1 = 0x04 if (query_flags & 0x02) else 0
+    timer2 = 0x08 if (query_flags & 0x04) else 0
+    query_super = bool(query_flags & 0x08)
+
+    if silent_level is None:
+        mode_bits = (0x03 if query_super else 0x01) if on else 0x00
+    elif silent_level == 0:
+        mode_bits = 0x00
+    elif silent_level == 1:
+        mode_bits = 0x01
+    else:
+        mode_bits = 0x03
+    return upper | mode_bits | timer1 | timer2
+
+
 def build_feature_set(
     query_body: bytes | bytearray,
     on: bool,
@@ -349,11 +379,13 @@ def build_feature_set(
     midea-local, which zeroes them) so the owner's schedules survive. A reply
     too short to carry the whole schedule is rejected rather than zero-filled.
 
-    When ``silent_level`` is provided for Silence (``0x05``):
-      - ``0`` (Off): clears bit 0 (preserving bit 3 and timer schedule bytes).
-      - ``1`` (Level 1): sets bit 0 and explicitly clears bit 3 (Super Silent)
-        so selecting Level 1 after Super Silent does not stay stuck (#139 C8).
-      - ``2`` (Level 2 / Super Silent): sets bit 0 and bit 3.
+    For Silence (``0x05``), the flags byte is translated from QUERY bit layout
+    (bit 1 = timer1, bit 2 = timer2, bit 3 = Super Silent) to SET bit layout
+    (bit 1 = Super Silent, bit 2 = timer1, bit 3 = timer2; matching
+    ``midea-local`` ``C3SilentLevel.SUPER_SILENT = 0x03``):
+      - ``0`` (Off): ``0x00`` + preserved timer enable bits & schedule bytes.
+      - ``1`` (Level 1): ``0x01`` + preserved timer enable bits & schedule bytes.
+      - ``2`` (Level 2 / Super Silent): ``0x03`` + preserved timer enable bits & schedule bytes.
     """
     if not query_body or query_body[0] not in _FEATURE_SET_LEN:
         raise ValueError("not a silence/ECO query body")
@@ -375,14 +407,10 @@ def build_feature_set(
         )
     size = _FEATURE_SET_LEN[body_type]
     payload = (payload + bytearray(size))[:size]
-    if silent_level is None:
-        payload[0] = (payload[0] & ~0x01) | (0x01 if on else 0)
-    elif silent_level == 0:
-        payload[0] = payload[0] & ~0x01
-    elif silent_level == 1:
-        payload[0] = (payload[0] & ~0x09) | 0x01
+    if body_type == BODY_SILENCE:
+        payload[0] = _encode_silence_set_flags(payload[0], on, silent_level)
     else:
-        payload[0] = (payload[0] & ~0x09) | 0x09
+        payload[0] = (payload[0] & ~0x01) | (0x01 if on else 0)
     return build_c3_frame(MSG_SET, bytes([body_type]) + bytes(payload))
 
 
