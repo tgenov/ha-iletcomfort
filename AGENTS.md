@@ -139,7 +139,26 @@ Status `raw_body` (0-indexed; STANDARD misreads this 25-byte frame):
 - `byte[9]`  = Zone-1 setpoint **×2** (0.5° resolution) → divide by 2.
 - `byte[22]` = DHW tank current temp, **direct °C** (`ATW_DHW_TANK_TEMP_INDEX`).
 - `byte[1]`  = flags (`ATW_FLAGS_INDEX`); bit `0x01` = space-heat demand (`ATW_SPACE_HEAT_DEMAND_BIT`).
-- `byte[24]` = constant `0x80` flags/MSB byte — **NOT an error code** (STANDARD wrongly read it as 128).
+- `byte[24]` = flags byte — **NOT an error code** (STANDARD wrongly read it as 128). `midea-local`
+  (`C3BasicBody`, offset 23) names the bits: `0x80` `tbh_control`, `0x40` `HMIEnergyAnaSetEN`, `0x20`
+  `SysEnergyAnaEN`. This explains the captured values: `0x80` (Italtherm #22, Rotenso #124), `0xe0`
+  (Galmet #38/#118, Airwell #139), `0x60` (NØRDIS #120/#132), `0x00` (Italtherm Hydrablock #138).
+  One more NØRDIS frame has `0x40` (`NORDIS_ATW_STATUS_FRAMES["unit2"]` in
+  `tests/test_dialect_profiles.py`; it is not in the corpus). `decode_c3_basic` decodes them into `C3BasicStatus.tbh_control` / `hmi_energy_analysis` /
+  `sys_energy_analysis` (`None` on a 24-byte frame) for **diagnostics only**. The bit names are a
+  `midea-local` candidate and are not confirmed on Dollin hardware.
+  **Open hypothesis, not a gate:** `body[24] & 0x20` is set on the units where the `0x10` query works
+  (NØRDIS #120, Galmet #118, Airwell #139) and clear on Rotenso, where `0x10` gives `1214`. The
+  evidence has these limits:
+  - In the corpus, `0x20` and `0x40` are set together on all 27-byte frames and on no 25-byte frame.
+    The corpus cannot separate the two bits, and inside the corpus the frame length is an equal
+    predictor.
+  - The corpus has no `1214` record. The Rotenso (#143) and M-Thermal (#142) rejections are known
+    from the issue threads only, and the corpus Airwell #139 case has no `0x10` frame.
+  - The NØRDIS `unit2` frame is 27 bytes with `0x40` set and `0x20` clear. It has `body[2]=0x17`,
+    the same as the #120 unit, which has tail `0x60` in the corpus. It is not known if `unit2` is
+    the #120 unit. If it is, `0x20` changes at run time and is not a static capability flag.
+  Do not gate the `0x10` probe on this bit until more diagnostics files confirm it.
 - ATW sets `error_code=0` and `comp_running=None` (no confirmed running signal in any 0x01 layout; only 0x10 sets it).
 - `decode_atw_status(body)` implements this. Uncertain HVAC mode/action is left conservative — validate
   on hardware before adding.
@@ -241,6 +260,8 @@ Status `raw_body` (0-indexed; STANDARD misreads this 25-byte frame):
   `0x04`, `0x05`, `0x0A`, `0x10`) or `0xC3` SET command (`MessageSet`, `MessageSetECO`,
   `MessageSetSilent`). Treat `midea-local` as the candidate byte map and still verify against at
   least one real Dollin hardware capture before shipping.
+  Known divergence: `midea-local` reads the `0x10` fan speed at `body[4] * 10`, while Galmet #118
+  hardware shows `body[3]` (`0x35` → 530 RPM, matched to Sinum). Do not copy that offset.
 
 ### `171H120F` control: standard Midea C3 SET — hardware-validated on Rotenso Aquami (water) & Heiwa (#42, room), opt-in
 - **Writes work with the standard Midea C3 SET**, not the 62-byte ITS frame (`build_c3_set`, `1214`):

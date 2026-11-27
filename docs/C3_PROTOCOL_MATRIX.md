@@ -40,7 +40,8 @@ Legend:
 | `9` | `room_target` (`raw / 2` °C) | **Hardware-Verified (Unified room-mode)** | Selected when `body[2] & 0x10` is clear (`0`: Italtherm #22, Inventor ATM16S #125, Heiwa #42 C14); 0.5 °C resolution. |
 | `10..21` | Min/max limits (Zone-1/Zone-2/Room×2/DHW) | **Candidate (`midea-local`)** | Matches vendor schema bounds in `c3_basic.py`. |
 | `22` | `dhw_tank_temp` (direct °C) | **Hardware-Verified (Dollin)** | Routed to `th_temp` ("DHW Tank Temperature") only when `cap_dhw`; no-DHW units fill it with a non-reading (`0xf1` #138; `0x19` #47 Dantex, #123, #124 "western", #139, #142), so the tank is unavailable. |
-| `23` | `error_code` | **Hardware-Verified (`0`)** | 25B/27B tail `[24..26]` is flags/MSB (`0x80`/`0xe0`/`0x60`/`0x40`), never error code. |
+| `23` | `error_code` | **Hardware-Verified (`0`)** | The 25B/27B tail `[24..26]` is never an error code. See index `24`. |
+| `24` | `0x80` `tbh_control`, `0x40` `hmi_energy_analysis` (`HMIEnergyAnaSetEN`), `0x20` `sys_energy_analysis` (`SysEnergyAnaEN`) | **Candidate (`midea-local`)** | The tail values `0x80` / `0xe0` / `0x60` / `0x40` (and `0x00` on #138) are these flags. Decoded into `C3BasicStatus` for diagnostics only; `None` on a 24-byte frame. Open hypothesis: `0x20` is set on the units where the `0x10` query works (NØRDIS #120, Galmet #118, Airwell #139) and clear on Rotenso (`1214`). In the corpus, `0x20` and `0x40` are set together on all 27-byte frames and on no 25-byte frame, so the corpus cannot separate the two bits or the frame length, and it has no `1214` record. One NØRDIS frame outside the corpus (`unit2` in `tests/test_dialect_profiles.py`) is 27 bytes with `0x40` set and `0x20` clear; it is not known if it is the #120 unit, in which case `0x20` changes at run time. It is not used as a probe gate. |
 
 ---
 
@@ -51,7 +52,7 @@ Signed 8-bit °C values use `0x7F` as disconnected sentinel (`_ATW_UNIT_SENSOR_D
 | Index | Field | Scale / Encoding | Status | Source / Notes |
 |---|---|---|---|---|
 | `1` | `comp_frq` | Hz (`comp_running = frq > 0`) | **Hardware-Verified** | NØRDIS #120, Airwell #139 (`31 Hz`) |
-| `3` | `fan_speed_rpm` | `raw * 10`, RPM | **Hardware-Verified (probe)** | Galmet #118 (`0x35 → 530 RPM` vs. Sinum `530 RPM`); fixed in `scripts/c3_probe.py` |
+| `3` | `fan_speed_rpm` | `raw * 10`, RPM | **Hardware-Verified (probe)** | Galmet #118 (`0x35 → 530 RPM` vs. Sinum `530 RPM`); fixed in `scripts/c3_probe.py`. **Dollin-Divergent:** `midea-local` reads `body[4] * 10` (`data_offset + 3`), which gives 20 on the same capture. Do not copy that offset. |
 | `7` | `t3_temp` (Condenser / outdoor coil) | int8 °C | **Hardware-Verified** | NØRDIS #120, Airwell #139 |
 | `8` | `t4_temp` (Outdoor ambient) | int8 °C | **Hardware-Verified** | NØRDIS #120, Airwell #139 (`7 °C`) |
 | `9` | `tp_temp` (Plate HX / discharge) | int8 °C | **Hardware-Verified** | NØRDIS #120, Airwell #139 |

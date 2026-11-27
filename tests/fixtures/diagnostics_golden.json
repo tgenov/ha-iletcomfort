@@ -986,7 +986,10 @@
     "dhw_max": 60,
     "dhw_min": 20,
     "dhw_tank_temp": 41,
-    "error_code": 0
+    "error_code": 0,
+    "tbh_control": true,
+    "hmi_energy_analysis": false,
+    "sys_energy_analysis": false
    },
    "raw_body": "01,00,77,91,03,03,32,1e,36,26,41,23,19,05,37,19,19,05,3c,22,3c,14,29,00,80"
   },
@@ -1218,7 +1221,10 @@
     "dhw_max": 60,
     "dhw_min": 20,
     "dhw_tank_temp": 41,
-    "error_code": 0
+    "error_code": 0,
+    "tbh_control": true,
+    "hmi_energy_analysis": false,
+    "sys_energy_analysis": false
    },
    "raw_body": "01,00,77,91,03,03,32,1e,36,26,41,23,19,05,37,19,19,05,3c,22,3c,14,29,00,80"
   },
@@ -1452,7 +1458,10 @@
     "dhw_max": 60,
     "dhw_min": 20,
     "dhw_tank_temp": 25,
-    "error_code": 0
+    "error_code": 0,
+    "tbh_control": true,
+    "hmi_energy_analysis": true,
+    "sys_energy_analysis": true
    },
    "raw_body": "01,09,73,90,03,03,28,1e,32,30,41,23,19,05,37,19,19,05,3c,22,3c,14,19,00,e0,05,00"
   },
@@ -1614,7 +1623,10 @@
     "dhw_max": 60,
     "dhw_min": 20,
     "dhw_tank_temp": 25,
-    "error_code": 0
+    "error_code": 0,
+    "tbh_control": true,
+    "hmi_energy_analysis": true,
+    "sys_energy_analysis": true
    },
    "raw_body": "01,09,73,90,03,03,28,1e,32,30,41,23,19,05,37,19,19,05,3c,22,3c,14,19,00,e0,05,00"
   },
@@ -1776,7 +1788,10 @@
     "dhw_max": 60,
     "dhw_min": 20,
     "dhw_tank_temp": 25,
-    "error_code": 0
+    "error_code": 0,
+    "tbh_control": true,
+    "hmi_energy_analysis": true,
+    "sys_energy_analysis": true
    },
    "raw_body": "01,09,73,92,03,03,28,1e,32,30,41,23,19,05,37,19,19,05,3c,22,3c,14,19,00,e0,05,00"
   },
@@ -1938,7 +1953,10 @@
     "dhw_max": 60,
     "dhw_min": 20,
     "dhw_tank_temp": 25,
-    "error_code": 0
+    "error_code": 0,
+    "tbh_control": true,
+    "hmi_energy_analysis": true,
+    "sys_energy_analysis": true
    },
    "raw_body": "01,09,73,92,03,03,28,1e,32,30,41,23,19,05,37,19,19,05,3c,22,3c,14,19,00,e0,05,00"
   },
@@ -2098,7 +2116,10 @@
     "dhw_max": 60,
     "dhw_min": 20,
     "dhw_tank_temp": 40,
-    "error_code": 0
+    "error_code": 0,
+    "tbh_control": true,
+    "hmi_energy_analysis": true,
+    "sys_energy_analysis": true
    },
    "raw_body": "01,05,15,a0,03,03,1c,1e,2c,30,37,19,19,05,37,19,19,05,3c,22,3c,14,28,00,e0,03,03"
   },
@@ -2367,7 +2388,10 @@
     "dhw_max": 60,
     "dhw_min": 20,
     "dhw_tank_temp": 40,
-    "error_code": 0
+    "error_code": 0,
+    "tbh_control": true,
+    "hmi_energy_analysis": true,
+    "sys_energy_analysis": true
    },
    "raw_body": "01,05,15,a0,03,03,1c,1e,2c,30,37,19,19,05,37,19,19,05,3c,22,3c,14,28,00,e0,03,03"
   },
@@ -2638,7 +2662,10 @@
     "dhw_max": 60,
     "dhw_min": 20,
     "dhw_tank_temp": 44,
-    "error_code": 0
+    "error_code": 0,
+    "tbh_control": true,
+    "hmi_energy_analysis": true,
+    "sys_energy_analysis": true
    },
    "raw_body": "01,0d,15,a0,03,03,1c,1e,2c,30,37,19,19,05,37,19,19,05,3c,22,3c,14,2c,00,e0,06,01"
   },
@@ -2909,7 +2936,10 @@
     "dhw_max": 60,
     "dhw_min": 20,
     "dhw_tank_temp": 44,
-    "error_code": 0
+    "error_code": 0,
+    "tbh_control": true,
+    "hmi_energy_analysis": true,
+    "sys_energy_analysis": true
    },
    "raw_body": "01,0d,15,a0,03,03,1c,1e,2c,30,37,19,19,05,37,19,19,05,3c,22,3c,14,2c,00,e0,06,01"
   },
@@ -3178,7 +3208,10 @@
     "dhw_max": 60,
     "dhw_min": 20,
     "dhw_tank_temp": 37,
-    "error_code": 0
+    "error_code": 0,
+    "tbh_control": true,
+    "hmi_energy_analysis": false,
+    "sys_energy_analysis": false
    },
    "raw_body": "01,09,05,11,03,03,32,28,3c,3c,41,23,19,05,41,23,19,05,3c,22,3c,14,25,00,80"
   },
@@ -3410,7 +3443,10 @@
     "dhw_max": 60,
     "dhw_min": 20,
     "dhw_tank_temp": 37,
-    "error_code": 0
+    "error_code": 0,
+    "tbh_control": true,
+    "hmi_energy_analysis": false,
+    "sys_energy_analysis": false
    },
    "raw_body": "01,09,05,11,03,03,32,28,3c,3c,41,23,19,05,41,23,19,05,3c,22,3c,14,25,00,80"
   },
@@ -3641,7 +3677,10 @@
     "dhw_max": 60,
     "dhw_min": 20,
     "dhw_tank_temp": 46,
-    "error_code": 0
+    "error_code": 0,
+    "tbh_control": true,
+    "hmi_energy_analysis": false,
+    "sys_energy_analysis": false
    },
    "raw_body": "01,0d,07,68,03,03,1e,28,32,3a,37,19,19,05,41,23,19,05,3c,22,3c,14,2e,00,80"
   },
@@ -3800,7 +3839,10 @@
     "dhw_max": 60,
     "dhw_min": 20,
     "dhw_tank_temp": 46,
-    "error_code": 0
+    "error_code": 0,
+    "tbh_control": true,
+    "hmi_energy_analysis": false,
+    "sys_energy_analysis": false
    },
    "raw_body": "01,0d,07,68,03,03,1e,28,32,3a,37,19,19,05,41,23,19,05,3c,22,3c,14,2e,00,80"
   },
@@ -3960,7 +4002,10 @@
     "dhw_max": 60,
     "dhw_min": 40,
     "dhw_tank_temp": 241,
-    "error_code": 0
+    "error_code": 0,
+    "tbh_control": false,
+    "hmi_energy_analysis": false,
+    "sys_energy_analysis": false
    },
    "raw_body": "01,00,73,90,03,03,23,1e,31,78,3c,23,19,05,37,19,19,05,3c,22,3c,28,f1,00,00"
   },
@@ -4192,7 +4237,10 @@
     "dhw_max": 60,
     "dhw_min": 40,
     "dhw_tank_temp": 241,
-    "error_code": 0
+    "error_code": 0,
+    "tbh_control": false,
+    "hmi_energy_analysis": false,
+    "sys_energy_analysis": false
    },
    "raw_body": "01,00,73,90,03,03,23,1e,31,78,3c,23,19,05,37,19,19,05,3c,22,3c,28,f1,00,00"
   },
@@ -4424,7 +4472,10 @@
     "dhw_max": 60,
     "dhw_min": 20,
     "dhw_tank_temp": 44,
-    "error_code": 0
+    "error_code": 0,
+    "tbh_control": true,
+    "hmi_energy_analysis": false,
+    "sys_energy_analysis": false
    },
    "raw_body": "01,1f,3f,00,03,03,23,19,2c,30,37,19,19,05,37,19,19,05,3c,22,3c,14,2c,00,80"
   },
@@ -4656,7 +4707,10 @@
     "dhw_max": 60,
     "dhw_min": 20,
     "dhw_tank_temp": 44,
-    "error_code": 0
+    "error_code": 0,
+    "tbh_control": true,
+    "hmi_energy_analysis": false,
+    "sys_energy_analysis": false
    },
    "raw_body": "01,1f,3f,00,03,03,23,19,2c,30,37,19,19,05,37,19,19,05,3c,22,3c,14,2c,00,80"
   },
@@ -4888,7 +4942,10 @@
     "dhw_max": 60,
     "dhw_min": 20,
     "dhw_tank_temp": 49,
-    "error_code": 0
+    "error_code": 0,
+    "tbh_control": true,
+    "hmi_energy_analysis": false,
+    "sys_energy_analysis": false
    },
    "raw_body": "01,05,17,a0,03,03,21,1e,31,30,37,19,19,05,37,19,19,05,3c,22,3c,14,31,00,80"
   },
@@ -5120,7 +5177,10 @@
     "dhw_max": 60,
     "dhw_min": 20,
     "dhw_tank_temp": 49,
-    "error_code": 0
+    "error_code": 0,
+    "tbh_control": true,
+    "hmi_energy_analysis": false,
+    "sys_energy_analysis": false
    },
    "raw_body": "01,05,17,a0,03,03,21,1e,31,30,37,19,19,05,37,19,19,05,3c,22,3c,14,31,00,80"
   },
@@ -5354,7 +5414,10 @@
     "dhw_max": 60,
     "dhw_min": 20,
     "dhw_tank_temp": 46,
-    "error_code": 0
+    "error_code": 0,
+    "tbh_control": false,
+    "hmi_energy_analysis": true,
+    "sys_energy_analysis": true
    },
    "raw_body": "01,0d,15,a0,03,03,21,1e,32,30,37,19,19,05,37,19,19,05,3c,22,3c,14,2e,00,60,04,03"
   },
@@ -5625,7 +5688,10 @@
     "dhw_max": 60,
     "dhw_min": 20,
     "dhw_tank_temp": 46,
-    "error_code": 0
+    "error_code": 0,
+    "tbh_control": false,
+    "hmi_energy_analysis": true,
+    "sys_energy_analysis": true
    },
    "raw_body": "01,0d,15,a0,03,03,21,1e,32,30,37,19,19,05,37,19,19,05,3c,22,3c,14,2e,00,60,04,03"
   },
@@ -5894,7 +5960,10 @@
     "dhw_max": 60,
     "dhw_min": 20,
     "dhw_tank_temp": 39,
-    "error_code": 0
+    "error_code": 0,
+    "tbh_control": false,
+    "hmi_energy_analysis": true,
+    "sys_energy_analysis": true
    },
    "raw_body": "01,0d,17,a1,03,03,21,1e,28,30,37,19,19,05,37,19,19,05,3c,22,3c,14,27,00,60,05,00"
   },
@@ -6163,7 +6232,10 @@
     "dhw_max": 60,
     "dhw_min": 20,
     "dhw_tank_temp": 39,
-    "error_code": 0
+    "error_code": 0,
+    "tbh_control": false,
+    "hmi_energy_analysis": true,
+    "sys_energy_analysis": true
    },
    "raw_body": "01,0d,17,a1,03,03,21,1e,28,30,37,19,19,05,37,19,19,05,3c,22,3c,14,27,00,60,05,00"
   },
@@ -6432,7 +6504,10 @@
     "dhw_max": 60,
     "dhw_min": 20,
     "dhw_tank_temp": 50,
-    "error_code": 0
+    "error_code": 0,
+    "tbh_control": true,
+    "hmi_energy_analysis": false,
+    "sys_energy_analysis": false
    },
    "raw_body": "01,0d,15,90,03,03,28,1e,32,30,41,23,19,05,37,19,19,05,3c,22,3c,14,32,00,80"
   },
@@ -6664,7 +6739,10 @@
     "dhw_max": 60,
     "dhw_min": 20,
     "dhw_tank_temp": 50,
-    "error_code": 0
+    "error_code": 0,
+    "tbh_control": true,
+    "hmi_energy_analysis": false,
+    "sys_energy_analysis": false
    },
    "raw_body": "01,0d,15,90,03,03,28,1e,32,30,41,23,19,05,37,19,19,05,3c,22,3c,14,32,00,80"
   },

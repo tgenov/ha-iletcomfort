@@ -18,6 +18,9 @@ is laid out like the standard Midea C3 basic body (midea-local
     [14..17] zone2 heat max/min, cool max/min
     [18..19] room max/min × 2         [20..21] DHW max/min
     [22] DHW tank actual °C           [23] error code
+    [24] flags (midea-local offset 23): 0x80 TBH control,
+         0x40 HMI energy-analysis setting, 0x20 system energy analysis.
+         Not an error code. Diagnostics only; no behaviour depends on it.
 
 Which byte holds the setpoint the official app displays is **not** settled
 for every unit (see #124), so the decoder only exposes the raw fields; the
@@ -81,6 +84,9 @@ C3_MODE_COOL = 2
 C3_MODE_HEAT = 3
 
 BASIC_MIN_LEN = 24  # body type byte + 23 data bytes up to the error code
+# Optional flags byte after the error code. Every captured frame (25 and 27
+# bytes) has it; a 24-byte frame does not, and the flags stay unknown (None).
+BASIC_FLAGS_INDEX = 24
 
 
 @dataclass(frozen=True)
@@ -122,6 +128,13 @@ class C3BasicStatus:
     dhw_min: int
     dhw_tank_temp: int
     error_code: int
+    # body[24] flags (midea-local ``tbh_control`` / ``HMIEnergyAnaSetEN`` /
+    # ``SysEnergyAnaEN``). Candidate meaning from midea-local, not confirmed on
+    # Dollin hardware: raw diagnostic fields only. None when the frame has no
+    # body[24].
+    tbh_control: bool | None = None
+    hmi_energy_analysis: bool | None = None
+    sys_energy_analysis: bool | None = None
 
     @property
     def is_cooling_mode(self) -> bool:
@@ -149,6 +162,7 @@ def decode_c3_basic(body: bytes | bytearray) -> C3BasicStatus | None:
     if body[4] not in (C3_MODE_COOL, C3_MODE_HEAT):
         return None
     b1, b2, b3 = body[1], body[2], body[3]
+    flags = body[BASIC_FLAGS_INDEX] if len(body) > BASIC_FLAGS_INDEX else None
     return C3BasicStatus(
         zone1_power=bool(b1 & 0x01),
         zone2_power=bool(b1 & 0x02),
@@ -185,6 +199,9 @@ def decode_c3_basic(body: bytes | bytearray) -> C3BasicStatus | None:
         dhw_min=body[21],
         dhw_tank_temp=body[22],
         error_code=body[23],
+        tbh_control=None if flags is None else bool(flags & 0x80),
+        hmi_energy_analysis=None if flags is None else bool(flags & 0x40),
+        sys_energy_analysis=None if flags is None else bool(flags & 0x20),
     )
 
 

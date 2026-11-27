@@ -9,7 +9,8 @@ C3BasicBody layout (see ``c3_basic.py``):
   byte[8]  DHW setpoint in °C (direct value).
   byte[22] DHW tank current temp in °C (direct value, routed to th_temp);
            unavailable when byte[2] lacks the 0x04 DHW capability (#138).
-  byte[23] error_code (byte[24..] are flags/MSB bytes, not an error code).
+  byte[23] error_code (byte[24] is a flags byte, see c3_basic.py; byte[24..]
+           are not an error code).
 
 ``comp_running`` / ``comp_frq`` / cumulative counters / pressures are None in
 0x01 and overlaid from subtype 0x10 / 0x0A / MQTT 0x04 when supported.

@@ -153,6 +153,53 @@ def test_decode_rotenso_baseline():
     assert basic.error_code == 0
 
 
+@pytest.mark.parametrize(
+    ("tail", "tbh_control", "hmi_energy_analysis", "sys_energy_analysis"),
+    [
+        # Italtherm #22, Rotenso #124 (25-byte frames).
+        (0x80, True, False, False),
+        # Galmet #38 / #118, Airwell Wellea Split #139 (27-byte frames).
+        (0xE0, True, True, True),
+        # NØRDIS #120 / #132 (27-byte frame).
+        (0x60, False, True, True),
+        # Second NØRDIS unit (#132).
+        (0x40, False, True, False),
+        # Italtherm Hydrablock #138.
+        (0x00, False, False, False),
+    ],
+)
+def test_body24_flags_follow_midea_local_bits(
+    tail, tbh_control, hmi_energy_analysis, sys_energy_analysis
+):
+    body = bytearray(ITALTHERM_STATE2)
+    body[24] = tail
+    basic = decode_c3_basic(body)
+    assert basic is not None
+    assert basic.tbh_control is tbh_control
+    assert basic.hmi_energy_analysis is hmi_energy_analysis
+    assert basic.sys_energy_analysis is sys_energy_analysis
+    # body[24] is a flags byte, never the error code (body[23]).
+    assert basic.error_code == 0
+
+
+def test_body24_flags_are_unknown_when_the_frame_ends_at_the_error_code():
+    basic = decode_c3_basic(ITALTHERM_STATE2[:24])
+    assert basic is not None
+    assert basic.tbh_control is None
+    assert basic.hmi_energy_analysis is None
+    assert basic.sys_energy_analysis is None
+
+
+def test_body24_flags_reach_the_flattened_diagnostics_status():
+    from custom_components.iletcomfort.protocols import flatten_status
+
+    status = decode_atw_status(bytearray(ITALTHERM_STATE2))
+    c3_basic = flatten_status(status)["c3_basic"]
+    assert c3_basic["tbh_control"] is True
+    assert c3_basic["hmi_energy_analysis"] is False
+    assert c3_basic["sys_energy_analysis"] is False
+
+
 def test_cooling_mode_uses_cooling_limits():
     basic = decode_c3_basic(_cooling(_body(ROTENSO_BASELINE)))
     assert basic.is_cooling_mode
