@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.35.0](https://github.com/tgenov/ha-iletcomfort/compare/v0.34.0...v0.35.0) (2026-11-27)
+
+
+### Features
+
+* decode C3 basic body[24] flags for diagnostics ([#253](https://github.com/tgenov/ha-iletcomfort/issues/253)) ([bfaa53f](https://github.com/tgenov/ha-iletcomfort/commit/bfaa53f4603e808f6c5a9d3db2a69db3274ce9a0))
+
+
+### Bug Fixes
+
+* publish unknown for null-fill tank temperature and zero ITS energy ([#252](https://github.com/tgenov/ha-iletcomfort/issues/252)) ([58a4adc](https://github.com/tgenov/ha-iletcomfort/commit/58a4adc4ca90bb570ae1e40780547d3b7b9cc1cd))
+
 ## [0.34.0](https://github.com/tgenov/ha-iletcomfort/compare/v0.33.5...v0.34.0) (2026-11-27)
 
 
