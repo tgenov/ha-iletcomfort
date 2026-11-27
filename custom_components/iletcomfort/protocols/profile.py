@@ -9,6 +9,7 @@ ATW_SN8 = "171H120F"
 AQUAPURA_SN8 = "171000AU"
 KJRH120L_SN8 = "17100003"
 KJRH120L2_SN8 = "17100007"  # Known catalogue entry; no validated profile yet.
+KJR86T3_SN8 = "17186T3A"  # KJR-86T3 table controller (AQUAPURA variant, #126).
 
 
 class ModelProfile(Enum):
@@ -18,12 +19,14 @@ class ModelProfile(Enum):
     ATW = "atw"
     AQUAPURA = "aquapura"
     KJRH120L = "kjrh120l"
+    KJR86T3 = "kjr86t3"
 
 
 _SN8_PROFILES: dict[str, ModelProfile] = {
     ATW_SN8: ModelProfile.ATW,
     AQUAPURA_SN8: ModelProfile.AQUAPURA,
     KJRH120L_SN8: ModelProfile.KJRH120L,
+    KJR86T3_SN8: ModelProfile.KJR86T3,
 }
 
 

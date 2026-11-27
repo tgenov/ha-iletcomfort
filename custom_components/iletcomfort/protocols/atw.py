@@ -17,7 +17,7 @@ C3BasicBody layout (see ``c3_basic.py``):
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 import dataclasses
 from typing import Any
 
@@ -928,6 +928,12 @@ class AtwAdapter:
 
     def build_query(self, subtype: int) -> str:
         return build_c3_query(subtype)
+
+    def read_status(self, send: Callable[[str], str]) -> ITSStatus | None:
+        return None
+
+    def read_sensors(self, send: Callable[[str], str]) -> ITSSensors | None:
+        return None
 
     def decode_status(self, status: ITSStatus) -> ITSStatus:
         return decode_atw_status(status.raw_body)

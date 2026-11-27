@@ -97,6 +97,10 @@ class WritePlan:
     fresh_read: FreshRead | None = None
     encode: Callable[[bytes], str] | None = None
     description: str = ""
+    # Optional check of the SET reply, ``verify(sent_hex, response_hex)``; it
+    # raises ``ApiError`` when the device did not apply the write (e.g. an
+    # echo of the command on table-based controllers).
+    verify: Callable[[str, str], None] | None = None
 
     def __post_init__(self) -> None:
         if self.command is not None:
@@ -109,9 +113,15 @@ class WritePlan:
             )
 
     @classmethod
-    def static(cls, command: str, description: str = "") -> WritePlan:
+    def static(
+        cls,
+        command: str,
+        description: str = "",
+        *,
+        verify: Callable[[str, str], None] | None = None,
+    ) -> WritePlan:
         """Return a plan whose wire command is fully known at planning time."""
-        return cls(command=command, description=description)
+        return cls(command=command, description=description, verify=verify)
 
     @classmethod
     def read_modify_write(
@@ -156,6 +166,8 @@ def run_write_plan(plan: WritePlan, send: Callable[[str], str]) -> dict[str, Any
         fresh_body = read_fresh_body(plan.fresh_read, send(plan.fresh_read.command))
     command = plan.resolve(fresh_body)
     response_hex = send(command)
+    if plan.verify is not None:
+        plan.verify(command, response_hex)
     return {"sent": command, "response": response_hex}
 
 
