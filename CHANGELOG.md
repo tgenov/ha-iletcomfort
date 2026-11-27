@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.33.4](https://github.com/tgenov/ha-iletcomfort/compare/v0.33.3...v0.33.4) (2026-11-27)
+
+
+### Bug Fixes
+
+* translate 0x05 QUERY flags to SET flags for C3 Silent Level 2 ([#139](https://github.com/tgenov/ha-iletcomfort/issues/139)) ([#242](https://github.com/tgenov/ha-iletcomfort/issues/242)) ([eff8fd4](https://github.com/tgenov/ha-iletcomfort/commit/eff8fd43852b99e1a22ed7ed35509a15c1c70f44))
+
 ## [0.33.3](https://github.com/tgenov/ha-iletcomfort/compare/v0.33.2...v0.33.3) (2026-11-26)
 
 
