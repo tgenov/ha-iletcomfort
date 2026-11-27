@@ -198,7 +198,7 @@ class ITSStatus:
     pressure_h: int | None = None
     pressure_l: int | None = None
     comp_frq: int | None = None
-    total_kwh: int | None = None
+    total_kwh: float | None = None
     total_thermal_kwh: int | None = None
     comp_total_run_hours: int | None = None
     fan_total_run_hours: int = 0

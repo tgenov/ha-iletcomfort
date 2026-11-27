@@ -30,7 +30,12 @@ import dataclasses
 
 from ..api import ITSSensors, ITSStatus
 from ..c3_basic import C3BasicStatus
-from ..c3_frame import build_c3_query, extract_c3_body, parse_hex_response
+from ..c3_frame import (
+    build_c3_frame,
+    build_c3_query,
+    extract_c3_body,
+    parse_hex_response,
+)
 from ..cloud import ApiError
 from ..commands import (
     HeatPumpCommand,
@@ -89,18 +94,11 @@ KJR86T3_NO_LEVEL_2 = "The KJR-86T3 has a single silent level"
 _INVALID_U16 = (0x7FFF, 0xFFFF)
 
 
-def _frame(message_type: int, body: list[int]) -> str:
-    frame = [0xAA, 0, 0xC3, 0, 0, 0, 0, 0, 0, message_type, *body]
-    frame[1] = len(frame)
-    frame.append((~sum(frame[1:]) + 1) & 0xFF)
-    return bytes(frame).hex()
-
-
 def build_kjr86t3_table_query(table: int) -> str:
     """Return the read-only table query frame for ``table``."""
     body = [0x01, (table >> 8) & 0xFF, table & 0xFF]
     body += [0x00] * (KJR86T3_QUERY_BODY_LEN - len(body))
-    return _frame(0x03, body)
+    return build_c3_frame(0x03, bytes(body))
 
 
 def build_kjr86t3_write(
@@ -114,7 +112,7 @@ def build_kjr86t3_write(
         if not len(KJR86T3_WRITE_HEADER) + 3 <= pos < body_len:
             raise ValueError(f"table {table} index {index} is not writable")
         body[pos] = value & 0xFF
-    return _frame(0x02, body)
+    return build_c3_frame(0x02, bytes(body))
 
 
 def build_kjr86t3_settings_write(
@@ -155,9 +153,21 @@ def kjr86t3_table_matches(body: bytearray | bytes, table: int) -> bool:
 
 
 def verify_kjr86t3_write(command_hex: str, response_hex: str) -> None:
-    """Raise ``ApiError`` when the device echoed a write instead of applying it."""
-    if response_hex.strip().lower() == command_hex.lower():
+    """Raise ``ApiError`` when the device echoed a write or returned no table-500 reply."""
+    try:
+        raw_reply = parse_hex_response(response_hex)
+    except ValueError as err:
+        raise ApiError(f"The KJR-86T3 write returned invalid hex: {err}") from err
+    if bytes(raw_reply) == bytes.fromhex(command_hex):
         raise ApiError("The KJR-86T3 rejected the write (command echoed back)")
+    try:
+        _body_type, body = extract_c3_body(raw_reply)
+    except ValueError as err:
+        raise ApiError(f"The KJR-86T3 write returned an invalid reply: {err}") from err
+    if not kjr86t3_table_matches(body, KJR86T3_TABLE_SETTINGS):
+        raise ApiError(
+            "The KJR-86T3 write did not return an updated table 500 reply"
+        )
 
 
 def _u16(body: bytearray | bytes, index: int) -> int | None:
@@ -206,7 +216,7 @@ def decode_kjr86t3_status(
         # 0 and 0xFFFFFFFF are never a real meter reading (a 0 would be a
         # statistics reset in HA); keep the counter unknown instead.
         if raw not in (0, 0xFFFFFFFF):
-            status.total_kwh = round(raw / 100, 2)  # type: ignore[assignment]
+            status.total_kwh = round(raw / 100, 2)
 
     return status
 

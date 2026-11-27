@@ -125,7 +125,7 @@ class HeatPumpState:
         return self.status.comp_frq
 
     @property
-    def total_energy_kwh(self) -> int | None:
+    def total_energy_kwh(self) -> float | None:
         """Cumulative electrical energy in kWh; None (never 0) when not decoded."""
         return self.status.total_kwh
 

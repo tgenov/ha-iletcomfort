@@ -271,5 +271,16 @@ def test_write_accepts_table_reply_and_rejects_echo() -> None:
     result = run_write_plan(plan, lambda _cmd: _frame(TABLE_500))
     assert result["sent"] == build_kjr86t3_settings_write(setpoint=54)
 
-    with pytest.raises(ApiError):
+    with pytest.raises(ApiError, match="echoed"):
         run_write_plan(plan, lambda cmd: cmd)
+
+    # Comma-separated echo from the Dollin cloud must also be rejected.
+    with pytest.raises(ApiError, match="echoed"):
+        run_write_plan(
+            plan,
+            lambda cmd: ",".join(f"{b:02x}" for b in bytes.fromhex(cmd)),
+        )
+
+    # Non-table-500 reply is also rejected.
+    with pytest.raises(ApiError, match="table 500"):
+        run_write_plan(plan, lambda _cmd: _frame(TABLE_900))
