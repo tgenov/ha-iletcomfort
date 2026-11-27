@@ -142,7 +142,7 @@ def test_kjrh120l_compressor_and_counters_are_unknown() -> None:
     assert _BY_KEY["compressor_freq"].value_fn(state) is None
     assert state.total_energy_kwh is None
     assert state.compressor_run_hours is None
-    assert state.compressor_running is False
+    assert state.compressor_running is None
 
 
 @pytest.mark.parametrize(

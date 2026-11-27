@@ -291,6 +291,18 @@ Status `raw_body` (0-indexed; STANDARD misreads this 25-byte frame):
   only; not decoded yet) while `body[49]` remained `0xdd` (tank temp remains unmapped). `@keramys`'s
   working unit also reports `authStatus=0, activeStatus=0` in `appliance` metadata, so those zero
   flags alone do not explain `code=1214` (relevant to #121).
+- **The `0x02` sensors frame is static on KJRH-120L, so nothing from it is published** (#119, #131,
+  #136, #142). Every capture is the same mostly-zero block with a repeating `32,00,00,00,00` trailer,
+  and no field has ever matched the app; one (#142 v0.18.3) carried stray `03,64,08` that decoded as
+  refrigerant 100 °C / plate HX 8 °C. `Kjrh120lAdapter.decode_sensors` is therefore an **allowlist**:
+  it returns a fresh `ITSSensors` holding only `raw_body` (for diagnostics) and `t4_temp` from status
+  `body[57]`. DHW tank (`th`), refrigerant/plate HX (`tf`/`tp`), water inlet/outlet, condenser,
+  evaporator, ODU voltage/current, water flow, DC bus, and the ODU firmware version (device
+  `sw_version`) are unknown, not 0. Climate current temperature (`twin_temp`) is unknown. Add a field
+  back only with app-matched evidence from a frame that changes; the likely source for outlet water,
+  energy and compressor data is the 247-byte `0x10` (`docs/KJRH120L_SYSTEM_DECODE.md`, unmapped).
+- **`comp_running` is unknown (`None`) on KJRH-120L.** The status frame has no confirmed
+  compressor-running signal, and DHW/Zone-1 power is not one. Never report it as `False`.
 
 ### AQUAPURA profile (`sn8 171000AU`, AQS Energie split HPWH, #12; discriminator collision under audit)
 - The real water/tank temp is in `status.box_bottom_temp` (status byte[17], offset-decoded → e.g. 40 °C).

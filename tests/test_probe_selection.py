@@ -109,6 +109,7 @@ EXPECTED_ALL_OK: dict[str, list[str]] = {
     "kjrh120l_pure_dhw_off_issue5": [],
     "kjrh120l_dual_snapshot_a_issue148": [],
     "kjrh120l_dual_snapshot_b_zone1_off_issue148": [],
+    "kjrh120l_dual_issue142_keramys_v0183": [],
 }
 
 _SHORT = {
@@ -288,6 +289,7 @@ async def test_unknown_sn8_never_probes(
 # Latched KJRH-120L Zone-1 capability after one poll, per corpus capture.
 EXPECTED_LATCH = {
     "kjrh120l_dual_snapshot_a_issue148": True,
+    "kjrh120l_dual_issue142_keramys_v0183": True,
 }
 
 
@@ -360,6 +362,7 @@ EXPECTED_PLACEHOLDER_FLAG: dict[str, bool | None] = {
     "kjrh120l_pure_dhw_off_issue5": None,
     "kjrh120l_dual_snapshot_a_issue148": None,
     "kjrh120l_dual_snapshot_b_zone1_off_issue148": None,
+    "kjrh120l_dual_issue142_keramys_v0183": None,
 }
 
 
