@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 import dataclasses
 
 from ..api import ITSSensors, ITSStatus
 from ..c3_basic import C3BasicStatus
 from ..c3_frame import build_c3_query
+from .probes import OptionalProbe
 from .profile import ModelProfile
 from ..commands import HeatPumpCommand
 from .standard import default_climate_temp_bounds, plan_legacy_its_write
@@ -35,6 +37,9 @@ class AquapuraAdapter:
 
     profile = ModelProfile.AQUAPURA
     periodic_status_push = True
+    accepts_energy_notify = False
+    offers_c3_basic_control = False
+    latches_zone1_capability = False
 
     def build_query(self, subtype: int) -> str:
         return build_c3_query(subtype)
@@ -48,6 +53,28 @@ class AquapuraAdapter:
         if status is not None and status.box_bottom_temp is not None:
             return dataclasses.replace(sensors, th_temp=status.box_bottom_temp)
         return sensors
+
+    def sensors_placeholder(self, raw_0x02: bytes) -> bool | None:
+        return None
+
+    def optional_probes(
+        self, status: ITSStatus, raw_frames: Mapping[int, bytes]
+    ) -> tuple[OptionalProbe, ...]:
+        return ()
+
+    def apply_overlays(
+        self,
+        status: ITSStatus,
+        sensors: ITSSensors | None,
+        raw_frames: Mapping[int, bytes],
+        *,
+        retained_subtypes: bool,
+        energy_notify: bytes | None,
+    ) -> tuple[ITSStatus, ITSSensors | None]:
+        return status, sensors
+
+    def observed_zone1(self, status: ITSStatus) -> bool:
+        return False
 
     def describe_variant(self, status: ITSStatus | None) -> str:
         return "aquapura"

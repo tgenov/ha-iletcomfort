@@ -21,13 +21,9 @@ from homeassistant.const import ATTR_TEMPERATURE
 from homeassistant.components.climate import ClimateEntityFeature, HVACMode
 from homeassistant.exceptions import HomeAssistantError
 
-from custom_components.iletcomfort.model_profiles import (
-    ATW_SN8,
-    AQUAPURA_SN8,
-    KJRH120L_SN8,
-    decode_atw_status,
-    decode_kjrh120l_status,
-)
+from custom_components.iletcomfort.protocols.atw import decode_atw_status
+from custom_components.iletcomfort.protocols.kjrh120l import decode_kjrh120l_status
+from custom_components.iletcomfort.protocols.profile import AQUAPURA_SN8, ATW_SN8, KJRH120L_SN8
 from tests.snapshot_helpers import make_state
 from tests.write_helpers import bind_write_path, sent_commands
 

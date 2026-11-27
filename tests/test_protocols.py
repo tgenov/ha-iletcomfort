@@ -21,12 +21,12 @@ from custom_components.iletcomfort.const import (
     REGION_EU,
 )
 from custom_components.iletcomfort.coordinator import ILetComfortCoordinator
-from custom_components.iletcomfort.model_profiles import (
+from custom_components.iletcomfort.protocols.atw import decode_atw_status
+from custom_components.iletcomfort.protocols.profile import (
     AQUAPURA_SN8,
     ATW_SN8,
     KJRH120L_SN8,
     ModelProfile,
-    decode_atw_status,
 )
 from custom_components.iletcomfort.protocols import (
     AquapuraAdapter,
@@ -39,10 +39,10 @@ from custom_components.iletcomfort.protocols import (
     is_kjrh120l_dual_state,
     merge_atw_energy_notify,
 )
-from tests.kjrh120l_snapshots import KJRH120L_SNAPSHOT_B
+from tests.kjrh120l_snapshots import KJRH120L_SNAPSHOT_A, KJRH120L_SNAPSHOT_B
 from tests.snapshot_helpers import make_state
 from tests.test_atw_unit_params import NORDIS_UNIT_PARAMS_0X10
-from tests.test_model_profiles import ATW_PLACEHOLDER_SENSORS_BODY, NORDIS_ATW_STATUS_FRAMES
+from tests.test_dialect_profiles import ATW_PLACEHOLDER_SENSORS_BODY, NORDIS_ATW_STATUS_FRAMES
 
 
 def test_get_adapter_resolves_all_profiles_and_sn8() -> None:
@@ -294,6 +294,73 @@ def test_all_dialect_adapters_implement_common_seam() -> None:
     assert kjrh.is_kjrh120l_dual(None, True) is True
     assert kjrh.is_kjrh120l_dual(None, False) is False
     assert kjrh.c3_basic(atw_status) is None
+
+
+def test_every_registered_adapter_implements_the_full_protocol() -> None:
+    """No dialect may silently miss a ProtocolAdapter member (#110)."""
+    from custom_components.iletcomfort.protocols import _ADAPTERS
+    from custom_components.iletcomfort.protocols.base import ProtocolAdapter
+
+    members = {
+        name
+        for name in (*vars(ProtocolAdapter), *ProtocolAdapter.__annotations__)
+        if not name.startswith("_")
+    }
+    for profile, adapter in _ADAPTERS.items():
+        assert adapter.profile is profile
+        missing = sorted(name for name in members if not hasattr(adapter, name))
+        assert missing == [], f"{type(adapter).__name__} misses {missing}"
+
+
+def test_dialect_selection_hooks_per_adapter() -> None:
+    """Capability flags and probe decisions replace caller-side profile checks (#110)."""
+    from custom_components.iletcomfort.protocols import OptionalProbe
+
+    atw_status = decode_atw_status(NORDIS_ATW_STATUS_FRAMES["issue132"])
+    placeholder = {0x02: ATW_PLACEHOLDER_SENSORS_BODY}
+    flags = {
+        sn8: (
+            get_adapter(sn8).accepts_energy_notify,
+            get_adapter(sn8).offers_c3_basic_control,
+            get_adapter(sn8).latches_zone1_capability,
+        )
+        for sn8 in (None, AQUAPURA_SN8, ATW_SN8, KJRH120L_SN8)
+    }
+    assert flags == {
+        None: (False, False, False),
+        AQUAPURA_SN8: (False, False, False),
+        ATW_SN8: (True, True, False),
+        KJRH120L_SN8: (False, False, True),
+    }
+
+    atw = get_adapter(ATW_SN8)
+    assert atw.optional_probes(atw_status, placeholder) == (
+        OptionalProbe(0x10, "unit parameters", 65),
+        OptionalProbe(0x0A, "HMI parameters", 6, requires=0x10),
+        OptionalProbe(0x05, "silent", 2),
+        OptionalProbe(0x07, "eco", 2),
+    )
+    assert [p.subtype for p in atw.optional_probes(atw_status, {})] == [0x05, 0x07]
+    assert atw.optional_probes(ITSStatus(), {}) == ()
+    assert atw.sensors_placeholder(ATW_PLACEHOLDER_SENSORS_BODY) is True
+    assert atw.observed_zone1(KJRH120L_STATUS) is False
+
+    for sn8 in (None, AQUAPURA_SN8, KJRH120L_SN8):
+        adapter = get_adapter(sn8)
+        assert adapter.optional_probes(atw_status, placeholder) == ()
+        assert adapter.sensors_placeholder(ATW_PLACEHOLDER_SENSORS_BODY) is None
+        assert adapter.apply_overlays(
+            atw_status,
+            None,
+            {0x05: b"\x05\x01", 0x04: b"\x04" * 11},
+            retained_subtypes=False,
+            energy_notify=None,
+        ) == (atw_status, None)
+    assert get_adapter(KJRH120L_SN8).observed_zone1(KJRH120L_STATUS) is True
+    assert get_adapter(None).observed_zone1(KJRH120L_STATUS) is False
+
+
+KJRH120L_STATUS = ITSStatus(raw_body=bytearray(KJRH120L_SNAPSHOT_A))
 
 
 # --- build_snapshot: the single poll/push snapshot assembly step (#225) -----

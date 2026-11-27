@@ -436,14 +436,14 @@ class ILetComfortClient(DollinCloudClient):
         """Query heat pump status (subtype 0x01).
 
         ``sn8`` is the appliance's model-code serial prefix. When it maps to a
-        model-specific decode profile (see ``model_profiles``) the raw frame is
+        model-specific decode profile (see ``protocols``) the raw frame is
         re-decoded via that profile's status layout; an unknown/None sn8 uses
         the STANDARD decode unchanged.
 
         The query command itself is also profile-aware: the KJRH-120L's cloud
         rejects the standard long C3 query frame (code 1214) and needs a short
         ``ffff<ss><ss><ss>ff`` form, so the command is built via
-        ``build_query_command``. Other profiles keep the standard frame.
+        the dialect's ``build_query``. Other profiles keep the standard frame.
         """
         # Imported lazily to avoid a circular import (protocols imports api).
         from .protocols import get_adapter
@@ -512,7 +512,7 @@ class ILetComfortClient(DollinCloudClient):
 
     def query_atw_unit_params(self, appliance_code: str) -> bytes:
         """Query ATW subtype 0x10 unit parameters for live telemetry (#120)."""
-        from .model_profiles import ATW_UNIT_PARAMS_MIN_LEN, ATW_UNIT_PARAMS_SUBTYPE
+        from .protocols.atw import ATW_UNIT_PARAMS_MIN_LEN, ATW_UNIT_PARAMS_SUBTYPE
 
         return self._query_c3_subtype(
             appliance_code,
@@ -524,7 +524,7 @@ class ILetComfortClient(DollinCloudClient):
 
     def query_atw_hmi_params(self, appliance_code: str) -> bytes:
         """Query ATW subtype 0x0A HMI parameters for compressor run hours (#120)."""
-        from .model_profiles import ATW_HMI_PARAMS_MIN_LEN, ATW_HMI_PARAMS_SUBTYPE
+        from .protocols.atw import ATW_HMI_PARAMS_MIN_LEN, ATW_HMI_PARAMS_SUBTYPE
 
         return self._query_c3_subtype(
             appliance_code,
@@ -536,7 +536,7 @@ class ILetComfortClient(DollinCloudClient):
 
     def query_atw_silent(self, appliance_code: str) -> bytes:
         """Query ATW subtype 0x05 Silent / Super-Silent state (#139/#188)."""
-        from .model_profiles import ATW_SILENT_MIN_LEN, ATW_SILENT_SUBTYPE
+        from .protocols.atw import ATW_SILENT_MIN_LEN, ATW_SILENT_SUBTYPE
 
         return self._query_c3_subtype(
             appliance_code,
@@ -548,7 +548,7 @@ class ILetComfortClient(DollinCloudClient):
 
     def query_atw_eco(self, appliance_code: str) -> bytes:
         """Query ATW subtype 0x07 (or shared 0x05) ECO state (#139/#188)."""
-        from .model_profiles import (
+        from .protocols.atw import (
             ATW_ECO_MIN_LEN,
             ATW_ECO_SUBTYPE,
             ATW_SILENT_SUBTYPE,

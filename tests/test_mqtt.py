@@ -463,7 +463,8 @@ async def test_coordinator_apply_push_energy_records_push_and_overlays_atw(
         REGION_EU,
     )
     from custom_components.iletcomfort.coordinator import ILetComfortCoordinator
-    from custom_components.iletcomfort.model_profiles import ATW_SN8, decode_atw_status
+    from custom_components.iletcomfort.protocols.atw import decode_atw_status
+    from custom_components.iletcomfort.protocols.profile import ATW_SN8
     from custom_components.iletcomfort.mqtt import decode_push_energy_payload
     from custom_components.iletcomfort.sensor import SENSOR_DESCRIPTIONS
     from unittest.mock import patch
@@ -603,7 +604,7 @@ def _polled_atw_snapshot(
     0x05 frame (Silent Level 1 on), as one real poll would see them.
     """
     from custom_components.iletcomfort.api import decode_its_sensors
-    from custom_components.iletcomfort.model_profiles import (
+    from custom_components.iletcomfort.protocols.atw import (
         apply_atw_eco,
         apply_atw_hmi_params,
         apply_atw_silent,
@@ -674,7 +675,7 @@ _OVERLAY_SENSOR_FIELDS = (
 
 async def test_atw_status_push_keeps_subtype_overlays_issue225(hass):
     """A 0x01 push keeps counters, run hours, Silent and ECO from retained frames."""
-    from custom_components.iletcomfort.model_profiles import decode_atw_status
+    from custom_components.iletcomfort.protocols.atw import decode_atw_status
 
     coord = _atw_phone_app_coordinator(hass)
     coord.data = _polled_atw_snapshot()
@@ -702,7 +703,7 @@ async def test_atw_status_push_keeps_subtype_overlays_issue225(hass):
 
 async def test_atw_status_push_does_not_freeze_instant_0x10_values_issue225(hass):
     """Compressor/pressure values from the setup poll go unknown on push (as main)."""
-    from custom_components.iletcomfort.model_profiles import decode_atw_status
+    from custom_components.iletcomfort.protocols.atw import decode_atw_status
 
     coord = _atw_phone_app_coordinator(hass)
     coord.data = _polled_atw_snapshot()
@@ -735,7 +736,7 @@ async def test_atw_status_push_updates_status_fields_and_keeps_overlays_issue225
     hass,
 ):
     """Pushed 0x01 values win while counter/ECO overlays persist."""
-    from custom_components.iletcomfort.model_profiles import decode_atw_status
+    from custom_components.iletcomfort.protocols.atw import decode_atw_status
 
     coord = _atw_phone_app_coordinator(hass)
     coord.data = _polled_atw_snapshot()
@@ -760,7 +761,7 @@ async def test_atw_status_push_updates_status_fields_and_keeps_overlays_issue225
 
 async def test_atw_status_push_silent_off_overrides_retained_0x05_issue225(hass):
     """Silent turned off in the app: the 0x01 bit wins over the setup 0x05."""
-    from custom_components.iletcomfort.model_profiles import decode_atw_status
+    from custom_components.iletcomfort.protocols.atw import decode_atw_status
 
     coord = _atw_phone_app_coordinator(hass)
     coord.data = _polled_atw_snapshot()
@@ -785,7 +786,7 @@ async def test_atw_status_push_silent_off_overrides_retained_0x05_issue225(hass)
 
 async def test_atw_status_push_silent_off_keeps_super_selected_issue225(hass):
     """0x05 bit 3 (Super Silent selected) is retained even when Silent is off."""
-    from custom_components.iletcomfort.model_profiles import decode_atw_status
+    from custom_components.iletcomfort.protocols.atw import decode_atw_status
 
     super_on = bytearray(_corpus_frame("atw_airwell_split_silent_eco_issue139", "0x05"))
     super_on[1] = 0x09  # on + Super Silent
@@ -809,7 +810,7 @@ async def test_atw_status_push_silent_on_with_stale_off_0x05_falls_back_issue225
     hass,
 ):
     """Silent on in 0x01 but off in the retained 0x05: level is unknown (None)."""
-    from custom_components.iletcomfort.model_profiles import decode_atw_status
+    from custom_components.iletcomfort.protocols.atw import decode_atw_status
     from custom_components.iletcomfort.select import ILetComfortMuteSelect
 
     silent_off = bytearray(
@@ -862,7 +863,7 @@ async def test_atw_energy_push_keeps_subtype_overlays_issue225(hass):
 
     # A later 0x01 push re-derives the snapshot from all retained frames:
     # the 0x04 energy (applied last) and the retained overlays both survive.
-    from custom_components.iletcomfort.model_profiles import decode_atw_status
+    from custom_components.iletcomfort.protocols.atw import decode_atw_status
 
     coord._apply_push_status(decode_atw_status(_ATW_STATUS_SILENT_ON))
     after = coord.data.status
@@ -919,7 +920,7 @@ async def test_atw_energy_push_keeps_literal_0x04_in_raw_frames_issue225(hass):
 
 
 async def test_atw_status_push_th_temp_follows_pushed_tank_temp_issue225(hass):
-    from custom_components.iletcomfort.model_profiles import decode_atw_status
+    from custom_components.iletcomfort.protocols.atw import decode_atw_status
 
     coord = _atw_phone_app_coordinator(hass)
     coord.data = _polled_atw_snapshot()
@@ -936,7 +937,7 @@ async def test_atw_status_push_th_temp_follows_pushed_tank_temp_issue225(hass):
 
 async def test_aquapura_status_push_th_temp_follows_box_bottom_issue225(hass):
     from custom_components.iletcomfort.api import ITSSensors, decode_its_status
-    from custom_components.iletcomfort.model_profiles import AQUAPURA_SN8
+    from custom_components.iletcomfort.protocols.profile import AQUAPURA_SN8
 
     frame = bytearray(bytes.fromhex(
         "0123232323232323232323232323232323" "4b" + "23" * 32
@@ -956,10 +957,8 @@ async def test_aquapura_status_push_th_temp_follows_box_bottom_issue225(hass):
 
 async def test_kjrh120l_status_push_t4_follows_pushed_outdoor_issue225(hass):
     from custom_components.iletcomfort.api import ITSSensors, decode_its_status
-    from custom_components.iletcomfort.model_profiles import (
-        KJRH120L_SN8,
-        decode_kjrh120l_status,
-    )
+    from custom_components.iletcomfort.protocols.kjrh120l import decode_kjrh120l_status
+    from custom_components.iletcomfort.protocols.profile import KJRH120L_SN8
     from tests.kjrh120l_snapshots import KJRH120L_SNAPSHOT_A
 
     coord = _atw_phone_app_coordinator(hass, KJRH120L_SN8)

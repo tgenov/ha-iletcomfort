@@ -17,18 +17,15 @@ from custom_components.iletcomfort.api import (
     decode_its_status,
 )
 from custom_components.iletcomfort.binary_sensor import BINARY_SENSOR_DESCRIPTIONS
-from custom_components.iletcomfort.model_profiles import (
-    ATW_SN8,
-    KJRH120L_SN8,
-    decode_atw_status,
-    decode_kjrh120l_status,
-)
+from custom_components.iletcomfort.protocols.atw import decode_atw_status
+from custom_components.iletcomfort.protocols.kjrh120l import decode_kjrh120l_status
+from custom_components.iletcomfort.protocols.profile import ATW_SN8, KJRH120L_SN8
 from custom_components.iletcomfort.sensor import SENSOR_DESCRIPTIONS
 from tests.kjrh120l_snapshots import KJRH120L_SNAPSHOT_A, KJRH120L_SNAPSHOT_B
 from tests.snapshot_helpers import make_state
 from tests.test_atw_unit_params import NORDIS_UNIT_PARAMS_0X10
 from tests.test_c3_basic import ROTENSO_BASELINE, _body
-from tests.test_model_profiles import (
+from tests.test_dialect_profiles import (
     ATW_PLACEHOLDER_SENSORS_BODY,
     ISSUE_11_SENSORS_BODY,
     ISSUE_11_STATUS_BODY,

@@ -24,23 +24,25 @@ from custom_components.iletcomfort.api import (
     decode_its_sensors,
     decode_its_status,
 )
-from custom_components.iletcomfort.model_profiles import (
+from custom_components.iletcomfort.protocols import get_adapter
+from custom_components.iletcomfort.protocols.atw import (
+    atw_sensors_are_placeholder,
+    decode_atw_status,
+)
+from custom_components.iletcomfort.protocols.kjrh120l import (
+    build_kjrh120l_set_temperature,
+    decode_kjrh120l_status,
+    KJRH120L_DHW_OFF,
+    KJRH120L_DHW_ON,
+    KJRH120L_TEMP_MAX,
+    KJRH120L_TEMP_MIN,
+)
+from custom_components.iletcomfort.protocols.profile import (
     AQUAPURA_SN8,
     ATW_SN8,
     KJRH120L2_SN8,
-    KJRH120L_DHW_OFF,
-    KJRH120L_DHW_ON,
     KJRH120L_SN8,
-    KJRH120L_TEMP_MAX,
-    KJRH120L_TEMP_MIN,
     ModelProfile,
-    apply_profile_to_sensors,
-    apply_profile_to_status,
-    atw_sensors_are_placeholder,
-    build_kjrh120l_set_temperature,
-    build_query_command,
-    decode_atw_status,
-    decode_kjrh120l_status,
     resolve_profile,
 )
 from tests.snapshot_helpers import make_state
@@ -206,24 +208,24 @@ def test_known_unconfirmed_kjrh120l2_sn8_falls_back_to_standard():
 # Query command encoding (KJRH-120L short form, issues #21 / #5)
 # ---------------------------------------------------------------------------
 
-def test_build_query_command_kjrh120l_short_form():
+def test_build_query_kjrh120l_short_form():
     """KJRH-120L's cloud rejects the long C3 query (code 1214); its app uses a
     short ``ffff<ss><ss><ss>ff`` form (subtype byte repeated 3×)."""
-    assert build_query_command(ModelProfile.KJRH120L, 0x01) == "ffff010101ff"
-    assert build_query_command(ModelProfile.KJRH120L, 0x02) == "ffff020202ff"
+    assert get_adapter(ModelProfile.KJRH120L).build_query(0x01) == "ffff010101ff"
+    assert get_adapter(ModelProfile.KJRH120L).build_query(0x02) == "ffff020202ff"
 
 
 @pytest.mark.parametrize("subtype", [0x01, 0x02])
-def test_build_query_command_standard_matches_build_c3_query(subtype):
+def test_build_query_standard_matches_build_c3_query(subtype):
     """STANDARD must emit the legacy long C3 query frame, byte-for-byte."""
-    assert build_query_command(ModelProfile.STANDARD, subtype) == build_c3_query(subtype)
+    assert get_adapter(ModelProfile.STANDARD).build_query(subtype) == build_c3_query(subtype)
 
 
 @pytest.mark.parametrize("profile", [ModelProfile.ATW, ModelProfile.AQUAPURA])
 @pytest.mark.parametrize("subtype", [0x01, 0x02])
-def test_build_query_command_other_profiles_use_long_frame(profile, subtype):
+def test_build_query_other_profiles_use_long_frame(profile, subtype):
     """Other model profiles keep the standard long C3 query frame, unchanged."""
-    assert build_query_command(profile, subtype) == build_c3_query(subtype)
+    assert get_adapter(profile).build_query(subtype) == build_c3_query(subtype)
 
 
 # --- KJRH-120L short WRITE commands (issue #35) ---------------------------
@@ -382,13 +384,13 @@ def test_other_25_byte_capability_masks_decode_zone1_power_and_setpoint(mask):
 
 
 def test_atw_profile_applied_to_status_object():
-    """apply_profile_to_status(ATW) re-decodes the frame via the ATW layout."""
+    """The ATW adapter decode_status re-decodes the frame via the ATW layout."""
     std = decode_its_status(ATW_FRAMES["state1"])
     # The STANDARD decode misreads this frame.
     assert std.error_code == 128
     assert std.set_temperature == 3
 
-    atw = apply_profile_to_status(ModelProfile.ATW, std)
+    atw = get_adapter(ModelProfile.ATW).decode_status(std)
     # Mode is Off because Italtherm state1 has zone1_power=False (body[4]=3 Heat).
     assert atw.mode_name == "Off"
     assert atw.set_temperature == 50
@@ -407,7 +409,7 @@ def test_atw_tank_temp_routed_to_th_temp_not_twin_temp():
     """
     sensors = decode_its_sensors(bytes([0x02]) + bytes(48))
     status = decode_atw_status(ATW_FRAMES["state1"])
-    out = apply_profile_to_sensors(ModelProfile.ATW, sensors, status)
+    out = get_adapter(ModelProfile.ATW).decode_sensors(sensors, status)
     assert out.th_temp == 46.0
     # Water Inlet stays untouched (None/0); never the tank value.
     assert out.twin_temp != 46.0
@@ -419,7 +421,7 @@ def test_atw_placeholder_sensors_are_unavailable():
     sensors = decode_its_sensors(ATW_PLACEHOLDER_SENSORS_BODY)
     status = decode_atw_status(ATW_FRAMES["state1"])
 
-    out = apply_profile_to_sensors(ModelProfile.ATW, sensors, status)
+    out = get_adapter(ModelProfile.ATW).decode_sensors(sensors, status)
 
     assert out.th_temp == 46.0  # Proven status-derived DHW tank temperature.
     assert out.t4_temp is None
@@ -435,7 +437,7 @@ def test_atw_template_sensor_variants_are_unavailable(name):
     sensors = decode_its_sensors(ATW_TEMPLATE_SENSOR_VARIANTS[name])
     status = decode_atw_status(NORDIS_ATW_STATUS_FRAMES["unit2"])
 
-    out = apply_profile_to_sensors(ModelProfile.ATW, sensors, status)
+    out = get_adapter(ModelProfile.ATW).decode_sensors(sensors, status)
 
     assert out.th_temp == 58.0
     for field in ("t4_temp", "t2_temp", "twin_temp", "twout_temp", "t1_temp"):
@@ -493,7 +495,7 @@ def test_atw_non_placeholder_sensors_are_preserved():
     sensors = decode_its_sensors(bytes([0x02]) + bytes([0x23] * 48))
     status = decode_atw_status(ATW_FRAMES["state1"])
 
-    out = apply_profile_to_sensors(ModelProfile.ATW, sensors, status)
+    out = get_adapter(ModelProfile.ATW).decode_sensors(sensors, status)
 
     assert out.t4_temp == 0.0
     assert out.twin_temp == 0.0
@@ -504,8 +506,7 @@ def test_atw_non_placeholder_sensors_are_preserved():
 def test_atw_placeholder_keeps_raw_evidence_but_suppresses_all_sensor_entities():
     """Diagnostics retain the frame while every template-derived entity is honest."""
     sensors = decode_its_sensors(ATW_PLACEHOLDER_SENSORS_BODY)
-    out = apply_profile_to_sensors(
-        ModelProfile.ATW,
+    out = get_adapter(ModelProfile.ATW).decode_sensors(
         sensors,
         decode_atw_status(ATW_FRAMES["state1"]),
     )
@@ -527,7 +528,7 @@ def test_atw_dhw_tank_sensor_value_fn_returns_tank_temp(name):
     _, _, tank = ATW_EXPECTED[name]
     sensors = decode_its_sensors(bytes([0x02]) + bytes(48))
     status = decode_atw_status(ATW_FRAMES[name])
-    out = apply_profile_to_sensors(ModelProfile.ATW, sensors, status)
+    out = get_adapter(ModelProfile.ATW).decode_sensors(sensors, status)
 
     state = make_state(status, out, sn8=ATW_SN8)
     dhw = next(d for d in SENSOR_DESCRIPTIONS if d.key == "dhw_tank")
@@ -574,7 +575,7 @@ def test_aquapura_tank_temp_from_box_bottom_temp_on_th_temp():
     assert sensors.twin_temp == 0.0
     assert status.box_bottom_temp == 40.0
 
-    out = apply_profile_to_sensors(ModelProfile.AQUAPURA, sensors, status)
+    out = get_adapter(ModelProfile.AQUAPURA).decode_sensors(sensors, status)
     assert out.th_temp == 40.0
     # Water Inlet left honest (not populated with the tank value).
     assert out.twin_temp == sensors.twin_temp
@@ -585,7 +586,7 @@ def test_aquapura_ambient_unchanged():
     """The AQUAPURA override must not disturb the (already-correct) ambient temp."""
     status = decode_its_status(_aquapura_status_body())
     sensors = decode_its_sensors(_aquapura_sensors_body())
-    out = apply_profile_to_sensors(ModelProfile.AQUAPURA, sensors, status)
+    out = get_adapter(ModelProfile.AQUAPURA).decode_sensors(sensors, status)
     assert out.t4_temp == 19.0
 
 
@@ -736,7 +737,7 @@ def test_kjrh120l_temp_range_is_20_to_70():
 
 
 def test_kjrh120l_profile_applied_to_status_object():
-    """apply_profile_to_status(KJRH120L) re-decodes the frame via the KJRH layout."""
+    """The KJRH-120L adapter decode_status re-decodes the frame via the KJRH layout."""
     std = decode_its_status(KJRH120L_STATUS_BODY)
     # Confirm the STANDARD decode misreads this frame (the garbage being fixed).
     assert std.set_temperature == 66
@@ -746,7 +747,7 @@ def test_kjrh120l_profile_applied_to_status_object():
     assert std.total_kwh == 1340
     assert std.comp_frq == 6425
 
-    kjrh = apply_profile_to_status(ModelProfile.KJRH120L, std)
+    kjrh = get_adapter(ModelProfile.KJRH120L).decode_status(std)
     assert kjrh.mode_name == "Off"
     assert kjrh.t5s_def == 60.0
     assert kjrh.set_temperature == 60
@@ -773,7 +774,7 @@ def test_kjrh120l_sensors_temps_suppressed_except_confirmed_outdoor():
     """
     sensors = decode_its_sensors(KJRH120L_SENSORS_BODY)
     status = decode_kjrh120l_status(KJRH120L_STATUS_BODY)
-    out = apply_profile_to_sensors(ModelProfile.KJRH120L, sensors, status)
+    out = get_adapter(ModelProfile.KJRH120L).decode_sensors(sensors, status)
 
     assert out.t3_temp is None
     # KJRH120L_STATUS_BODY[57] = 0xe7 (231) → 231 - 196 = 35.0 °C
@@ -804,8 +805,9 @@ def test_kjrh120l_outdoor_temp_from_status_body57(raw_t4, expected):
     body = bytearray(KJRH120L_STATUS_BODY)
     body[57] = raw_t4
     status = decode_kjrh120l_status(bytes(body))
-    sensors = apply_profile_to_sensors(
-        ModelProfile.KJRH120L, decode_its_sensors(KJRH120L_SENSORS_BODY), status
+    sensors = get_adapter(ModelProfile.KJRH120L).decode_sensors(
+        decode_its_sensors(KJRH120L_SENSORS_BODY),
+        status,
     )
 
     assert status.kjrh120l_outdoor_temp == expected
@@ -814,8 +816,9 @@ def test_kjrh120l_outdoor_temp_from_status_body57(raw_t4, expected):
 
 def test_kjrh120l_short_status_leaves_outdoor_temp_none():
     status = decode_kjrh120l_status(KJRH120L_STATUS_BODY[:57])
-    sensors = apply_profile_to_sensors(
-        ModelProfile.KJRH120L, decode_its_sensors(KJRH120L_SENSORS_BODY), status
+    sensors = get_adapter(ModelProfile.KJRH120L).decode_sensors(
+        decode_its_sensors(KJRH120L_SENSORS_BODY),
+        status,
     )
 
     assert status.kjrh120l_outdoor_temp is None
@@ -842,7 +845,7 @@ ISSUE_11_SENSORS_BODY = _bytes(
 def test_standard_profile_status_is_byte_identical_to_legacy():
     """STANDARD profile leaves decode_its_status output unchanged (regression)."""
     legacy = decode_its_status(ISSUE_11_STATUS_BODY)
-    out = apply_profile_to_status(ModelProfile.STANDARD, legacy)
+    out = get_adapter(ModelProfile.STANDARD).decode_status(legacy)
     assert out is legacy  # no copy, no mutation for the default path
 
 
@@ -852,7 +855,7 @@ def test_standard_profile_sensors_unchanged_for_unknown_sn8(sn8):
     profile = resolve_profile(sn8)
     status = decode_its_status(ISSUE_11_STATUS_BODY)
     sensors = decode_its_sensors(ISSUE_11_SENSORS_BODY)
-    out = apply_profile_to_sensors(profile, sensors, status)
+    out = get_adapter(profile).decode_sensors(sensors, status)
     assert out is sensors
     assert out.twin_temp == sensors.twin_temp
 
@@ -906,12 +909,12 @@ def _with(body: bytes, **index_values: int) -> bytes:
 
 
 def test_kjrh120l_zone1_builders_match_app_capture():
-    from custom_components.iletcomfort.model_profiles import (
-        KJRH120L_RUN_MODE_COOL,
-        KJRH120L_RUN_MODE_HEAT,
+    from custom_components.iletcomfort.protocols.kjrh120l import (
         build_kjrh120l_run_mode,
         build_kjrh120l_zone1_power,
         build_kjrh120l_zone1_setpoint,
+        KJRH120L_RUN_MODE_COOL,
+        KJRH120L_RUN_MODE_HEAT,
     )
 
     assert build_kjrh120l_zone1_setpoint(51) == "00040133ff"
@@ -925,9 +928,7 @@ def test_kjrh120l_zone1_builders_match_app_capture():
 
 @pytest.mark.parametrize("value", [-1, 256, 1000, 50.5, True, None, "50"])
 def test_kjrh120l_zone1_setpoint_builder_rejects_values_outside_one_byte(value):
-    from custom_components.iletcomfort.model_profiles import (
-        build_kjrh120l_zone1_setpoint,
-    )
+    from custom_components.iletcomfort.protocols.kjrh120l import build_kjrh120l_zone1_setpoint
 
     with pytest.raises(ValueError):
         build_kjrh120l_zone1_setpoint(value)
@@ -940,7 +941,7 @@ def test_kjrh120l_zone1_setpoint_builder_rejects_values_outside_one_byte(value):
 def test_kjrh120l_run_mode_builder_rejects_uncaptured_modes_and_bad_setpoints(
     run_mode, setpoint
 ):
-    from custom_components.iletcomfort.model_profiles import build_kjrh120l_run_mode
+    from custom_components.iletcomfort.protocols.kjrh120l import build_kjrh120l_run_mode
 
     with pytest.raises(ValueError):
         build_kjrh120l_run_mode(run_mode, setpoint)
@@ -948,14 +949,14 @@ def test_kjrh120l_run_mode_builder_rejects_uncaptured_modes_and_bad_setpoints(
 
 @pytest.mark.parametrize("value", [None, 1, 0, "on"])
 def test_kjrh120l_zone1_power_builder_requires_bool(value):
-    from custom_components.iletcomfort.model_profiles import build_kjrh120l_zone1_power
+    from custom_components.iletcomfort.protocols.kjrh120l import build_kjrh120l_zone1_power
 
     with pytest.raises(ValueError):
         build_kjrh120l_zone1_power(value)
 
 
 def test_kjrh120l_decode_snapshot_a_zone1_fields():
-    from custom_components.iletcomfort.model_profiles import kjrh120l_zone1_range
+    from custom_components.iletcomfort.protocols.kjrh120l import kjrh120l_zone1_range
 
     status = decode_kjrh120l_status(KJRH120L_SNAPSHOT_A)
 
@@ -974,7 +975,7 @@ def test_kjrh120l_decode_snapshot_a_zone1_fields():
 
 
 def test_kjrh120l_decode_snapshot_b_zone_off_still_decodes_zone1_fields():
-    from custom_components.iletcomfort.model_profiles import (
+    from custom_components.iletcomfort.protocols.kjrh120l import (
         kjrh120l_has_zone1,
         kjrh120l_zone1_range,
     )
@@ -993,7 +994,7 @@ def test_kjrh120l_decode_snapshot_b_zone_off_still_decodes_zone1_fields():
 
 
 def test_kjrh120l_decode_cool_mode_uses_cool_range():
-    from custom_components.iletcomfort.model_profiles import kjrh120l_zone1_range
+    from custom_components.iletcomfort.protocols.kjrh120l import kjrh120l_zone1_range
 
     status = decode_kjrh120l_status(_with(KJRH120L_SNAPSHOT_A, b11=2, b12=20))
 
@@ -1002,7 +1003,7 @@ def test_kjrh120l_decode_cool_mode_uses_cool_range():
 
 
 def test_kjrh120l_zone1_fields_absent_on_short_frame():
-    from custom_components.iletcomfort.model_profiles import kjrh120l_zone1_range
+    from custom_components.iletcomfort.protocols.kjrh120l import kjrh120l_zone1_range
 
     status = decode_kjrh120l_status(KJRH120L_SNAPSHOT_A[:40])
 
@@ -1023,7 +1024,7 @@ def test_kjrh120l_zone1_fields_absent_on_short_frame():
     ],
 )
 def test_kjrh120l_zone1_range_missing_for_malformed_current_mode(overrides):
-    from custom_components.iletcomfort.model_profiles import kjrh120l_zone1_range
+    from custom_components.iletcomfort.protocols.kjrh120l import kjrh120l_zone1_range
 
     status = decode_kjrh120l_status(_with(KJRH120L_SNAPSHOT_A, **overrides))
 
@@ -1037,7 +1038,7 @@ def test_kjrh120l_zone1_range_missing_for_malformed_current_mode(overrides):
 def test_kjrh120l_zone1_range_rejects_non_finite_and_non_byte_limits(low, high):
     import dataclasses
 
-    from custom_components.iletcomfort.model_profiles import kjrh120l_zone1_range
+    from custom_components.iletcomfort.protocols.kjrh120l import kjrh120l_zone1_range
 
     status = dataclasses.replace(
         decode_kjrh120l_status(KJRH120L_SNAPSHOT_A),
@@ -1050,10 +1051,10 @@ def test_kjrh120l_zone1_range_rejects_non_finite_and_non_byte_limits(low, high):
 
 def test_kjrh120l_mode_change_heat_to_cool_clamps_into_cool_range():
     """Reviewer P1: Heat 50 with cool range 5-25 must send 25, never 50."""
-    from custom_components.iletcomfort.model_profiles import (
-        KJRH120L_RUN_MODE_COOL,
+    from custom_components.iletcomfort.protocols.kjrh120l import (
         build_kjrh120l_run_mode,
         kjrh120l_mode_change_setpoint,
+        KJRH120L_RUN_MODE_COOL,
     )
 
     status = decode_kjrh120l_status(KJRH120L_SNAPSHOT_A)
@@ -1064,9 +1065,9 @@ def test_kjrh120l_mode_change_heat_to_cool_clamps_into_cool_range():
 
 
 def test_kjrh120l_mode_change_cool_to_heat_clamps_up_into_heat_range():
-    from custom_components.iletcomfort.model_profiles import (
-        KJRH120L_RUN_MODE_HEAT,
+    from custom_components.iletcomfort.protocols.kjrh120l import (
         kjrh120l_mode_change_setpoint,
+        KJRH120L_RUN_MODE_HEAT,
     )
 
     status = decode_kjrh120l_status(_with(KJRH120L_SNAPSHOT_A, b11=2, b12=20))
@@ -1075,9 +1076,9 @@ def test_kjrh120l_mode_change_cool_to_heat_clamps_up_into_heat_range():
 
 
 def test_kjrh120l_mode_change_keeps_setpoint_inside_destination_range():
-    from custom_components.iletcomfort.model_profiles import (
-        KJRH120L_RUN_MODE_HEAT,
+    from custom_components.iletcomfort.protocols.kjrh120l import (
         kjrh120l_mode_change_setpoint,
+        KJRH120L_RUN_MODE_HEAT,
     )
 
     status = decode_kjrh120l_status(KJRH120L_SNAPSHOT_A)
@@ -1095,9 +1096,9 @@ def test_kjrh120l_mode_change_keeps_setpoint_inside_destination_range():
     ],
 )
 def test_kjrh120l_mode_change_refused_without_setpoint_or_destination_range(body):
-    from custom_components.iletcomfort.model_profiles import (
-        KJRH120L_RUN_MODE_COOL,
+    from custom_components.iletcomfort.protocols.kjrh120l import (
         kjrh120l_mode_change_setpoint,
+        KJRH120L_RUN_MODE_COOL,
     )
 
     with pytest.raises(ValueError):
@@ -1107,9 +1108,7 @@ def test_kjrh120l_mode_change_refused_without_setpoint_or_destination_range(body
 
 
 def test_kjrh120l_mode_change_refuses_uncaptured_destination_mode():
-    from custom_components.iletcomfort.model_profiles import (
-        kjrh120l_mode_change_setpoint,
-    )
+    from custom_components.iletcomfort.protocols.kjrh120l import kjrh120l_mode_change_setpoint
 
     with pytest.raises(ValueError):
         kjrh120l_mode_change_setpoint(decode_kjrh120l_status(KJRH120L_SNAPSHOT_A), 1)

@@ -74,12 +74,8 @@ from custom_components.iletcomfort.const import (
     REGION_EU,
 )
 from custom_components.iletcomfort.coordinator import ILetComfortCoordinator
-from custom_components.iletcomfort.model_profiles import (
-    AQUAPURA_SN8,
-    ATW_SN8,
-    atw_c3_basic,
-    decode_atw_status,
-)
+from custom_components.iletcomfort.protocols.atw import decode_atw_status
+from custom_components.iletcomfort.protocols.profile import AQUAPURA_SN8, ATW_SN8
 from custom_components.iletcomfort.protocols import (
     WriteContext,
     WriteRefused,
@@ -230,10 +226,10 @@ def test_italtherm_room_mode_decodes_heat_power_cool_and_room_target():
 
 def test_atw_c3_basic_is_gated_on_sn8():
     status = decode_atw_status(_body(ROTENSO_BASELINE))
-    assert atw_c3_basic(ATW_SN8, status) is not None
-    assert atw_c3_basic(None, status) is None
-    assert atw_c3_basic(AQUAPURA_SN8, status) is None
-    assert atw_c3_basic(ATW_SN8, None) is None
+    assert get_adapter(ATW_SN8).c3_basic(status) is not None
+    assert get_adapter(None).c3_basic(status) is None
+    assert get_adapter(AQUAPURA_SN8).c3_basic(status) is None
+    assert get_adapter(ATW_SN8).c3_basic(None) is None
 
 
 # ---------------------------------------------------------------------------

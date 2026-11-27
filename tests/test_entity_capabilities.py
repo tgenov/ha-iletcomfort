@@ -17,19 +17,15 @@ from custom_components.iletcomfort.const import (
     DOMAIN,
     REGION_US,
 )
-from custom_components.iletcomfort.model_profiles import (
-    apply_profile_to_status,
-    resolve_profile,
-)
-from custom_components.iletcomfort.entity import async_remove_unsupported
 from custom_components.iletcomfort.protocols import (
-    REMOVABLE_CAPABILITIES,
     EntityCapabilities,
     EntitySupport,
-    ViewContext,
     get_adapter,
     project_entity_capabilities,
+    REMOVABLE_CAPABILITIES,
+    ViewContext,
 )
+from custom_components.iletcomfort.entity import async_remove_unsupported
 from custom_components.iletcomfort.protocols.atw import decode_atw_status
 from tests.kjrh120l_snapshots import KJRH120L_SNAPSHOT_A, KJRH120L_SNAPSHOT_B
 from tests.snapshot_helpers import make_state
@@ -222,7 +218,7 @@ def _preregister_boost_and_mute(hass: HomeAssistant, entry: MockConfigEntry) -> 
 
 
 def _status_for(sn8: str | None, body: bytes) -> ITSStatus:
-    return apply_profile_to_status(resolve_profile(sn8), decode_its_status(bytearray(body)))
+    return get_adapter(sn8).decode_status(decode_its_status(bytearray(body)))
 
 
 def _registered(hass: HomeAssistant, platform: str, unique_id: str) -> str | None:
