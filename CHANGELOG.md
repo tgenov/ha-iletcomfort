@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.35.3](https://github.com/tgenov/ha-iletcomfort/compare/v0.35.2...v0.35.3) (2026-11-27)
+
+
+### Bug Fixes
+
+* derive sn8 from the serial when the cloud field is empty and log the selected dialect ([#263](https://github.com/tgenov/ha-iletcomfort/issues/263)) ([e251b97](https://github.com/tgenov/ha-iletcomfort/commit/e251b976762c82993f5725a27d5ff996a6d4b58f))
+
 ## [0.35.2](https://github.com/tgenov/ha-iletcomfort/compare/v0.35.1...v0.35.2) (2026-11-27)
 
 
