@@ -119,6 +119,33 @@ def decode_push_energy_payload(payload: str) -> bytes | None:
     return bytes(body)
 
 
+def build_tls_context(cert_path: str, key_path: str) -> ssl.SSLContext:
+    """Build the client TLS context for the broker connection.
+
+    Blocking (reads the CA store and the credential files): call it from an
+    executor thread only.
+
+    ``ssl.PROTOCOL_TLSv1_2`` is deprecated and some Python builds do not have
+    it, so the context uses ``PROTOCOL_TLS_CLIENT`` pinned to TLS 1.2 with the
+    minimum and maximum version. The server certificate is verified against
+    the system CA store and the hostname is checked, as before.
+
+    Keep the TLS 1.2 maximum. With TLS 1.3 the client handshake completes
+    before the broker rejects a client certificate, so ``connect`` returns
+    without error and the rejection arrives later in the paho loop thread.
+    Certificate rotation uses a ``connect`` error to keep the old connection,
+    and it must not lose that signal.
+    """
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
+    context.maximum_version = ssl.TLSVersion.TLSv1_2
+    context.check_hostname = True
+    context.verify_mode = ssl.CERT_REQUIRED
+    context.load_cert_chain(cert_path, key_path)
+    context.load_default_certs()
+    return context
+
+
 class MqttBrokerTransport:
     """Owns one paho MQTT connection, appliance-scoped subscription, and decoding (#108)."""
 
@@ -141,11 +168,10 @@ class MqttBrokerTransport:
     def connect(self, cert: AppCert, credentials: MaterializedCredentials) -> None:
         """Configure TLS with materialized credentials, connect, and start loop."""
         c = mqtt.Client()
-        c.tls_set(
-            certfile=str(credentials.cert_path),
-            keyfile=str(credentials.key_path),
-            cert_reqs=ssl.CERT_REQUIRED,
-            tls_version=ssl.PROTOCOL_TLSv1_2,
+        c.tls_set_context(
+            build_tls_context(
+                str(credentials.cert_path), str(credentials.key_path)
+            )
         )
         c.on_connect = self._on_connect
         c.on_disconnect = self._on_disconnect
