@@ -646,9 +646,10 @@ def test_kjrh120l_status_surfaces_confirmed_setpoint_only():
     # climate target_temperature (t5s_def if not None) shows 60.0.
     assert status.t5s_def == 60.0
     assert status.set_temperature == 60
-    # No fault (STANDARD's error_code=1 is a misread); device Off (not running).
+    # No fault (STANDARD's error_code=1 is a misread). No compressor-running
+    # signal is confirmed in this frame, so it is unknown, not False.
     assert status.error_code == 0
-    assert status.comp_running is False
+    assert status.comp_running is None
     # raw_body preserved.
     assert status.raw_body == bytes(KJRH120L_STATUS_BODY)
     # The bogus fields the STANDARD decode produced must NOT be populated.
@@ -707,8 +708,8 @@ def test_kjrh120l_status_power_on_from_body10():
     assert status.mode_name == "Heat"
     assert status.t5s_def == 65.0
     assert status.set_temperature == 65
-    # Power-on is not a compressor-running signal; leave it False (none confirmed).
-    assert status.comp_running is False
+    # Power-on is not a compressor-running signal; none is confirmed, so unknown.
+    assert status.comp_running is None
     assert status.error_code == 0
 
 
@@ -753,7 +754,7 @@ def test_kjrh120l_profile_applied_to_status_object():
     assert kjrh.t5s_def == 60.0
     assert kjrh.set_temperature == 60
     assert kjrh.error_code == 0
-    assert kjrh.comp_running is False
+    assert kjrh.comp_running is None
     assert kjrh.total_kwh is None
     assert kjrh.comp_frq is None
     assert kjrh.box_bottom_temp is None

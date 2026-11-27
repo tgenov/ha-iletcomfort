@@ -73,15 +73,12 @@ KJRH120L_OUTDOOR_TEMP_MAX = 58
 
 _KJRH120L_MODES = {0: "Off", 1: "Heat", 2: "Cool", 3: "Auto", 4: "Water Pump"}
 
-_KJRH120L_SUPPRESSED_TEMPS = {
-    "t3_temp": None,
-    "t4_temp": None,
-    "t2_temp": None,
-    "t2b_temp": None,
-    "twin_temp": None,
-    "twout_temp": None,
-    "t1_temp": None,
-}
+# The KJRH-120L 0x02 sensors frame is mostly zero and no field in it has ever
+# matched the official app (#131/#136/#142/#119), so nothing from it is
+# published; one capture carried bytes that decoded as refrigerant 100 °C /
+# plate HX 8 °C. decode_sensors is therefore an allowlist: it keeps only the
+# raw body (for diagnostics) and fields validated from another frame. Today
+# that is t4, taken from status body[57]; nothing from 0x02 is published.
 
 # Confirmed short write commands (``00 <field> 01 <value> ff``).
 KJRH120L_DHW_ON = "00020101ff"
@@ -141,9 +138,11 @@ def decode_kjrh120l_status(body: bytearray | bytes) -> ITSStatus:
     body_len = len(body)
 
     status.error_code = 0
-    status.comp_running = False
-    # Compressor frequency, energy, run hours, EXV and pressures are not in
-    # this frame and keep the ITSStatus default None (unknown, not 0).
+    # No compressor-running signal has been confirmed in this frame, so
+    # comp_running stays None (unknown, not False; #231). Compressor
+    # frequency, energy, run hours, EXV and pressures are not in this frame
+    # either and keep the ITSStatus default None (unknown, not 0).
+    status.comp_running = None
 
     fields: dict[str, Any] = {}
     if body_len > KJRH120L_POWER_INDEX:
@@ -431,11 +430,12 @@ class Kjrh120lAdapter:
     def decode_sensors(
         self, sensors: ITSSensors, status: ITSStatus
     ) -> ITSSensors:
-        overrides: dict[str, Any] = dict(_KJRH120L_SUPPRESSED_TEMPS)
-        outdoor_temp = kjrh120l_status(status).outdoor_temp
-        if outdoor_temp is not None:
-            overrides["t4_temp"] = outdoor_temp
-        return dataclasses.replace(sensors, **overrides)
+        # Allowlist: start from "nothing reported" and keep only the raw
+        # body plus the status-frame outdoor temperature (see module note).
+        return ITSSensors(
+            raw_body=sensors.raw_body,
+            t4_temp=kjrh120l_status(status).outdoor_temp,
+        )
 
     def sensors_placeholder(self, raw_0x02: bytes) -> bool | None:
         return None

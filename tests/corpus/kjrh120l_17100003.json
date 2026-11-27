@@ -17,13 +17,21 @@
       "kjrh120l_dhw_power": false,
       "kjrh120l_outdoor_temp": 35.0,
       "error_code": 0,
-      "comp_running": false
+      "comp_running": null
     },
     "expected_sensors": {
       "t4_temp": 35.0,
       "twin_temp": null,
       "twout_temp": null,
-      "t3_temp": null
+      "t3_temp": null,
+      "th_temp": null,
+      "tf_temp": null,
+      "tp_temp": null,
+      "odu_voltage": null,
+      "odu_current": null,
+      "water_flow": null,
+      "dc_current": null,
+      "dc_voltage": null
     }
   },
   {
@@ -51,12 +59,21 @@
       "kjrh120l_zone1_cool_min": 5,
       "kjrh120l_zone1_cool_max": 25,
       "kjrh120l_outdoor_temp": 12.0,
-      "error_code": 0
+      "error_code": 0,
+      "comp_running": null
     },
     "expected_sensors": {
       "t4_temp": 12.0,
       "twin_temp": null,
-      "twout_temp": null
+      "twout_temp": null,
+      "th_temp": null,
+      "tf_temp": null,
+      "tp_temp": null,
+      "odu_voltage": null,
+      "odu_current": null,
+      "water_flow": null,
+      "dc_current": null,
+      "dc_voltage": null
     }
   },
   {
@@ -79,11 +96,58 @@
       "kjrh120l_run_mode": 3,
       "kjrh120l_zone1_setpoint": 37.0,
       "kjrh120l_outdoor_temp": 8.0,
-      "error_code": 0
+      "error_code": 0,
+      "comp_running": null
     },
     "expected_sensors": {
       "t4_temp": 8.0,
-      "twin_temp": null
+      "twin_temp": null,
+      "th_temp": null,
+      "tf_temp": null,
+      "tp_temp": null,
+      "odu_voltage": null,
+      "odu_current": null,
+      "water_flow": null,
+      "dc_current": null,
+      "dc_voltage": null
+    }
+  },
+  {
+    "id": "kjrh120l_dual_issue142_keramys_v0183",
+    "source_issue": "#142",
+    "hardware": "KJRH-120L dual Zone-1 + DHW, Inventor MX290-10S (Zone 1 On, Heat 50 C, DHW 50 C off, T4 10 C = app; static 0x02 with stray 03,64,08)",
+    "sn8": "17100003",
+    "expected_profile": "kjrh120l",
+    "expected_variant": "kjrh120l_dual",
+    "frames": {
+      "0x01": "01,fe,00,00,00,42,00,56,01,01,00,03,32,1e,30,32,00,00,00,00,00,00,01,00,00,00,00,00,00,00,00,00,00,00,01,02,02,4b,23,19,05,2d,19,19,05,3c,22,46,14,dd,00,01,01,06,03,01,01,ce,2f,ff,ff,ff,ff,ff,ff,ff,ff,ff,ff,ff,30,ff,ff,ff,ff,00,00,00,01,00,00,00,00,00,1a,0b,0f,0a,17,00,00,00,00,00,ff",
+      "0x02": "02,fe,00,46,00,9f,00,5a,00,00,00,00,00,00,03,64,08,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,32,00,00,00,00,32,00,00,00,00,32,00,00,00,00,32,00,00,00,00,32,00,00,00,00,32,00,00,ff"
+    },
+    "expected_status": {
+      "mode": 0,
+      "set_temperature": 50,
+      "t5s_def": 50.0,
+      "kjrh120l_zone1_power": true,
+      "kjrh120l_dhw_power": false,
+      "kjrh120l_run_mode": 3,
+      "kjrh120l_zone1_setpoint": 50.0,
+      "kjrh120l_dhw_setpoint": 50.0,
+      "kjrh120l_outdoor_temp": 10.0,
+      "error_code": 0,
+      "comp_running": null
+    },
+    "expected_sensors": {
+      "t4_temp": 10.0,
+      "twin_temp": null,
+      "twout_temp": null,
+      "th_temp": null,
+      "tf_temp": null,
+      "tp_temp": null,
+      "odu_voltage": null,
+      "odu_current": null,
+      "water_flow": null,
+      "dc_current": null,
+      "dc_voltage": null
     }
   }
 ]
