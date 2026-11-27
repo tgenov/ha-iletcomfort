@@ -80,6 +80,49 @@ def test_issue120_frame_requests_0x10_and_0x0a_probes() -> None:
     assert [p.subtype for p in probes] == [0x10, 0x0A, 0x05, 0x07]
 
 
+_FIRST_BLOCK_120 = NORDIS_75_BYTE_SCHEDULE[:38]
+
+
+@pytest.mark.parametrize(
+    ("label", "body"),
+    [
+        # body[38] is the probable second-block enable mask: an active 05 slot
+        # in block 2 (slot 1, 08:00-12:00) with a matching mask 0x01.
+        (
+            "second_block_active_05_slot",
+            _FIRST_BLOCK_120
+            + _bytes("01,05,2d,08,00,0c,00," + ",".join([_IDLE_1E] * 5)),
+        ),
+        # Block-2 mask 0x22 with 05 slots 2 and 6.
+        (
+            "second_block_mask_0x22",
+            _FIRST_BLOCK_120
+            + _bytes(
+                "22," + _IDLE_1E + ",05,30,06,1e,09,00,"
+                + ",".join([_IDLE_1E] * 3) + ",05,2d,11,00,15,00"
+            ),
+        ),
+        # Different first-block mask (0x13, as on #125).
+        ("first_block_mask_0x13", _with(NORDIS_75_BYTE_SCHEDULE, 1, 0x13)),
+        # Two idle headers in block 1 (03,1e and 02,0c) plus a different
+        # one in block 2 (03,19): the idle cap is per block.
+        (
+            "two_idle_headers_per_block",
+            _bytes(
+                "02,05,05,2d,06,00,07,1e,03,1e,00,00,00,00,02,0c,00,00,00,00,"
+                "02,0c,00,00,00,00,03,1e,00,00,00,00,02,0c,00,00,00,00,"
+                "00," + ",".join(["03,19,00,00,00,00"] * 6)
+            ),
+        ),
+    ],
+)
+def test_75_byte_active_schedule_variants_are_placeholders(
+    label: str, body: bytes
+) -> None:
+    assert len(body) == 75, label
+    assert atw_sensors_are_placeholder(body) is True, label
+
+
 @pytest.mark.parametrize(
     ("label", "body"),
     [
@@ -89,8 +132,18 @@ def test_issue120_frame_requests_0x10_and_0x0a_probes() -> None:
         ("first_block_invalid_minute", _with(NORDIS_75_BYTE_SCHEDULE, 5, 0x3C)),
         # Out-of-range hour (24) in a second-block slot.
         ("second_block_invalid_hour", _with(NORDIS_75_BYTE_SCHEDULE, 41, 0x18)),
-        # Separator is not 00.
-        ("separator_not_zero", _with(NORDIS_75_BYTE_SCHEDULE, 38, 0x03)),
+        # Second-block mask byte above the 6-slot range.
+        ("second_block_mask_0x40", _with(NORDIS_75_BYTE_SCHEDULE, 38, 0x40)),
+        ("second_block_mask_0xff", _with(NORDIS_75_BYTE_SCHEDULE, 38, 0xFF)),
+        # A third distinct idle header within block 1.
+        (
+            "third_idle_header_block1",
+            _bytes(
+                "02,05,05,2d,06,00,07,1e,03,1e,07,00,00,00,05,2d,14,00,16,00,"
+                "03,1c,00,00,00,00,03,1e,00,00,00,00,03,20,00,00,00,00,"
+                "00," + ",".join([_IDLE_1E] * 6)
+            ),
+        ),
         # Disallowed slot tag (0x04) in the second block.
         ("second_block_bad_tag", _with(NORDIS_75_BYTE_SCHEDULE, 39, 0x04)),
         # Idle 0x05 slot in the second block (idle slots are 02/03 only).

@@ -281,53 +281,68 @@ def _atw_sensors_match_template_shape(raw_body: bytes) -> bool:
     return groups >= _ATW_TEMPLATE_MIN_GROUPS and not after_separator
 
 
-def _atw_active_schedule_slot_offsets(raw_body: bytes) -> list[int] | None:
-    """Return the slot offsets of a 38- or 75-byte active-schedule frame.
+def _atw_active_schedule_block_offsets(raw_body: bytes) -> tuple[int, ...] | None:
+    """Return the mask offset of each block in a 38- or 75-byte schedule frame.
 
-    38 bytes (#128, #150): ``02``, mask, six slots. 75 bytes (#120): the same
-    38 bytes, a ``00`` separator, then six more slots.
+    A block is a 6-bit enable mask followed by six slots. 38 bytes (#128,
+    #150): ``02`` + one block at offset 1. 75 bytes (#120): ``02`` + two
+    blocks at offsets 1 and 38. ``body[38]`` is most likely the second
+    block's enable mask (``00`` on #120 because no block-2 slot is enabled),
+    not a fixed separator.
     """
-    slots = range(2, _ATW_ACTIVE_SCHEDULE_LEN, _ATW_TEMPLATE_GROUP_LEN)
     if len(raw_body) == _ATW_ACTIVE_SCHEDULE_LEN:
-        return list(slots)
-    if (
-        len(raw_body) == _ATW_ACTIVE_SCHEDULE_TWO_BLOCK_LEN
-        and raw_body[_ATW_ACTIVE_SCHEDULE_LEN] == 0x00
-    ):
-        second = range(
-            _ATW_ACTIVE_SCHEDULE_LEN + 1,
-            _ATW_ACTIVE_SCHEDULE_TWO_BLOCK_LEN,
-            _ATW_TEMPLATE_GROUP_LEN,
-        )
-        return [*slots, *second]
+        return (1,)
+    if len(raw_body) == _ATW_ACTIVE_SCHEDULE_TWO_BLOCK_LEN:
+        return (1, _ATW_ACTIVE_SCHEDULE_LEN)
     return None
 
 
-def _atw_sensors_match_active_schedule_shape(raw_body: bytes) -> bool:
-    """Match ATW 0x02 schedule frames with active 02/03/05 timer slots."""
-    offsets = _atw_active_schedule_slot_offsets(raw_body)
-    if offsets is None or raw_body[0] != 0x02 or raw_body[1] > 0x3F:
-        return False
+def _atw_schedule_block_is_valid(raw_body: bytes, mask_offset: int) -> bool | None:
+    """Validate one schedule block; return whether it has an active slot.
+
+    Returns ``None`` when the block does not match the schedule shape.
+    """
+    if raw_body[mask_offset] > 0x3F:
+        return None
     idle_headers: set[tuple[int, int]] = set()
     has_active_slot = False
-    for offset in offsets:
+    first_slot = mask_offset + 1
+    for offset in range(
+        first_slot,
+        first_slot + _ATW_TEMPLATE_MIN_GROUPS * _ATW_TEMPLATE_GROUP_LEN,
+        _ATW_TEMPLATE_GROUP_LEN,
+    ):
         tag, val, start_h, start_m, end_h, end_m = raw_body[
             offset : offset + _ATW_TEMPLATE_GROUP_LEN
         ]
         if tag not in _ATW_ACTIVE_SCHEDULE_TAGS or not (0 < val <= 0x50):
-            return False
+            return None
         if not (
             start_h <= 23 and start_m <= 59 and end_h <= 23 and end_m <= 59
         ):
-            return False
+            return None
         if (start_h, start_m, end_h, end_m) == (0, 0, 0, 0):
             if tag not in _ATW_TEMPLATE_MODE_TAGS:
-                return False
+                return None
             idle_headers.add((tag, val))
             if len(idle_headers) > 2:
-                return False
+                return None
         else:
             has_active_slot = True
+    return has_active_slot
+
+
+def _atw_sensors_match_active_schedule_shape(raw_body: bytes) -> bool:
+    """Match ATW 0x02 schedule frames with active 02/03/05 timer slots."""
+    blocks = _atw_active_schedule_block_offsets(raw_body)
+    if blocks is None or raw_body[0] != 0x02:
+        return False
+    has_active_slot = False
+    for mask_offset in blocks:
+        block_active = _atw_schedule_block_is_valid(raw_body, mask_offset)
+        if block_active is None:
+            return False
+        has_active_slot = has_active_slot or block_active
     return has_active_slot
 
 
