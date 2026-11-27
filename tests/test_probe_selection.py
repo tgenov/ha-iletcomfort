@@ -93,6 +93,10 @@ EXPECTED_ALL_OK: dict[str, list[str]] = {
     "atw_nordis_27byte_with_0x10_and_0x0a_issue120_132": [
         "unit", "hmi", "silent", "eco",
     ],
+    # 75-byte active-schedule 0x02 template (#120): 0x10/0x0A are probed.
+    "atw_nordis_75byte_active_schedule_issue120": [
+        "unit", "hmi", "silent", "eco",
+    ],
     "atw_rotenso_25byte_issue124": ["unit", "hmi", "silent", "eco"],
     "atw_airwell_active_schedule_issue128": ["unit", "hmi", "silent", "eco"],
     "atw_airwell_split_silent_eco_issue139": ["silent", "eco"],
@@ -343,6 +347,7 @@ EXPECTED_PLACEHOLDER_FLAG: dict[str, bool | None] = {
     "atw_italtherm_25byte_issue22": None,
     "atw_galmet_27byte_placeholder_issue38": True,
     "atw_nordis_27byte_with_0x10_and_0x0a_issue120_132": True,
+    "atw_nordis_75byte_active_schedule_issue120": True,
     "atw_rotenso_25byte_issue124": True,
     "atw_airwell_active_schedule_issue128": True,
     "atw_airwell_split_silent_eco_issue139": None,

@@ -94,6 +94,39 @@
     }
   },
   {
+    "id": "atw_nordis_75byte_active_schedule_issue120",
+    "source_issue": "#120",
+    "hardware": "NØRDIS (27-byte status + 75-byte active-schedule 0x02 template)",
+    "sn8": "171H120F",
+    "expected_profile": "atw",
+    "expected_variant": "atw_27_byte",
+    "expected_atw_0x02_placeholder": true,
+    "frames": {
+      "0x01": "01,0d,17,a1,03,03,21,1e,28,30,37,19,19,05,37,19,19,05,3c,22,3c,14,27,00,60,05,00",
+      "0x02": "02,05,05,2d,06,00,07,1e,03,1e,07,00,00,00,05,2d,14,00,16,00,03,1c,00,0a,06,32,03,1e,00,00,00,00,03,1e,00,00,00,00,00,03,1e,00,00,00,00,03,1e,00,00,00,00,03,1e,00,00,00,00,03,1e,00,00,00,00,03,1e,00,00,00,00,03,1e,00,00,00,00"
+    },
+    "expected_status": {
+      "mode": 1,
+      "mode_name": "Heat",
+      "set_temperature": 40,
+      "t5s_def": 33.0,
+      "box_bottom_temp": 39.0,
+      "error_code": 0
+    },
+    "expected_sensors": {
+      "th_temp": 39.0,
+      "t4_temp": null,
+      "t3_temp": null,
+      "t2_temp": null,
+      "t2b_temp": null,
+      "t1_temp": null,
+      "twin_temp": null,
+      "twout_temp": null,
+      "odu_current": null,
+      "odu_voltage": null
+    }
+  },
+  {
     "id": "atw_rotenso_25byte_issue124",
     "source_issue": "#124",
     "hardware": "Rotenso Aquami (25-byte body[2]=0x15 + 38-byte 0x02 placeholder)",
