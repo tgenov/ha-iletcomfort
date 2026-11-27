@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.35.1](https://github.com/tgenov/ha-iletcomfort/compare/v0.35.0...v0.35.1) (2026-11-27)
+
+
+### Bug Fixes
+
+* build the MQTT TLS context without ssl.PROTOCOL_TLSv1_2 ([#256](https://github.com/tgenov/ha-iletcomfort/issues/256)) ([936a159](https://github.com/tgenov/ha-iletcomfort/commit/936a15987fe0e5e5c19db4fb928dbdd874c179d6))
+* publish unknown for the AQUAPURA null-fill water temperature block ([#255](https://github.com/tgenov/ha-iletcomfort/issues/255)) ([bd998de](https://github.com/tgenov/ha-iletcomfort/commit/bd998dea0b46e8c5279db5f8aed07638f72e5063))
+
 ## [0.35.0](https://github.com/tgenov/ha-iletcomfort/compare/v0.34.0...v0.35.0) (2026-11-27)
 
 
