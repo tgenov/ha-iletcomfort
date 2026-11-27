@@ -105,6 +105,17 @@ appliance metadata has **NO device-class field**: both an ATW and an ATA unit re
 model-code serial prefix (e.g. `171H120F` vs `171000AU`). However, #11 and #12 both report
 `sn8=171000AU` with different frame semantics, so `sn8` is not proven to uniquely identify a layout.
 The full per-device serial `sn` is **redacted** and never stored.
+The serial has the Midea layout `<4 manufacturer code><2 device type>…`, and `sn[9:17]` is the `sn8`
+(the same rule as `midea-local`; the serial inside a captured `171H120F` `0x10` frame from #118
+agrees). When the cloud `sn8` field is empty, `protocols.appliance_sn8` derives the code from the
+serial, but only when the serial starts with upper-case `<4 chars>C3` and the code is 8 upper-case
+alphanumeric characters. The format of the Dollin `sn` field is not confirmed (other Midea clouds
+send it encrypted as lower-case hex, which the guard rejects). A derived code keeps the metadata
+lookup running on each poll, so a cloud value that arrives later still wins. Diagnostics show
+`protocol.resolved_sn8` and `protocol.sn8_source`. The coordinator logs the `sn8`, its source
+(`cloud`/`serial`) and the selected dialect at INFO when they change, and once per coordinator (so
+again at each setup retry) (#260). A report then shows the model code even when setup fails and no
+diagnostics file exists. Never log the serial itself.
 
 **Model-specific behaviour is gated on an `sn8 → profile` table** (`protocols/profile.py`) and selected
 **once** as a per-dialect `ProtocolAdapter` (`protocols.get_adapter(sn8)`, registry in
@@ -122,7 +133,7 @@ The full per-device serial `sn` is **redacted** and never stored.
   (`optional_probes` → `OptionalProbe` specs; the coordinator keeps `ProbeState`, session-disable and
   transient fallback), and capability flags (`accepts_energy_notify`, `offers_c3_basic_control`,
   `latches_zone1_capability` + `observed_zone1`, `periodic_status_push`, `sensors_placeholder`).
-  Only `diagnostics.py` reads `adapter.profile.value`, as an output label. Need a new model-specific
+  Only `diagnostics.py` and `protocols.dialect_label` (for the INFO model log) read `adapter.profile.value`, as an output label. Need a new model-specific
   decision? Add an adapter method or flag (named for the behaviour, not the model) to
   `ProtocolAdapter` (`protocols/base.py`) and implement it in every dialect.
 - **Adding a dialect:** create `protocols/<dialect>.py` with an adapter class implementing every
@@ -476,6 +487,21 @@ The Lua is not obtainable from the cloud on this tenant (this answers @dzerik's 
 it fails for a C3 tenant too): `/v1/device/status/lua/get` → `9999` for every body shape tried;
 `/v1/product/upgrade/lua/get/latest` and `/v1/product/lua/get/latest` → `1800` with a **valid** token;
 `type=lua`/`0xC3.lua`/`luaFile` on the plugin endpoint → `2200007`.
+
+The two `luaGet` routes that `midea-local` uses were also tested in #48:
+- OEM SDK `POST /v2/open/sdk/product/encrptedLuaGet` (vendor spelling), signed with the native
+  `clientId`/`clientSecret`: tested only on @dzerik's EU tenant (`appId 1020`). Every model returned
+  `2202101` ("product not found"), also his own non-C3 appliance, and the decryption was correct (a
+  wrong key gives a format error). That tenant therefore has no Lua profiles at all. The US tenant
+  (`appId 8010`, which has C3 appliances) was **not** tested; it needs its own `clientId`/
+  `clientSecret` from `libmidea_oem_core.so`.
+- Public MSmartHome `POST /v2/luaEncryption/luaGet` (the `midea-local` `download_lua` route, through
+  @dzerik's `holabrain-ha/scripts/fetch_lua_codecs.py`): `1318` ("no latest lua uploaded") for
+  `0xC3` with `171H120F`, `17100003` and `17100007`. The same route returned codecs for other device
+  types (`0xE1`, `0xAC`, …), so the route works but has no codec for these OEM model codes. Real
+  (non-OEM) Midea model codes were suggested and not tried.
+
+Not tested on any route: `17186T3A` (KJR-86T3, #126, found after #48) and any new controller model code.
 
 **`control_type` — the command-group selector.** The bundle carries it in two encodings (decimal in one
 constants block, `0x20X0` in another):
