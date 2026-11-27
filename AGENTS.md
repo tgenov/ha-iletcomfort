@@ -142,7 +142,7 @@ Status `raw_body` (0-indexed; STANDARD misreads this 25-byte frame):
 - `byte[24]` = flags byte — **NOT an error code** (STANDARD wrongly read it as 128). `midea-local`
   (`C3BasicBody`, offset 23) names the bits: `0x80` `tbh_control`, `0x40` `HMIEnergyAnaSetEN`, `0x20`
   `SysEnergyAnaEN`. This explains the captured values: `0x80` (Italtherm #22, Rotenso #124), `0xe0`
-  (Galmet #38/#118, Airwell #139), `0x60` (NØRDIS #120/#132), `0x00` (Italtherm Hydrablock #138).
+  (Galmet #38/#118, Airwell #139), `0x60` (NØRDIS #120/#132), `0x00` (Italtherm Hydrablock #138, EcoSpar #141).
   One more NØRDIS frame has `0x40` (`NORDIS_ATW_STATUS_FRAMES["unit2"]` in
   `tests/test_dialect_profiles.py`; it is not in the corpus). `decode_c3_basic` decodes them into `C3BasicStatus.tbh_control` / `hmi_energy_analysis` /
   `sys_energy_analysis` (`None` on a 24-byte frame) for **diagnostics only**. The bit names are a
@@ -158,6 +158,13 @@ Status `raw_body` (0-indexed; STANDARD misreads this 25-byte frame):
   - The NØRDIS `unit2` frame is 27 bytes with `0x40` set and `0x20` clear. It has `body[2]=0x17`,
     the same as the #120 unit, which has tail `0x60` in the corpus. It is not known if `unit2` is
     the #120 unit. If it is, `0x20` changes at run time and is not a static capability flag.
+  - An EcoSpar ECOSPAR-S10KAW-1N (#141, debug log on v0.33.4, not in the corpus) sends a 27-byte
+    frame with `body[3:6] == a0,03,03`, `body[2]=0x13` and `body[24]=0x00` in all 292 polls
+    (`body[25]` was `0x91`, and `0x90` in one frame). Both bits are clear on a 27-byte frame, so
+    this unit can separate the frame length from the bits. It cannot separate `0x20` from `0x40`.
+    v0.33.4 did not recognise the `0x02` frame of this unit as a placeholder, so it did not send
+    the `0x10` probe, and the `0x10` result is not known. Record the result when a diagnostics
+    file from v0.33.5 or later arrives.
   Do not gate the `0x10` probe on this bit until more diagnostics files confirm it.
 - ATW sets `error_code=0` and `comp_running=None` (no confirmed running signal in any 0x01 layout; only 0x10 sets it).
 - `decode_atw_status(body)` implements this. Uncertain HVAC mode/action is left conservative — validate
