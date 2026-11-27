@@ -163,16 +163,18 @@
     "expected_variant": "atw_25_byte",
     "expected_atw_0x02_placeholder": true,
     "frames": {
-      "0x01": "01,08,11,50,03,03,23,28,32,30,41,23,19,05,41,23,19,05,3c,22,3c,14,19,00,80",
+      "0x01": "01,00,77,91,03,03,32,1e,36,26,41,23,19,05,37,19,19,05,3c,22,3c,14,29,00,80",
       "0x02": "02,0a,03,28,05,00,0c,00,05,36,16,00,06,00,03,28,0c,00,10,00,05,34,11,00,14,00,03,28,16,00,05,00,03,28,00,00,00,00"
     },
     "expected_status": {
-      "set_temperature": 50,
-      "box_bottom_temp": 25.0,
+      "mode_name": "Off",
+      "set_temperature": 54,
+      "t5s_def": 50.0,
+      "box_bottom_temp": 41.0,
       "error_code": 0
     },
     "expected_sensors": {
-      "th_temp": 25.0,
+      "th_temp": 41.0,
       "t4_temp": null,
       "twin_temp": null
     }
@@ -192,7 +194,7 @@
     },
     "expected_status": {
       "set_temperature": 50,
-      "box_bottom_temp": 25.0,
+      "box_bottom_temp": null,
       "comp_total_run_hours": 2432,
       "atw_silent_mode": true,
       "atw_silent_level": 1,
@@ -200,6 +202,31 @@
       "atw_eco_mode": true,
       "atw_eco_timer": true,
       "error_code": 0
+    }
+  },
+  {
+    "id": "atw_italtherm_hydrablock_no_dhw_issue138",
+    "source_issue": "#138",
+    "hardware": "Italtherm Hydrablock 12 M (25-byte [2]=0x73, no DHW, body[22]=0xf1)",
+    "sn8": "171H120F",
+    "expected_profile": "atw",
+    "expected_variant": "atw_25_byte",
+    "expected_atw_0x02_placeholder": true,
+    "frames": {
+      "0x01": "01,00,73,90,03,03,23,1e,31,78,3c,23,19,05,37,19,19,05,3c,22,3c,28,f1,00,00",
+      "0x02": "02,00,03,00,00,00,00,00,03,00,00,00,00,00,03,00,00,00,00,00,03,00,00,00,00,00,03,00,00,00,00,00,03,00,00,00,00,00"
+    },
+    "expected_status": {
+      "mode_name": "Off",
+      "set_temperature": 49,
+      "t5s_def": 35.0,
+      "box_bottom_temp": null,
+      "error_code": 0
+    },
+    "expected_sensors": {
+      "th_temp": null,
+      "t4_temp": null,
+      "twin_temp": null
     }
   },
   {

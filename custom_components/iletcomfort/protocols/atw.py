@@ -7,7 +7,8 @@ C3BasicBody layout (see ``c3_basic.py``):
            (direct water °C) vs byte[9]/2 (0.5 °C room setpoint).
   byte[4]  mode: 2 = Cool, 3 = Heat (1 = Auto fallback).
   byte[8]  DHW setpoint in °C (direct value).
-  byte[22] DHW tank current temp in °C (direct value, routed to th_temp).
+  byte[22] DHW tank current temp in °C (direct value, routed to th_temp);
+           unavailable when byte[2] lacks the 0x04 DHW capability (#138).
   byte[23] error_code (byte[24..] are flags/MSB bytes, not an error code).
 
 ``comp_running`` / ``comp_frq`` / cumulative counters / pressures are None in
@@ -186,6 +187,12 @@ def _replace_atw_features(status: ITSStatus, **changes: Any) -> ITSStatus:
     )
 
 
+def _atw_reports_no_dhw(status: ITSStatus | None) -> bool:
+    """Return whether the decoded C3 basic status says the unit has no DHW (#138)."""
+    basic = status.c3_basic if status is not None else None
+    return isinstance(basic, C3BasicStatus) and not basic.cap_dhw
+
+
 def _is_27_byte_atw_status(body: bytearray | bytes) -> bool:
     """Return whether ``body`` has the hardware-validated 27-byte ATW layout."""
     return len(body) == 27 and body[0] == 0x01 and body[3:6] == b"\xa0\x03\x03"
@@ -216,11 +223,15 @@ def decode_atw_status(body: bytearray | bytes) -> ITSStatus:
     status.pump_system = bool(flags & ATW_SPACE_HEAT_DEMAND_BIT)
 
     status.set_temperature = body[ATW_DHW_SETPOINT_INDEX]
-    status.box_bottom_temp = float(body[ATW_DHW_TANK_TEMP_INDEX])
     status.error_code = 0
 
     basic = decode_c3_basic(body)
     status.c3_basic = basic
+    # A C3 basic unit without DHW (cap_dhw False) still fills body[22] with a
+    # non-reading (#138: 0xf1 = 241 °C; #47/#123/#139: constant 0x19), so the
+    # tank is unavailable. Without a C3 match there is no capability evidence.
+    if basic is None or basic.cap_dhw:
+        status.box_bottom_temp = float(body[ATW_DHW_TANK_TEMP_INDEX])
     if basic is not None:
         if basic.zone1_power:
             cooling = basic.is_cooling_mode
@@ -423,7 +434,7 @@ def apply_atw_unit_params(
         "water_flow": (body[55] << 8) | body[56],
         "raw_body": body,
     }
-    if sensors.th_temp is None:
+    if sensors.th_temp is None and not _atw_reports_no_dhw(status):
         tank = _atw_unit_s8(body[38])
         if tank is not None:
             sensor_updates["th_temp"] = tank
@@ -929,6 +940,9 @@ class AtwAdapter:
             sensors = dataclasses.replace(sensors, **placeholder_fields)
         if status is not None and status.box_bottom_temp is not None:
             return dataclasses.replace(sensors, th_temp=status.box_bottom_temp)
+        if _atw_reports_no_dhw(status):
+            # No DHW tank: never surface a 0x02 byte as one (#138).
+            return dataclasses.replace(sensors, th_temp=None)
         return sensors
 
     def sensors_placeholder(self, raw_0x02: bytes) -> bool | None:

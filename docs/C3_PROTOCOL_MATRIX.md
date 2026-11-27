@@ -39,7 +39,7 @@ Legend:
 | `8` | `dhw_target` (direct °C) | **Hardware-Verified (Dollin)** | Verified on Italtherm #22, Galmet #38, NØRDIS #132, Rotenso #124. |
 | `9` | `room_target` (`raw / 2` °C) | **Hardware-Verified (Unified room-mode)** | Selected when `body[2] & 0x10` is clear (`0`: Italtherm #22, Inventor ATM16S #125, Heiwa #42 C14); 0.5 °C resolution. |
 | `10..21` | Min/max limits (Zone-1/Zone-2/Room×2/DHW) | **Candidate (`midea-local`)** | Matches vendor schema bounds in `c3_basic.py`. |
-| `22` | `dhw_tank_temp` (direct °C) | **Hardware-Verified (Dollin)** | Routed to `th_temp` ("DHW Tank Temperature"). |
+| `22` | `dhw_tank_temp` (direct °C) | **Hardware-Verified (Dollin)** | Routed to `th_temp` ("DHW Tank Temperature") only when `cap_dhw`; no-DHW units fill it with a non-reading (`0xf1` #138; `0x19` #47 Dantex, #123, #124 "western", #139, #142), so the tank is unavailable. |
 | `23` | `error_code` | **Hardware-Verified (`0`)** | 25B/27B tail `[24..26]` is flags/MSB (`0x80`/`0xe0`/`0x60`/`0x40`), never error code. |
 
 ---
