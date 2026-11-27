@@ -32,21 +32,17 @@ from homeassistant.const import (
 from custom_components.iletcomfort.api import decode_its_sensors, decode_its_status
 from custom_components.iletcomfort.binary_sensor import BINARY_SENSOR_DESCRIPTIONS
 from custom_components.iletcomfort.climate import ILetComfortClimate
-from custom_components.iletcomfort.model_profiles import (
-    apply_profile_to_status,
-    atw_sensors_are_placeholder,
-    describe_profile_variant,
-    resolve_profile,
-)
-from custom_components.iletcomfort.number import (
-    ILetComfortKjrh120lDhwSetpoint,
-    ILetComfortKjrh120lZone1Setpoint,
-)
 from custom_components.iletcomfort.protocols import (
-    ViewContext,
     build_snapshot,
     get_adapter,
     project_entity_capabilities,
+    ViewContext,
+)
+from custom_components.iletcomfort.protocols.atw import atw_sensors_are_placeholder
+from custom_components.iletcomfort.protocols.profile import resolve_profile
+from custom_components.iletcomfort.number import (
+    ILetComfortKjrh120lDhwSetpoint,
+    ILetComfortKjrh120lZone1Setpoint,
 )
 from custom_components.iletcomfort.select import (
     ILetComfortKjrh120lModeSelect,
@@ -86,10 +82,8 @@ def test_hardware_corpus_decode_contract(case: dict[str, Any]) -> None:
     assert profile.value == case["expected_profile"]
 
     frames = case["frames"]
-    status = apply_profile_to_status(
-        profile, decode_its_status(_hex_csv(frames["0x01"]))
-    )
-    assert describe_profile_variant(sn8, status) == case["expected_variant"]
+    status = get_adapter(profile).decode_status(decode_its_status(_hex_csv(frames["0x01"])))
+    assert get_adapter(sn8).describe_variant(status) == case["expected_variant"]
 
     sensors = None
     if "0x02" in frames:
@@ -295,8 +289,8 @@ def test_boost_and_mute_exposure_contract(case: dict[str, Any]) -> None:
     other model keeps both entities with the pinned unique_ids above.
     """
     sn8 = case["sn8"]
-    status = apply_profile_to_status(
-        resolve_profile(sn8), decode_its_status(bytearray(_hex_csv(case["frames"]["0x01"])))
+    status = get_adapter(sn8).decode_status(
+        decode_its_status(bytearray(_hex_csv(case["frames"]["0x01"]))),
     )
     state = build_snapshot(get_adapter(sn8), status, None, {})
     for latched in (False, True):

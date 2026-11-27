@@ -3,10 +3,8 @@
 from unittest.mock import MagicMock
 
 from custom_components.iletcomfort.api import ITSSensors
-from custom_components.iletcomfort.model_profiles import (
-    KJRH120L_SN8,
-    decode_kjrh120l_status,
-)
+from custom_components.iletcomfort.protocols.kjrh120l import decode_kjrh120l_status
+from custom_components.iletcomfort.protocols.profile import KJRH120L_SN8
 from custom_components.iletcomfort.number import ILetComfortKjrh120lDhwSetpoint
 from custom_components.iletcomfort.protocols import ViewContext, project_entity_capabilities
 from tests.write_helpers import bind_write_path, sent_commands

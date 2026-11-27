@@ -49,23 +49,16 @@ from .const import (
     REGION_URLS,
     MQTT_STATUS_STALE_AFTER,
 )
-from .model_profiles import (
-    ATW_ECO_MIN_LEN,
-    ATW_ECO_SUBTYPE,
-    ATW_HMI_PARAMS_MIN_LEN,
-    ATW_HMI_PARAMS_SUBTYPE,
-    ATW_SILENT_MIN_LEN,
-    ATW_SILENT_SUBTYPE,
-    ATW_UNIT_PARAMS_MIN_LEN,
-    ATW_UNIT_PARAMS_SUBTYPE,
-    ModelProfile,
-    atw_sensors_are_placeholder,
-    kjrh120l_has_zone1,
-    resolve_profile,
-)
 from .mqtt import ILetComfortPushClient
+from .protocols.atw import (
+    ATW_ECO_SUBTYPE,
+    ATW_HMI_PARAMS_SUBTYPE,
+    ATW_SILENT_SUBTYPE,
+    ATW_UNIT_PARAMS_SUBTYPE,
+)
 from .protocols import (
     ClimateView,
+    OptionalProbe,
     EntityCapabilities,
     HeatPumpState,
     ViewContext,
@@ -273,11 +266,11 @@ class ILetComfortCoordinator(DataUpdateCoordinator[HeatPumpState]):
         """Return whether this KJRH-120L has ever reported a Zone 1.
 
         True once ``_observe_kjrh120l_zone1`` has latched the flag in
-        ``entry.data``. The profile is checked as well, so the flag never
-        enables Zone 1 entities on another model.
+        ``entry.data``. The dialect is checked as well, so the flag never
+        enables Zone 1 entities on a dialect that does not latch it.
         """
         return (
-            resolve_profile(self.sn8) is ModelProfile.KJRH120L
+            get_adapter(self.sn8).latches_zone1_capability
             and self.entry.data.get(CONF_KJRH120L_ZONE1_CAPABLE) is True
         )
 
@@ -308,16 +301,18 @@ class ILetComfortCoordinator(DataUpdateCoordinator[HeatPumpState]):
     def _observe_kjrh120l_zone1(self, status: ITSStatus) -> None:
         """Latch Zone 1 capability the first time a KJRH-120L frame shows it.
 
-        ``kjrh120l_has_zone1`` reads body[8:10], the Zone 1 / Zone 2 power
+        The KJRH-120L dialect's ``observed_zone1`` (``kjrh120l_has_zone1``)
+        reads body[8:10], the Zone 1 / Zone 2 power
         state, which drops to 00 00 while Zone 1 is off (snapshot 2026-11-18).
         One positive frame is therefore kept in ``entry.data`` and never
         cleared by a later frame.
         """
         if self.kjrh120l_zone1_capable:
             return
-        if resolve_profile(self.sn8) is not ModelProfile.KJRH120L:
+        adapter = get_adapter(self.sn8)
+        if not adapter.latches_zone1_capability:
             return
-        if not kjrh120l_has_zone1(status.raw_body):
+        if not adapter.observed_zone1(status):
             return
         self.hass.config_entries.async_update_entry(
             self.entry,
@@ -378,9 +373,9 @@ class ILetComfortCoordinator(DataUpdateCoordinator[HeatPumpState]):
 
     async def _poll(self) -> HeatPumpState:
         """Run the actual polling calls in the executor."""
-        previous_profile = resolve_profile(self.sn8)
+        previous_adapter = get_adapter(self.sn8)
         await self._ensure_appliance_meta()
-        if resolve_profile(self.sn8) is not previous_profile:
+        if get_adapter(self.sn8) is not previous_adapter:
             # Cached values and power-restore state used the old byte layout.
             # They cannot be used as fallback for the newly discovered model.
             self.data = None  # type: ignore[assignment]
@@ -475,7 +470,6 @@ class ILetComfortCoordinator(DataUpdateCoordinator[HeatPumpState]):
                 self._last_on_state = (set_mode, temp)
 
         adapter = get_adapter(sn8)
-        profile = adapter.profile
 
         raw_frames: dict[int, bytes] = {}
         if status.raw_body:
@@ -487,50 +481,15 @@ class ILetComfortCoordinator(DataUpdateCoordinator[HeatPumpState]):
         elif sensors.raw_body and sensors.raw_body[:1] == b"\x02":
             raw_frames[0x02] = bytes(sensors.raw_body)
 
-        # On ATW (171H120F) units whose 0x02 frame is a non-telemetry schedule
-        # template, probe subtype 0x10 once for live telemetry (#120). Units
-        # that reject 0x10 on the initial probe (e.g. code=1214 on Rotenso)
-        # latch unsupported; transient errors after 0x10 is already confirmed
-        # retry on the next poll without permanently disabling telemetry.
-        if profile is ModelProfile.ATW and atw_sensors_are_placeholder(
-            raw_frames.get(0x02, b"")
-        ):
-            unit_body = await self._async_probe_atw_subtype(
-                label="unit parameters",
-                subtype=ATW_UNIT_PARAMS_SUBTYPE,
-                min_len=ATW_UNIT_PARAMS_MIN_LEN,
-                probe=self.capabilities.atw_unit_params,
-                fetcher=self.client.query_atw_unit_params,
-                raw_frames=raw_frames,
-            )
-            if unit_body is not None:
-                await self._async_probe_atw_subtype(
-                    label="HMI parameters",
-                    subtype=ATW_HMI_PARAMS_SUBTYPE,
-                    min_len=ATW_HMI_PARAMS_MIN_LEN,
-                    probe=self.capabilities.atw_hmi_params,
-                    fetcher=self.client.query_atw_hmi_params,
-                    raw_frames=raw_frames,
-                )
-
-        # Probe 0x05 (Silent/Super-Silent) and 0x07 (ECO) on C3 basic ATW units (#139/#188).
-        if profile is ModelProfile.ATW and status.c3_basic is not None:
-            await self._async_probe_atw_subtype(
-                label="silent",
-                subtype=ATW_SILENT_SUBTYPE,
-                min_len=ATW_SILENT_MIN_LEN,
-                probe=self.capabilities.atw_silent,
-                fetcher=self.client.query_atw_silent,
-                raw_frames=raw_frames,
-            )
-            await self._async_probe_atw_subtype(
-                label="eco",
-                subtype=ATW_ECO_SUBTYPE,
-                min_len=ATW_ECO_MIN_LEN,
-                probe=self.capabilities.atw_eco,
-                fetcher=self.client.query_atw_eco,
-                raw_frames=raw_frames,
-            )
+        # The dialect decides which optional subtypes to probe (e.g. ATW 0x10
+        # then 0x0A on a 0x02 schedule template, #120; 0x05/0x07 on a C3 basic
+        # status, #139/#188). Units that reject a subtype on the initial probe
+        # (e.g. code=1214 on Rotenso) latch unsupported; transient errors after
+        # a subtype is confirmed retry on the next poll and reuse its last frame.
+        for spec in adapter.optional_probes(status, raw_frames):
+            if spec.requires is not None and spec.requires not in raw_frames:
+                continue
+            await self._async_probe_optional_subtype(spec, raw_frames)
 
         self._update_offline_repair()
         self._observe_kjrh120l_zone1(status)
@@ -542,17 +501,36 @@ class ILetComfortCoordinator(DataUpdateCoordinator[HeatPumpState]):
         # shared with the MQTT push paths so push and poll stay in parity (#225).
         return build_snapshot(adapter, status, sensors, raw_frames)
 
-    async def _async_probe_atw_subtype(
-        self,
-        *,
-        label: str,
-        subtype: int,
-        min_len: int,
-        probe: ProbeState,
-        fetcher: Callable[[str], bytes],
-        raw_frames: dict[int, bytes],
+    def _probe_target(
+        self, subtype: int
+    ) -> tuple[ProbeState, Callable[[str], bytes]]:
+        """Return the session probe state and client fetcher for ``subtype``."""
+        targets: dict[int, tuple[ProbeState, Callable[[str], bytes]]] = {
+            ATW_UNIT_PARAMS_SUBTYPE: (
+                self.capabilities.atw_unit_params,
+                self.client.query_atw_unit_params,
+            ),
+            ATW_HMI_PARAMS_SUBTYPE: (
+                self.capabilities.atw_hmi_params,
+                self.client.query_atw_hmi_params,
+            ),
+            ATW_SILENT_SUBTYPE: (
+                self.capabilities.atw_silent,
+                self.client.query_atw_silent,
+            ),
+            ATW_ECO_SUBTYPE: (
+                self.capabilities.atw_eco,
+                self.client.query_atw_eco,
+            ),
+        }
+        return targets[subtype]
+
+    async def _async_probe_optional_subtype(
+        self, spec: OptionalProbe, raw_frames: dict[int, bytes]
     ) -> bytes | None:
-        """Probe one optional ATW C3 subtype, disabling for the session on ApiError."""
+        """Probe one optional C3 subtype, disabling for the session on ApiError."""
+        subtype, label, min_len = spec.subtype, spec.label, spec.min_len
+        probe, fetcher = self._probe_target(subtype)
         if not probe.should_probe:
             return None
         try:
@@ -838,7 +816,7 @@ class ILetComfortCoordinator(DataUpdateCoordinator[HeatPumpState]):
         if self.data is None:
             return
         adapter = get_adapter(self.sn8)
-        if adapter.profile is not ModelProfile.ATW:
+        if not adapter.accepts_energy_notify:
             return
         raw_frames = dict(self.data.raw_frames)
         raw_frames[0x04] = bytes(energy_body)

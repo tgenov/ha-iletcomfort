@@ -37,7 +37,7 @@ from custom_components.iletcomfort.coordinator import (
     SUSTAINED_FAILURE_THRESHOLD,
     ILetComfortCoordinator,
 )
-from custom_components.iletcomfort.model_profiles import (
+from custom_components.iletcomfort.protocols.kjrh120l import (
     decode_kjrh120l_status as _decode_kjrh120l_status,
 )
 from tests.kjrh120l_snapshots import KJRH120L_SNAPSHOT_A as _KJRH120L_SNAPSHOT_A
@@ -1103,10 +1103,7 @@ def _kjrh_poll_coordinator(
     hass: HomeAssistant, sn8: str | None, body: bytes
 ) -> ILetComfortCoordinator:
     from custom_components.iletcomfort.api import decode_its_status
-    from custom_components.iletcomfort.model_profiles import (
-        apply_profile_to_status,
-        resolve_profile,
-    )
+    from custom_components.iletcomfort.protocols import get_adapter
 
     entry = _entry(REGION_US)
     entry.add_to_hass(hass)
@@ -1116,8 +1113,8 @@ def _kjrh_poll_coordinator(
         coord = ILetComfortCoordinator(hass, entry)
     coord.appliance_meta = {"applianceCode": "APPL1", "sn8": sn8}
     client = mock_cls.return_value
-    client.query_status.return_value = apply_profile_to_status(
-        resolve_profile(sn8), decode_its_status(bytearray(body))
+    client.query_status.return_value = get_adapter(sn8).decode_status(
+        decode_its_status(bytearray(body)),
     )
     client.query_sensors.return_value = ITSSensors()
     return coord
@@ -1146,7 +1143,7 @@ async def test_kjrh120l_dual_frame_latches_zone1_capability(hass: HomeAssistant)
 
 async def test_kjrh120l_latch_survives_zone_switched_off(hass: HomeAssistant):
     from custom_components.iletcomfort.const import CONF_KJRH120L_ZONE1_CAPABLE
-    from custom_components.iletcomfort.model_profiles import decode_kjrh120l_status
+    from custom_components.iletcomfort.protocols.kjrh120l import decode_kjrh120l_status
     from tests.kjrh120l_snapshots import KJRH120L_SNAPSHOT_A, KJRH120L_SNAPSHOT_B
 
     coord = _kjrh_poll_coordinator(hass, "17100003", KJRH120L_SNAPSHOT_A)

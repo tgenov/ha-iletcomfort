@@ -18,7 +18,7 @@ from .entity import (
     async_remove_unsupported,
     build_device_info,
 )
-from .model_profiles import (
+from .protocols.kjrh120l import (
     KJRH120L_RUN_MODE_COOL,
     KJRH120L_RUN_MODE_HEAT,
 )

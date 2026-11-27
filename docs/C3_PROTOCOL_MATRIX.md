@@ -44,7 +44,7 @@ Legend:
 
 ---
 
-## 3. Subtype `0x10` Unit Parameters (`model_profiles.py`, `apply_atw_unit_params`)
+## 3. Subtype `0x10` Unit Parameters (`protocols/atw.py`, `apply_atw_unit_params`)
 
 Signed 8-bit °C values use `0x7F` as disconnected sentinel (`_ATW_UNIT_SENSOR_DISCONNECTED`).
 
@@ -76,10 +76,10 @@ Signed 8-bit °C values use `0x7F` as disconnected sentinel (`_ATW_UNIT_SENSOR_D
 
 ## 4. Subtype `0x0A` HMI Parameters & Subtypes `0x05` / `0x07` (Silent / ECO)
 
-- **`0x0A` (`apply_atw_hmi_params`, `model_profiles.py`):**
+- **`0x0A` (`apply_atw_hmi_params`, `protocols/atw.py`):**
   - `body[4..5]` (`comp_total_run_hours`, uint16 BE): **Hardware-Verified (Dollin)** on NØRDIS #120 (`0x1c8f` = `7311 Hrs`) and Airwell #139 (`0x0980` = `2432 Hrs`).
   - `body[3]` (current compressor run time, min): **Candidate (`#120` capture `0x22` = 34 min vs. service menu)**; not decoded in `scripts/c3_probe.py` or exposed in HA yet.
-- **`0x05` / `0x07` (`apply_atw_silent`, `apply_atw_eco`, `model_profiles.py`, #139 / #188):**
+- **`0x05` / `0x07` (`apply_atw_silent`, `apply_atw_eco`, `protocols/atw.py`, #139 / #188):**
   - **Silence (`0x05`, 10B, Hardware-Verified Airwell #139):** `body[1] & 0x01` = Silent ON/OFF, `& 0x02` = Timer 1, `& 0x08` = Super Silent level (retained even when OFF); `body[2..9]` = Timer 1/2 `HH:MM` schedules.
   - **ECO (`0x07`, 7B, Hardware-Verified Airwell #139; or `0x05 <= 6B` fallback per `midea-local` #300):** `body[1] & 0x01` = `eco_on`, `& 0x02` = `eco_timer_on`; `body[2..6]` = schedule bytes.
 
@@ -90,5 +90,5 @@ Signed 8-bit °C values use `0x7F` as disconnected sentinel (`_ATW_UNIT_SENSOR_D
 | Family / `sn8` | Command Builder / Dialect | Status | Notes |
 |---|---|---|---|
 | **STANDARD / AQUAPURA** | 62-byte `build_c3_set` (`c3_frame.py`) | **Hardware-Verified** | Echoes status bytes; rejects unmapped modes cleanly. |
-| **KJRH-120L (`17100003`)** | Short `00 <field> 01 <val> ff` (`model_profiles.py`) | **Hardware-Verified** | Fields `0x00` (Zone-1 power), `0x02` (DHW power), `0x03` (run mode paired with `0x04`), `0x04` (Zone-1 setpoint), `0x07` (DHW setpoint). Field `0x08` must **never** be used (forced 23 °C on hardware). |
+| **KJRH-120L (`17100003`)** | Short `00 <field> 01 <val> ff` (`protocols/kjrh120l.py`) | **Hardware-Verified** | Fields `0x00` (Zone-1 power), `0x02` (DHW power), `0x03` (run mode paired with `0x04`), `0x04` (Zone-1 setpoint), `0x07` (DHW setpoint). Field `0x08` must **never** be used (forced 23 °C on hardware). |
 | **ATW (`171H120F`)** | `build_basic_set`, `build_feature_set` (`c3_basic.py`) | **Hardware-Verified (Rotenso Aquami water-mode & Heiwa #42 room-mode, opt-in)** | Opt-in C3Basic SET (`#42`, `#124`, `#139`, `#151`): DHW target/power/Fast DHW (`cap_dhw`-gated), Zone-1 water (`body[6]`) or room 0.5 °C (`body[9]`, verified on Heiwa #42) target/power/curve, Zone-2 water (`body[7]`) target/power/curve (`double_zone`-gated) in Heat mode, Silent (`0x05` Off / Level 1 clearing bit 3 / Level 2 Super Silent), and ECO (`0x07`) preserving schedules; refuses mode changes, Cool writes, and the legacy 62-byte ITS SET. |

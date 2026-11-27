@@ -13,15 +13,15 @@ import dataclasses
 import pytest
 
 from custom_components.iletcomfort.api import ITSSensors, ITSStatus
-from custom_components.iletcomfort.model_profiles import (
-    ATW_SN8,
+from custom_components.iletcomfort.protocols.atw import (
     apply_atw_unit_params,
     decode_atw_status,
+    valid_energy_counter,
 )
+from custom_components.iletcomfort.protocols.profile import ATW_SN8
 from custom_components.iletcomfort.protocols import build_snapshot, get_adapter
-from custom_components.iletcomfort.protocols.atw import valid_energy_counter
 from tests.test_atw_unit_params import NORDIS_UNIT_PARAMS_0X10
-from tests.test_model_profiles import (
+from tests.test_dialect_profiles import (
     ATW_PLACEHOLDER_SENSORS_BODY,
     NORDIS_ATW_STATUS_FRAMES,
 )

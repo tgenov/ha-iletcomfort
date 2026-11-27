@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Protocol
 
@@ -13,6 +14,7 @@ from .kjrh120l import (
     KJRH120L_RUN_MODE_HEAT,
     kjrh120l_zone1_range,
 )
+from .probes import OptionalProbe
 from .profile import ModelProfile
 from .views import ClimateView, EntityCapabilities, ViewContext, status_active_setpoint
 from .write import WriteContext, WritePlan
@@ -402,6 +404,14 @@ class ProtocolAdapter(Protocol):
     # Whether the device publishes 0x01 status pushes on a fixed cadence while
     # idle. Only then can silence on a live MQTT link mean the data is stale.
     periodic_status_push: bool
+    # Whether an unsolicited MQTT 0x04 energy notification carries values this
+    # dialect overlays (``apply_overlays(energy_notify=...)``).
+    accepts_energy_notify: bool
+    # Whether the options flow offers the opt-in C3 basic control.
+    offers_c3_basic_control: bool
+    # Whether a Zone-1 observation is latched in the config entry (once seen,
+    # kept across Zone-1-off frames and restarts) and honoured afterwards.
+    latches_zone1_capability: bool
 
     def build_query(self, subtype: int) -> str:
         """Build the wire hex query command for ``subtype``."""
@@ -416,6 +426,32 @@ class ProtocolAdapter(Protocol):
 
     def describe_variant(self, status: ITSStatus | None) -> str:
         """Return the structural variant label for diagnostics."""
+
+    def sensors_placeholder(self, raw_0x02: bytes) -> bool | None:
+        """Whether a 0x02 frame is a non-telemetry placeholder; None if not detected."""
+
+    def observed_zone1(self, status: ITSStatus) -> bool:
+        """Whether ``status`` shows a Zone 1 worth latching (see latches_zone1_capability)."""
+
+    def optional_probes(
+        self, status: ITSStatus, raw_frames: Mapping[int, bytes]
+    ) -> tuple[OptionalProbe, ...]:
+        """Optional subtypes to query this poll, in order (pure, #110).
+
+        ``status`` is this poll's dialect-decoded status and ``raw_frames``
+        the 0x01/0x02 frames collected so far.
+        """
+
+    def apply_overlays(
+        self,
+        status: ITSStatus,
+        sensors: ITSSensors | None,
+        raw_frames: Mapping[int, bytes],
+        *,
+        retained_subtypes: bool,
+        energy_notify: bytes | None,
+    ) -> tuple[ITSStatus, ITSSensors | None]:
+        """Overlay this dialect's optional subtype frames (see ``build_snapshot``)."""
 
     def climate_current_temperature(self, sensors: ITSSensors | None) -> float | None:
         """Return the dialect-appropriate climate current temperature."""

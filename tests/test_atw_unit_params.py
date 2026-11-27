@@ -23,17 +23,15 @@ from custom_components.iletcomfort.const import (
     REGION_EU,
 )
 from custom_components.iletcomfort.coordinator import ILetComfortCoordinator
-from custom_components.iletcomfort.model_profiles import (
-    ATW_SN8,
-    KJRH120L_SN8,
-    ModelProfile,
+from custom_components.iletcomfort.protocols import get_adapter
+from custom_components.iletcomfort.protocols.atw import (
     apply_atw_hmi_params,
     apply_atw_unit_params,
-    apply_profile_to_sensors,
     decode_atw_status,
-    decode_kjrh120l_status,
 )
-from tests.test_model_profiles import (
+from custom_components.iletcomfort.protocols.kjrh120l import decode_kjrh120l_status
+from custom_components.iletcomfort.protocols.profile import ATW_SN8, KJRH120L_SN8, ModelProfile
+from tests.test_dialect_profiles import (
     ATW_PLACEHOLDER_SENSORS_BODY,
     NORDIS_ATW_STATUS_FRAMES,
 )
@@ -67,8 +65,7 @@ def _c3_frame(body: bytes) -> str:
 
 def test_apply_atw_unit_params_decodes_verified_issue120_fields():
     status = decode_atw_status(NORDIS_ATW_STATUS_FRAMES["issue132"])
-    sensors = apply_profile_to_sensors(
-        ModelProfile.ATW,
+    sensors = get_adapter(ModelProfile.ATW).decode_sensors(
         decode_its_sensors(ATW_PLACEHOLDER_SENSORS_BODY),
         status,
     )
@@ -107,8 +104,7 @@ def test_apply_atw_unit_params_signed_negative_disconnected_and_running():
     body[8] = 0xFB  # -5 °C (signed int8)
     body[7] = 0x7F  # disconnected sentinel
     status = decode_atw_status(NORDIS_ATW_STATUS_FRAMES["issue132"])
-    sensors = apply_profile_to_sensors(
-        ModelProfile.ATW,
+    sensors = get_adapter(ModelProfile.ATW).decode_sensors(
         decode_its_sensors(ATW_PLACEHOLDER_SENSORS_BODY),
         status,
     )
@@ -123,8 +119,7 @@ def test_apply_atw_unit_params_signed_negative_disconnected_and_running():
 
 def test_apply_atw_unit_params_ignores_short_or_wrong_subtype():
     status = decode_atw_status(NORDIS_ATW_STATUS_FRAMES["issue132"])
-    sensors = apply_profile_to_sensors(
-        ModelProfile.ATW,
+    sensors = get_adapter(ModelProfile.ATW).decode_sensors(
         decode_its_sensors(ATW_PLACEHOLDER_SENSORS_BODY),
         status,
     )
@@ -157,8 +152,7 @@ def test_client_query_atw_unit_params_rejects_short_reply():
 
 def test_climate_uses_live_water_outlet_when_0x10_telemetry_present():
     status = decode_atw_status(NORDIS_ATW_STATUS_FRAMES["issue132"])
-    sensors = apply_profile_to_sensors(
-        ModelProfile.ATW,
+    sensors = get_adapter(ModelProfile.ATW).decode_sensors(
         decode_its_sensors(ATW_PLACEHOLDER_SENSORS_BODY),
         status,
     )
@@ -316,8 +310,7 @@ def test_extended_0x10_sensor_descriptions_disabled_by_default_and_scaled():
     from custom_components.iletcomfort.sensor import SENSOR_DESCRIPTIONS
 
     status = decode_atw_status(NORDIS_ATW_STATUS_FRAMES["issue132"])
-    sensors = apply_profile_to_sensors(
-        ModelProfile.ATW,
+    sensors = get_adapter(ModelProfile.ATW).decode_sensors(
         decode_its_sensors(ATW_PLACEHOLDER_SENSORS_BODY),
         status,
     )
@@ -349,7 +342,7 @@ def test_extended_0x10_sensors_return_none_without_0x10_frame():
     """Non-0x10 models (AQUAPURA, KJRH-120L, STANDARD, ATW placeholder) must return None."""
     from custom_components.iletcomfort.api import decode_its_status
     from custom_components.iletcomfort.sensor import SENSOR_DESCRIPTIONS
-    from tests.test_model_profiles import (
+    from tests.test_dialect_profiles import (
         ISSUE_11_SENSORS_BODY,
         ISSUE_11_STATUS_BODY,
         KJRH120L_SENSORS_BODY,

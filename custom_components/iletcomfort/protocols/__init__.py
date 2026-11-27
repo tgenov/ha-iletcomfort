@@ -1,4 +1,15 @@
-"""Protocol dialect adapter registry for iLetComfort heat-pump families (#110, #172, #192)."""
+"""Protocol dialect adapter registry for iLetComfort heat-pump families (#110, #172, #192).
+
+Model selection happens here, once: ``get_adapter(sn8)`` resolves the sn8 model
+code (``profile.resolve_profile``; unknown/missing → STANDARD) to one
+``ProtocolAdapter``. Callers use that adapter's methods and capability flags
+and never compare ``ModelProfile`` values themselves.
+
+Adding a dialect: create ``protocols/<dialect>.py`` with an adapter class that
+implements every ``ProtocolAdapter`` member (``base.py``), add a
+``ModelProfile`` member and its sn8 code to ``profile.py``, and register the
+adapter in ``_ADAPTERS`` below.
+"""
 
 from __future__ import annotations
 
@@ -8,6 +19,7 @@ from .aquapura import AquapuraAdapter
 from .atw import AtwAdapter
 from .base import HeatPumpState, ProtocolAdapter, profile_climate_temp_bounds
 from .kjrh120l import Kjrh120lAdapter
+from .probes import OptionalProbe
 from .profile import ModelProfile, resolve_profile
 from .snapshot import build_snapshot, merge_atw_energy_notify
 from .standard import StandardAdapter
@@ -102,6 +114,7 @@ __all__ = [
     "AtwAdapter",
     "HeatPumpState",
     "Kjrh120lAdapter",
+    "OptionalProbe",
     "ProtocolAdapter",
     "StandardAdapter",
     "build_snapshot",

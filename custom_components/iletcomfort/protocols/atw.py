@@ -16,6 +16,7 @@ C3BasicBody layout (see ``c3_basic.py``):
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 import dataclasses
 from typing import Any
 
@@ -57,7 +58,8 @@ from ..commands import (
     SetZoneTargetCommand,
 )
 from .kjrh120l import zone1_run_mode_setpoint
-from .profile import ModelProfile, resolve_profile
+from .probes import OptionalProbe
+from .profile import ModelProfile
 from .standard import default_climate_temp_bounds
 from .views import (
     ATW_CONTROL_DISABLED,
@@ -447,11 +449,124 @@ def apply_atw_energy_notify(
     return status, sensors
 
 
-def atw_c3_basic(sn8: str | None, status: ITSStatus | None) -> C3BasicStatus | None:
-    """Return the decoded C3 basic status for an ATW unit, else None."""
-    if status is None or resolve_profile(sn8) is not ModelProfile.ATW:
-        return None
-    return status.c3_basic
+_ATW_UNIT_COUNTER_FIELDS = ("total_kwh", "total_thermal_kwh")
+
+# Optional subtypes the coordinator probes on ATW units (#120, #139, #188).
+_ATW_UNIT_PARAMS_PROBE = OptionalProbe(
+    subtype=ATW_UNIT_PARAMS_SUBTYPE,
+    label="unit parameters",
+    min_len=ATW_UNIT_PARAMS_MIN_LEN,
+)
+_ATW_HMI_PARAMS_PROBE = OptionalProbe(
+    subtype=ATW_HMI_PARAMS_SUBTYPE,
+    label="HMI parameters",
+    min_len=ATW_HMI_PARAMS_MIN_LEN,
+    requires=ATW_UNIT_PARAMS_SUBTYPE,
+)
+_ATW_SILENT_PROBE = OptionalProbe(
+    subtype=ATW_SILENT_SUBTYPE, label="silent", min_len=ATW_SILENT_MIN_LEN
+)
+_ATW_ECO_PROBE = OptionalProbe(
+    subtype=ATW_ECO_SUBTYPE, label="eco", min_len=ATW_ECO_MIN_LEN
+)
+
+
+def atw_optional_probes(
+    status: ITSStatus, raw_frames: Mapping[int, bytes]
+) -> tuple[OptionalProbe, ...]:
+    """Return the optional ATW subtypes to query this poll, in order.
+
+    - 0x10 unit parameters only when the 0x02 frame is a non-telemetry
+      schedule template (#120), then 0x0A HMI parameters only once this
+      poll has a 0x10 frame (fresh or transient fallback).
+    - 0x05 Silent and 0x07 ECO only when the status matches the C3 basic
+      layout (#139/#188).
+    """
+    probes: list[OptionalProbe] = []
+    if atw_sensors_are_placeholder(raw_frames.get(0x02, b"")):
+        probes += (_ATW_UNIT_PARAMS_PROBE, _ATW_HMI_PARAMS_PROBE)
+    if status.c3_basic is not None:
+        probes += (_ATW_SILENT_PROBE, _ATW_ECO_PROBE)
+    return tuple(probes)
+
+
+def apply_atw_overlays(
+    status: ITSStatus,
+    sensors: ITSSensors | None,
+    raw_frames: Mapping[int, bytes],
+    *,
+    retained_subtypes: bool,
+    energy_notify: bytes | None,
+) -> tuple[ITSStatus, ITSSensors | None]:
+    """Apply the ATW optional subtype overlay chain (order documented in build_snapshot)."""
+    unit_body = raw_frames.get(ATW_UNIT_PARAMS_SUBTYPE)
+    if unit_body is not None:
+        if retained_subtypes:
+            status = _apply_atw_unit_counters(unit_body, status)
+        elif sensors is not None:
+            status, sensors = apply_atw_unit_params(unit_body, status, sensors)
+        else:
+            status, _ = apply_atw_unit_params(unit_body, status, ITSSensors())
+    hmi_body = raw_frames.get(ATW_HMI_PARAMS_SUBTYPE)
+    if hmi_body is not None:
+        status = apply_atw_hmi_params(hmi_body, status)
+    if status.c3_basic is not None:
+        silent_body = raw_frames.get(ATW_SILENT_SUBTYPE)
+        if silent_body is not None:
+            status = (
+                _reconcile_retained_silent(silent_body, status)
+                if retained_subtypes
+                else apply_atw_silent(silent_body, status)
+            )
+        eco_body = raw_frames.get(ATW_ECO_SUBTYPE)
+        if eco_body is not None:
+            status = apply_atw_eco(eco_body, status)
+    energy_body = (
+        energy_notify
+        if energy_notify is not None
+        else raw_frames.get(ATW_ENERGY_NOTIFY_SUBTYPE)
+    )
+    if energy_body is not None:
+        status, sensors = apply_atw_energy_notify(energy_body, status, sensors)
+    return status, sensors
+
+
+def _apply_atw_unit_counters(unit_body: bytes, status: ITSStatus) -> ITSStatus:
+    """Re-apply only the cumulative (TOTAL_INCREASING) counters from a 0x10 frame."""
+    full, _ = apply_atw_unit_params(unit_body, status, ITSSensors())
+    return dataclasses.replace(
+        status,
+        **{field: getattr(full, field) for field in _ATW_UNIT_COUNTER_FIELDS},
+    )
+
+
+def _reconcile_retained_silent(silent_body: bytes, status: ITSStatus) -> ITSStatus:
+    """Overlay a retained 0x05 frame, letting the current 0x01 Silent bit win.
+
+    0x01 ``body[3] & 0x02`` carries only binary Silent on/off; the level lives
+    in 0x05 (#139). With a 0x05 frame from an earlier poll:
+
+    - 0x01 off: Silent off, level 0; keep ``atw_silent_super_selected`` from
+      0x05 (bit 3 is retained by the unit even when Silent is off).
+    - 0x01 on and 0x05 on: keep the 0x05 level.
+    - 0x01 on but 0x05 off: the level is unknown, so the silent fields are
+      cleared and entities fall back to ``c3_basic.silent_mode``.
+    """
+    overlaid = apply_atw_silent(silent_body, status)
+    basic = status.c3_basic
+    if basic is None or overlaid.atw_silent_mode is None:
+        # Short (<= 6-byte) 0x05 ECO fallback or an invalid frame.
+        return overlaid
+    if not basic.silent_mode:
+        return dataclasses.replace(overlaid, atw_silent_mode=False, atw_silent_level=0)
+    if overlaid.atw_silent_mode:
+        return overlaid
+    return dataclasses.replace(
+        overlaid,
+        atw_silent_mode=None,
+        atw_silent_level=None,
+        atw_silent_super_selected=None,
+    )
 
 
 def atw_climate_temp_bounds(
@@ -723,6 +838,10 @@ class AtwAdapter:
     # 171H120F sends no periodic 0x01 status, only sporadic 0x04 change
     # notifications (#129), so availability follows the MQTT link alone.
     periodic_status_push = False
+    accepts_energy_notify = True
+    # C3 basic writes are opt-in: validated on one 171H120F variant only.
+    offers_c3_basic_control = True
+    latches_zone1_capability = False
 
     def build_query(self, subtype: int) -> str:
         return build_c3_query(subtype)
@@ -739,6 +858,34 @@ class AtwAdapter:
         if status is not None and status.box_bottom_temp is not None:
             return dataclasses.replace(sensors, th_temp=status.box_bottom_temp)
         return sensors
+
+    def sensors_placeholder(self, raw_0x02: bytes) -> bool | None:
+        return atw_sensors_are_placeholder(raw_0x02)
+
+    def observed_zone1(self, status: ITSStatus) -> bool:
+        return False
+
+    def optional_probes(
+        self, status: ITSStatus, raw_frames: Mapping[int, bytes]
+    ) -> tuple[OptionalProbe, ...]:
+        return atw_optional_probes(status, raw_frames)
+
+    def apply_overlays(
+        self,
+        status: ITSStatus,
+        sensors: ITSSensors | None,
+        raw_frames: Mapping[int, bytes],
+        *,
+        retained_subtypes: bool,
+        energy_notify: bytes | None,
+    ) -> tuple[ITSStatus, ITSSensors | None]:
+        return apply_atw_overlays(
+            status,
+            sensors,
+            raw_frames,
+            retained_subtypes=retained_subtypes,
+            energy_notify=energy_notify,
+        )
 
     def describe_variant(self, status: ITSStatus | None) -> str:
         body = bytes(status.raw_body) if status is not None and status.raw_body else b""

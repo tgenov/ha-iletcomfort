@@ -42,12 +42,9 @@ from custom_components.iletcomfort.const import (
     REGION_EU,
 )
 from custom_components.iletcomfort.coordinator import ILetComfortCoordinator
-from custom_components.iletcomfort.model_profiles import (
-    ATW_SN8,
-    KJRH120L_SN8,
-    decode_atw_status,
-    decode_kjrh120l_status,
-)
+from custom_components.iletcomfort.protocols.atw import decode_atw_status
+from custom_components.iletcomfort.protocols.kjrh120l import decode_kjrh120l_status
+from custom_components.iletcomfort.protocols.profile import ATW_SN8, KJRH120L_SN8
 from tests.kjrh120l_snapshots import KJRH120L_SNAPSHOT_A
 from tests.test_api import ISSUE_11_STATUS_BODY
 from tests.test_c3_basic import (

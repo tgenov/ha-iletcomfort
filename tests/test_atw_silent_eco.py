@@ -27,14 +27,13 @@ from custom_components.iletcomfort.const import (
 )
 from custom_components.iletcomfort.coordinator import ILetComfortCoordinator
 from custom_components.iletcomfort.diagnostics import async_get_config_entry_diagnostics
-from custom_components.iletcomfort.model_profiles import (
-    ATW_SN8,
-    ModelProfile,
+from custom_components.iletcomfort.protocols import get_adapter
+from custom_components.iletcomfort.protocols.atw import (
     apply_atw_eco,
     apply_atw_silent,
-    apply_profile_to_sensors,
     decode_atw_status,
 )
+from custom_components.iletcomfort.protocols.profile import ATW_SN8, ModelProfile
 from custom_components.iletcomfort.select import ILetComfortMuteSelect
 from tests.snapshot_helpers import make_state
 
@@ -167,8 +166,9 @@ def _atw_coordinator(hass: HomeAssistant) -> tuple[ILetComfortCoordinator, Magic
     coord.appliance_meta = {"applianceCode": "APPL1", "sn8": ATW_SN8}
     client = cls.return_value
     client.query_status.return_value = decode_atw_status(AIRWELL_0X01)
-    client.query_sensors.return_value = apply_profile_to_sensors(
-        ModelProfile.ATW, decode_its_sensors(AIRWELL_0X02), client.query_status.return_value
+    client.query_sensors.return_value = get_adapter(ModelProfile.ATW).decode_sensors(
+        decode_its_sensors(AIRWELL_0X02),
+        client.query_status.return_value,
     )
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coord
     return coord, client
