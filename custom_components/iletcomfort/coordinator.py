@@ -80,6 +80,7 @@ from .protocols import (
     WritePlan,
     WriteRefused,
 )
+from .session import DollinSessionManager, SessionPolicyError
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -99,6 +100,27 @@ OFFLINE_REPAIR_ID = "device_offline_{entry_id}"
 # failure that *persists* this many polls (~5 min at the 60s interval, the same
 # cadence as the offline Repair card) warrants a single WARNING (issue #44).
 SUSTAINED_FAILURE_THRESHOLD = 5
+
+
+class _ClientFileTokenStore:
+    """TokenStore adapter delegating to client.load_token/save_token (#109)."""
+
+    def __init__(self, client: ILetComfortClient, filepath: Path) -> None:
+        self._client = client
+        self._filepath = filepath
+
+    def load(self) -> str | None:
+        if self._client.load_token(self._filepath):
+            token = self._client.access_token
+            if isinstance(token, str) and token:
+                return token
+            return "__loaded__"
+        return None
+
+    def save(self, token: str | None) -> None:
+        if token is not None:
+            self._client.access_token = token
+        self._client.save_token(self._filepath)
 
 
 class ILetComfortCoordinator(DataUpdateCoordinator[HeatPumpState]):
@@ -126,7 +148,6 @@ class ILetComfortCoordinator(DataUpdateCoordinator[HeatPumpState]):
                 )
                 else DEFAULT_OPERATION_MODE
             )
-        self._operation_mode: str = operation_mode
         # Options this coordinator was built with. The entry update listener
         # reloads only when these change, so a data-only update (the KJRH-120L
         # Zone 1 latch) does not reload the entry.
@@ -141,6 +162,15 @@ class ILetComfortCoordinator(DataUpdateCoordinator[HeatPumpState]):
         self._token_file = (
             Path(hass.config.path(".storage"))
             / f"iletcomfort_token_{entry.entry_id}"
+        )
+        self.session = DollinSessionManager(
+            self.client,
+            email=entry.data.get(CONF_EMAIL, ""),
+            password=entry.data.get(CONF_PASSWORD, ""),
+            token_store=_ClientFileTokenStore(self.client, self._token_file),
+            operation_mode=operation_mode,
+            run_blocking=hass.async_add_executor_job,
+            reauth_hook=lambda: self._async_login(),
         )
         self._last_on_state: tuple[int, int] | None = None
         # Serialises writes for this appliance: a C3 basic SET is built from a
@@ -172,6 +202,14 @@ class ILetComfortCoordinator(DataUpdateCoordinator[HeatPumpState]):
         # Sentinel-filtered ATW 0x04 energy state from MQTT pushes (latest
         # valid value of each field). raw_frames[0x04] keeps the literal frame.
         self._atw_energy_notify: bytes | None = None
+
+    @property
+    def _operation_mode(self) -> str:
+        return self.session.policy.operation_mode
+
+    @_operation_mode.setter
+    def _operation_mode(self, value: str) -> None:
+        self.session.set_operation_mode(value)
 
     @property
     def _atw_unit_params_supported(self) -> bool | None:
@@ -289,14 +327,13 @@ class ILetComfortCoordinator(DataUpdateCoordinator[HeatPumpState]):
     async def _async_update_data(self) -> HeatPumpState:
         """Fetch status and sensors from the heat pump."""
         try:
-            return await self._poll()
-        except AuthError:
-            _LOGGER.info("Auth error during poll, re-authenticating")
-            try:
-                await self._async_login()
-                return await self._poll()
-            except (AuthError, ApiError) as err:
-                raise UpdateFailed(f"Re-auth failed: {err}") from err
+            return await self.session.async_run_authenticated_coro(
+                self._poll,
+                reason="poll",
+                reauth_error_types=(ApiError,),
+            )
+        except AuthError as err:
+            raise UpdateFailed(f"Re-auth failed: {err}") from err
         except (ApiError, Exception) as err:
             if self.data is not None:
                 _LOGGER.warning("Poll error, using cached data: %s", err)
@@ -607,23 +644,11 @@ class ILetComfortCoordinator(DataUpdateCoordinator[HeatPumpState]):
 
     async def _async_login(self) -> None:
         """Authenticate and store the token."""
-        email = self.entry.data[CONF_EMAIL]
-        password = self.entry.data[CONF_PASSWORD]
-
-        await self.hass.async_add_executor_job(
-            self.client.login, email, password,
-        )
-
-        # Save token to HA storage
-        await self.hass.async_add_executor_job(
-            self.client.save_token, self._token_file,
-        )
+        await self.session.async_login()
 
         # Auto-discover appliance if not set
         if not self.appliance_code:
-            appliances = await self.hass.async_add_executor_job(
-                self.client.list_appliances,
-            )
+            appliances = await self.session.async_discover_appliances()
             if appliances:
                 self.appliance_code = str(appliances[0].get("applianceCode", ""))
                 _LOGGER.info(
@@ -643,9 +668,7 @@ class ILetComfortCoordinator(DataUpdateCoordinator[HeatPumpState]):
         if self.sn8 is not None:
             return
         try:
-            appliances = await self.hass.async_add_executor_job(
-                self.client.list_appliances,
-            )
+            appliances = await self.session.async_discover_appliances()
             if not appliances:
                 return
             for appliance in appliances:
@@ -657,12 +680,7 @@ class ILetComfortCoordinator(DataUpdateCoordinator[HeatPumpState]):
 
     async def async_first_refresh_with_login(self) -> None:
         """Login first, then do the initial data refresh."""
-        # Try loading saved token first
-        token_loaded = await self.hass.async_add_executor_job(
-            self.client.load_token, self._token_file,
-        )
-        if not token_loaded:
-            await self._async_login()
+        await self.session.async_load_or_login()
 
         await self._ensure_appliance_meta()
 
@@ -686,12 +704,9 @@ class ILetComfortCoordinator(DataUpdateCoordinator[HeatPumpState]):
 
         try:
             async with self._write_lock:
-                try:
-                    result = await self.hass.async_add_executor_job(action)
-                except AuthError:
-                    _LOGGER.info("Auth error during set, re-authenticating")
-                    await self._async_login()
-                    result = await self.hass.async_add_executor_job(action)
+                result = await self.session.async_run_authenticated(
+                    action, reason="set"
+                )
         except (
             ApiError,
             AuthError,
@@ -704,11 +719,10 @@ class ILetComfortCoordinator(DataUpdateCoordinator[HeatPumpState]):
 
     def _require_writable(self) -> None:
         """Reject writes in read-only phone-app coexistence mode."""
-        if self._operation_mode == OPERATION_MODE_PHONE_APP:
-            raise HomeAssistantError(
-                "Control is disabled in phone app coexistence mode; "
-                "switch to HA primary mode to send commands"
-            )
+        try:
+            self.session.policy.require_writable()
+        except SessionPolicyError as err:
+            raise HomeAssistantError(str(err)) from err
 
     def _write_context(self) -> WriteContext:
         """Snapshot the state a dialect needs to plan a write (#113)."""
@@ -787,16 +801,7 @@ class ILetComfortCoordinator(DataUpdateCoordinator[HeatPumpState]):
 
     async def _async_get_push_certificate(self) -> AppCert:
         """Mint a push certificate, re-authenticating only when required."""
-        try:
-            return await self.hass.async_add_executor_job(
-                self.client.create_app_cert
-            )
-        except AuthError:
-            _LOGGER.info("Auth error during MQTT certificate issuance or renewal")
-            await self._async_login()
-            return await self.hass.async_add_executor_job(
-                self.client.create_app_cert
-            )
+        return await self.session.async_mint_mqtt_certificate()
 
     async def async_stop_push(self) -> None:
         """Stop the MQTT push listener, if running."""
@@ -938,7 +943,7 @@ class ILetComfortCoordinator(DataUpdateCoordinator[HeatPumpState]):
 
     def _apply_push_connected(self, connected: bool) -> None:
         """Expose transport and device-status freshness without account polling."""
-        if self._operation_mode == OPERATION_MODE_PHONE_APP:
+        if not self.session.policy.allows_background_polling:
             # Polling requires the account session and would periodically evict
             # the official app. Certificate push is the sole transport in this
             # explicitly read-only coexistence mode.
