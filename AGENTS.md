@@ -346,10 +346,17 @@ Status `raw_body` (0-indexed; STANDARD misreads this 25-byte frame):
 - The real water/tank temp is in `status.box_bottom_temp` (status byte[17], offset-decoded → e.g. 40 °C).
 - The standard `sensors.twin_temp`/`twout_temp` (sensors bytes 25–26) are `0x23` null-fill → decode to 0
   (that was the "water temp = 0" bug).
-- A second hardware variant with the same `sn8` publishes live inlet/outlet values while `th_temp` is a
-  zero placeholder. Climate current temperature therefore keeps a nonzero `th_temp` when present and
+- A second hardware variant with the same `sn8` publishes live inlet/outlet values and no tank
+  temperature (see the next item). Climate current temperature therefore keeps a nonzero `th_temp` when present and
   otherwise falls back to `twout_temp`, then `twin_temp`. Do not assume `sn8` alone distinguishes these
   AQUAPURA layouts.
+- On that second variant, status `body[17]` is the `0x23` null-fill, and `box_bottom_temp` decodes to
+  exactly 0.0. `AquapuraAdapter.decode_sensors` then sets `th_temp` to `None`, so "DHW Tank
+  Temperature" is unknown and not 0.0 °C. Do not use the raw `0x02` `body[17]` byte as the tank
+  temperature: no app value confirms it (corpus case `aquapura_null_fill_tank_live_inlet_outlet`).
+- The 16-bit ITS energy counter (status `body[44..45]`, `decode_its_status`) is 0 on units that do
+  not report energy (this variant and the #11 frame). A raw 0 keeps `total_kwh` as `None`, because
+  the sensor is `TOTAL_INCREASING`. No other sentinel is filtered.
 
 ### Entity routing (important)
 - Entities read **only domain-named `HeatPumpState` properties** (`protocols/base.py`), never

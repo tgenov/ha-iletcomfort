@@ -31,9 +31,10 @@ class AquapuraAdapter:
     ``status.box_bottom_temp`` (status byte[17], offset-decoded) and is routed
     to ``th_temp`` ("DHW Tank Temperature") instead of ``twin_temp`` (which is
     null-filled to 0 on the #12 hardware variant). A second 171000AU hardware
-    variant publishes live inlet/outlet values while ``th_temp`` is a zero
-    placeholder, so ``climate_current_temperature`` keeps a nonzero ``th_temp``
-    and otherwise falls back to ``twout_temp``, then ``twin_temp``.
+    variant publishes live inlet/outlet values while status byte[17] is the
+    ``0x23`` null-fill (0.0), so ``decode_sensors`` sets ``th_temp`` to None.
+    ``climate_current_temperature`` keeps a nonzero ``th_temp`` and otherwise
+    falls back to ``twout_temp``, then ``twin_temp``.
     """
 
     profile = ModelProfile.AQUAPURA
@@ -57,9 +58,13 @@ class AquapuraAdapter:
     def decode_sensors(
         self, sensors: ITSSensors, status: ITSStatus
     ) -> ITSSensors:
-        if status is not None and status.box_bottom_temp is not None:
-            return dataclasses.replace(sensors, th_temp=status.box_bottom_temp)
-        return sensors
+        if status is None or status.box_bottom_temp is None:
+            return sensors
+        # Status body[17] == 0x23 is the null-fill and decodes to exactly 0.0:
+        # this hardware variant reports no tank temperature. Publish unknown,
+        # not 0.0 °C, and do not use the raw 0x02 th_temp byte (no evidence).
+        tank = status.box_bottom_temp if status.box_bottom_temp != 0.0 else None
+        return dataclasses.replace(sensors, th_temp=tank)
 
     def sensors_placeholder(self, raw_0x02: bytes) -> bool | None:
         return None

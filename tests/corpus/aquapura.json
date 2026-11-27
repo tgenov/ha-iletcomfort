@@ -18,5 +18,29 @@
       "twin_temp": 0.0,
       "t4_temp": 19.0
     }
+  },
+  {
+    "id": "aquapura_null_fill_tank_live_inlet_outlet",
+    "source_issue": "maintainer hardware (no issue)",
+    "hardware": "171000AU split HPWH, live inlet/outlet, no tank reading",
+    "sn8": "171000AU",
+    "expected_profile": "aquapura",
+    "expected_variant": "aquapura",
+    "frames": {
+      "0x01": "01,01,00,45,4b,2d,3f,37,0f,23,37,25,28,c0,00,00,80,23,2d,3f,37,00,23,37,00,3f,00,00,00,00,00,00,01,2c,00,00,00,68,0a,96,04,06,00,27,00,00,00,a8,00,00,01",
+      "0x02": "02,01,00,00,00,00,00,00,00,00,00,00,01,02,00,1b,41,10,00,01,00,33,38,3f,62,43,44,ef,00,00,dd,00,31,37,0c,31,37,0c,31,37,07,00,00,01,72,00,00,00,00,00,00"
+    },
+    "expected_status": {
+      "box_bottom_temp": 0.0,
+      "total_kwh": null,
+      "comp_total_run_hours": 168,
+      "comp_frq": 39
+    },
+    "expected_sensors": {
+      "th_temp": null,
+      "twin_temp": 32.0,
+      "twout_temp": 33.0,
+      "t4_temp": 21.0
+    }
   }
 ]
