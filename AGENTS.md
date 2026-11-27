@@ -322,6 +322,25 @@ Status `raw_body` (0-indexed; STANDARD misreads this 25-byte frame):
   `docs/KJRH120L_SYSTEM_DECODE.md` says the #148 unit's `0x02` is 99 bytes, so it is likely filler,
   not a #148 capture.
 
+### KJR-86T3 table dialect (`sn8 17186T3A`, AQS Energie AQUAPURA variant, #126) — hardware-validated on one unit
+- The controller ignores every C3 subtype query (the cloud returns the 1-byte `aa,0b,c3,…,01,2e`
+  echo of #126). It answers **table** queries: message type `0x03`, 16-byte body `01 <table u16 BE>`
+  zero-padded (the unpadded form is echoed too). The app reads tables 0/100/400/500/600/610/900/1000
+  via `luaQuery({"u16_table": N})`. Reply body: `[0]=00`, `[1..2]` table, `[5]` series `0x83`,
+  `[11]` period, then data; u16 big-endian signed, temperatures ×10, `7fff`/`ffff` = unused.
+- Decoded (matched against the app's decoded `luaQuery` JSON at the same moment): table 500 `[13]`
+  power, `[14]` mode (`0x40` Eco), `[15..16]` DHW setpoint, `[17]` silence, `[20]` SG-ready; table 900
+  `[30]` tank temp (→ `th_temp`); table 1000 `[31]` voltage, `[43]` Tp, `[45]` Th, `[47]` T3, `[49]` T4,
+  `[85..88]` energy u32 /100 kWh. Table 100 reports the 38–70 °C DHW range.
+- **Reads are dialect-owned:** `ProtocolAdapter.read_status` / `read_sensors` (None on every other
+  dialect, which keeps the subtype 0x01/0x02 query) read tables 500+1000 and 1000+900.
+- **Writes:** message type `0x02`, body `00 <table> ff ff 83 ff 00` + data; a field read at reply
+  body[k] is written at body[k−4], `0xff` leaves a byte unchanged, and the body keeps the table length
+  (a 35-byte table-500 write is echoed). The device replies with the updated table; an **echo of the
+  command means rejected** (`WritePlan.verify`). Validated: DHW setpoint and silence (table 500).
+  Power at `[13]` is not applied through table 500, and SG-ready accepted 0 but refused 1, so power,
+  mode, boost and SG are refused before sending. Silent Mode is single-level (Level 2 refused).
+
 ### AQUAPURA profile (`sn8 171000AU`, AQS Energie split HPWH, #12; discriminator collision under audit)
 - The real water/tank temp is in `status.box_bottom_temp` (status byte[17], offset-decoded → e.g. 40 °C).
 - The standard `sensors.twin_temp`/`twout_temp` (sensors bytes 25–26) are `0x23` null-fill → decode to 0

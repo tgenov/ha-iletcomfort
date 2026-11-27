@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 import dataclasses
 import math
 from typing import Any
@@ -423,6 +423,12 @@ class Kjrh120lAdapter:
 
     def build_query(self, subtype: int) -> str:
         return "ffff%02x%02x%02xff" % (subtype, subtype, subtype)
+
+    def read_status(self, send: Callable[[str], str]) -> ITSStatus | None:
+        return None
+
+    def read_sensors(self, send: Callable[[str], str]) -> ITSSensors | None:
+        return None
 
     def decode_status(self, status: ITSStatus) -> ITSStatus:
         return decode_kjrh120l_status(status.raw_body)

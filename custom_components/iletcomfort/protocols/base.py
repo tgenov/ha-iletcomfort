@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Protocol
 
@@ -125,7 +125,7 @@ class HeatPumpState:
         return self.status.comp_frq
 
     @property
-    def total_energy_kwh(self) -> int | None:
+    def total_energy_kwh(self) -> float | None:
         """Cumulative electrical energy in kWh; None (never 0) when not decoded."""
         return self.status.total_kwh
 
@@ -423,6 +423,17 @@ class ProtocolAdapter(Protocol):
 
     def build_query(self, subtype: int) -> str:
         """Build the wire hex query command for ``subtype``."""
+
+    def read_status(self, send: Callable[[str], str]) -> ITSStatus | None:
+        """Run a dialect-owned status read over ``send``; None → subtype 0x01 query.
+
+        For controllers that do not answer the C3 subtype queries at all
+        (KJR-86T3 table reads, #126). The returned status is already
+        dialect-decoded.
+        """
+
+    def read_sensors(self, send: Callable[[str], str]) -> ITSSensors | None:
+        """Run a dialect-owned sensors read over ``send``; None → subtype 0x02 query."""
 
     def decode_status(self, status: ITSStatus) -> ITSStatus:
         """Return the profile-canonical ITSStatus for ``status``."""

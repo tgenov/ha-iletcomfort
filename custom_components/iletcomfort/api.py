@@ -198,7 +198,7 @@ class ITSStatus:
     pressure_h: int | None = None
     pressure_l: int | None = None
     comp_frq: int | None = None
-    total_kwh: int | None = None
+    total_kwh: float | None = None
     total_thermal_kwh: int | None = None
     comp_total_run_hours: int | None = None
     fan_total_run_hours: int = 0
@@ -445,6 +445,11 @@ class ILetComfortClient(DollinCloudClient):
         from .protocols import get_adapter
 
         adapter = get_adapter(sn8)
+        dialect_status = adapter.read_status(
+            lambda command: self.send_hex_command(appliance_code, command)
+        )
+        if dialect_status is not None:
+            return dialect_status
         command = adapter.build_query(0x01)
         response_hex = self.send_hex_command(appliance_code, command)
         _LOGGER.debug("query_status raw response: %s", response_hex)
@@ -471,7 +476,13 @@ class ILetComfortClient(DollinCloudClient):
         # Imported lazily to avoid a circular import (protocols imports api).
         from .protocols import get_adapter
 
-        command = get_adapter(sn8).build_query(0x02)
+        adapter = get_adapter(sn8)
+        dialect_sensors = adapter.read_sensors(
+            lambda command: self.send_hex_command(appliance_code, command)
+        )
+        if dialect_sensors is not None:
+            return dialect_sensors
+        command = adapter.build_query(0x02)
         response_hex = self.send_hex_command(appliance_code, command)
         _LOGGER.debug("query_sensors raw response: %s", response_hex)
         raw = parse_hex_response(response_hex)

@@ -18,6 +18,7 @@ import dataclasses
 from .aquapura import AquapuraAdapter
 from .atw import AtwAdapter
 from .base import HeatPumpState, ProtocolAdapter, profile_climate_temp_bounds
+from .kjr86t3 import Kjr86t3Adapter
 from .kjrh120l import Kjrh120lAdapter
 from .probes import OptionalProbe
 from .profile import ModelProfile, resolve_profile
@@ -44,6 +45,7 @@ _ADAPTERS: dict[ModelProfile, ProtocolAdapter] = {
     ModelProfile.AQUAPURA: AquapuraAdapter(),
     ModelProfile.ATW: AtwAdapter(),
     ModelProfile.KJRH120L: Kjrh120lAdapter(),
+    ModelProfile.KJR86T3: Kjr86t3Adapter(),
 }
 
 
@@ -113,6 +115,7 @@ __all__ = [
     "FreshRead",
     "AtwAdapter",
     "HeatPumpState",
+    "Kjr86t3Adapter",
     "Kjrh120lAdapter",
     "OptionalProbe",
     "ProtocolAdapter",

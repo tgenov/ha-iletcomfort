@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any
 
 from ..api import (
@@ -216,6 +216,12 @@ class StandardAdapter:
 
     def build_query(self, subtype: int) -> str:
         return build_c3_query(subtype)
+
+    def read_status(self, send: Callable[[str], str]) -> ITSStatus | None:
+        return None
+
+    def read_sensors(self, send: Callable[[str], str]) -> ITSSensors | None:
+        return None
 
     def decode_status(self, status: ITSStatus) -> ITSStatus:
         return status
