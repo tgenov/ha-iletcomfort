@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.33.5](https://github.com/tgenov/ha-iletcomfort/compare/v0.33.4...v0.33.5) (2026-11-27)
+
+
+### Bug Fixes
+
+* **atw:** detect 75-byte active-schedule 0x02 template so 0x10 telemetry is probed ([#120](https://github.com/tgenov/ha-iletcomfort/issues/120)) ([#244](https://github.com/tgenov/ha-iletcomfort/issues/244)) ([e9d3476](https://github.com/tgenov/ha-iletcomfort/commit/e9d3476e7b8dab75a4234c04ca3df0b66cc9054f))
+* **atw:** report DHW tank temperature as unavailable when the unit has no DHW ([#138](https://github.com/tgenov/ha-iletcomfort/issues/138)) ([#247](https://github.com/tgenov/ha-iletcomfort/issues/247)) ([8a3fa11](https://github.com/tgenov/ha-iletcomfort/commit/8a3fa11b4dd5e5a5c958d06b6566b75fd562bc1a))
+* **kjrh120l:** treat 0x02 sensor fields and compressor state as unknown ([#131](https://github.com/tgenov/ha-iletcomfort/issues/131), [#136](https://github.com/tgenov/ha-iletcomfort/issues/136), [#142](https://github.com/tgenov/ha-iletcomfort/issues/142)) ([#246](https://github.com/tgenov/ha-iletcomfort/issues/246)) ([b2a3d13](https://github.com/tgenov/ha-iletcomfort/commit/b2a3d13e0b41289e02b3577afe21ada093542131))
+
 ## [0.33.4](https://github.com/tgenov/ha-iletcomfort/compare/v0.33.3...v0.33.4) (2026-11-27)
 
 
