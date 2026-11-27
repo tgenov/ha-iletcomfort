@@ -176,7 +176,131 @@ def fake_paho(monkeypatch):
 
     import custom_components.iletcomfort.mqtt as mod
     monkeypatch.setattr(mod.mqtt, "Client", FakeClient)
+
+    # The fake credentials are not real PEM, so the context builder is
+    # replaced; test_build_tls_context_* covers the real builder.
+    def fake_build_tls_context(cert_path, key_path):
+        created["tls_paths"] = (cert_path, key_path)
+        return created.setdefault("tls_context", object())
+
+    monkeypatch.setattr(mod, "build_tls_context", fake_build_tls_context)
     return created
+
+
+def _write_self_signed_credentials(tmp_path) -> tuple[str, str]:
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "test")])
+    now = datetime.now(timezone.utc)
+    cert = (
+        x509.CertificateBuilder()
+        .subject_name(name)
+        .issuer_name(name)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now - timedelta(minutes=1))
+        .not_valid_after(now + timedelta(days=1))
+        .sign(key, hashes.SHA256())
+    )
+    cert_path = tmp_path / "client.crt"
+    key_path = tmp_path / "client.key"
+    cert_path.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
+    key_path.write_bytes(
+        key.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.TraditionalOpenSSL,
+            serialization.NoEncryption(),
+        )
+    )
+    return str(cert_path), str(key_path)
+
+
+def test_build_tls_context_verifies_server_and_requires_tls12(tmp_path):
+    """The broker context works without ssl.PROTOCOL_TLSv1_2 (Python 3.14).
+
+    It must keep server verification, the hostname check and TLS 1.2 only.
+    TLS 1.3 would report a rejected client certificate after connect()
+    returns, which breaks the certificate rotation rollback.
+    """
+    import ssl
+
+    from custom_components.iletcomfort.mqtt import build_tls_context
+
+    cert_path, key_path = _write_self_signed_credentials(tmp_path)
+
+    context = build_tls_context(cert_path, key_path)
+
+    assert context.protocol == ssl.PROTOCOL_TLS_CLIENT
+    assert context.minimum_version == ssl.TLSVersion.TLSv1_2
+    assert context.maximum_version == ssl.TLSVersion.TLSv1_2
+    assert context.verify_mode == ssl.CERT_REQUIRED
+    assert context.check_hostname is True
+    # The system CA store is loaded (the broker certificate must verify).
+    assert context.cert_store_stats()["x509_ca"] > 0
+
+
+def test_real_paho_client_keeps_the_hostname_check(tmp_path):
+    """paho must not turn the hostname check off after tls_set_context."""
+    import paho.mqtt.client as paho_client
+
+    from custom_components.iletcomfort.mqtt import build_tls_context
+
+    cert_path, key_path = _write_self_signed_credentials(tmp_path)
+    context = build_tls_context(cert_path, key_path)
+    api_version = getattr(paho_client, "CallbackAPIVersion", None)
+    client = (
+        paho_client.Client(api_version.VERSION2)
+        if api_version is not None
+        else paho_client.Client()  # paho 1.6
+    )
+
+    client.tls_set_context(context)
+
+    assert context.check_hostname is True
+
+
+def test_build_tls_context_does_not_use_removed_tls12_constant(
+    tmp_path, monkeypatch
+):
+    """Regression: no dependency on the deprecated per-version constant."""
+    import ssl
+
+    from custom_components.iletcomfort.mqtt import build_tls_context
+
+    monkeypatch.delattr(ssl, "PROTOCOL_TLSv1_2", raising=False)
+    cert_path, key_path = _write_self_signed_credentials(tmp_path)
+
+    assert build_tls_context(cert_path, key_path).check_hostname is True
+
+
+def test_build_tls_context_loads_the_client_certificate(tmp_path):
+    """An invalid client certificate is an error, not ignored."""
+    import ssl
+
+    from custom_components.iletcomfort.mqtt import build_tls_context
+
+    bad = tmp_path / "bad.pem"
+    bad.write_text("not a certificate", encoding="utf-8")
+
+    with pytest.raises(ssl.SSLError):
+        build_tls_context(str(bad), str(bad))
+
+
+async def test_push_client_connects_with_the_built_tls_context(hass, fake_paho):
+    api = MagicMock()
+    api.create_app_cert.return_value = _cert()
+    client = ILetComfortPushClient(
+        hass, api, region="us", appliance_code="APPL1",
+        on_status=lambda status: None, on_connected_change=lambda up: None,
+    )
+
+    await client.async_start()
+
+    fake = fake_paho["client"]
+    assert fake.tls_args is fake_paho["tls_context"]
+    cert_path, key_path = fake_paho["tls_paths"]
+    assert cert_path.endswith("client.crt")
+    assert key_path.endswith("client.key")
+    await client.async_stop()
 
 
 async def test_push_client_subscribes_to_own_topics_on_connect(hass, fake_paho):
