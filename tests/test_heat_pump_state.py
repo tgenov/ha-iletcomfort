@@ -61,7 +61,9 @@ def test_standard_issue11_domain_properties_match_the_standard_decode() -> None:
     assert state.odu_current == 4.0
     assert state.compressor_frequency == 51
     assert state.compressor_running is True
-    assert state.total_energy_kwh == status.total_kwh is not None
+    # The issue #11 unit does not report energy (raw 0): unknown, never 0 kWh.
+    assert state.total_energy_kwh is None
+    assert status.total_kwh is None
     assert state.compressor_run_hours == status.comp_total_run_hours is not None
     assert state.high_pressure == status.pressure_h is not None
     assert state.low_pressure == status.pressure_l is not None
@@ -90,11 +92,15 @@ def test_short_standard_status_reports_unknown_not_zero() -> None:
 
 
 def test_long_standard_status_keeps_decoded_zero() -> None:
-    """A frame that carries the fields still reports a genuine 0."""
+    """A frame that carries the fields still reports a genuine 0.
+
+    The exception is cumulative energy: raw 0 means "not reported" and stays
+    unknown, because the sensor is TOTAL_INCREASING.
+    """
     state = make_state(decode_its_status(bytearray([0x01] + [0] * 49)), ITSSensors())
 
     assert state.compressor_frequency == 0
-    assert state.total_energy_kwh == 0
+    assert state.total_energy_kwh is None
     assert state.compressor_run_hours == 0
     assert state.high_pressure == 0
     assert state.low_pressure == 0

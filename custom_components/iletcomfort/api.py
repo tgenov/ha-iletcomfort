@@ -286,7 +286,11 @@ def decode_its_status(body: bytearray) -> ITSStatus:
         status.pressure_h = (body[d + 37] << 8) | body[d + 38]
         status.pressure_l = (body[d + 39] << 8) | body[d + 40]
         status.comp_frq = (body[d + 41] << 8) | body[d + 42]
-        status.total_kwh = (body[d + 43] << 8) | body[d + 44]
+        # A unit that does not report energy sends 0 here. The sensor is
+        # TOTAL_INCREASING, so 0 stays unknown (None) and is never published.
+        total_kwh = (body[d + 43] << 8) | body[d + 44]
+        if total_kwh != 0:
+            status.total_kwh = total_kwh
         status.comp_total_run_hours = (body[d + 45] << 8) | body[d + 46]
         status.fan_total_run_hours = (body[d + 47] << 8) | body[d + 48]
 
