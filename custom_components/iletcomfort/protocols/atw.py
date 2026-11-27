@@ -149,6 +149,39 @@ ATW_ENERGY_NOTIFY_SUBTYPE = 0x04
 ATW_ENERGY_NOTIFY_MIN_LEN = 11
 
 
+@dataclasses.dataclass(frozen=True)
+class AtwFeatureStatus:
+    """ATW Silent / ECO state from subtypes 0x05 and 0x07 (``ITSStatus.atw``, #139/#188).
+
+    ``None`` means no frame reported the field. ``ITSStatus.atw`` is ``None``
+    while every field is ``None``.
+    """
+
+    silent_mode: bool | None = None
+    silent_level: int | None = None  # 0=Off, 1=Level 1, 2=Level 2 (Super Silent)
+    silent_super_selected: bool | None = None  # raw bit 3 (retained even when OFF)
+    eco_mode: bool | None = None
+    eco_timer: bool | None = None
+
+
+_NO_ATW_FEATURES = AtwFeatureStatus()
+
+
+def atw_features(status: ITSStatus | None) -> AtwFeatureStatus:
+    """Return the ATW Silent / ECO fields of ``status`` (all ``None`` when absent)."""
+    if status is None or status.atw is None:
+        return _NO_ATW_FEATURES
+    return status.atw
+
+
+def _replace_atw_features(status: ITSStatus, **changes: Any) -> ITSStatus:
+    """Return a copy of ``status`` with ``changes`` applied to its ATW fields."""
+    features = dataclasses.replace(atw_features(status), **changes)
+    return dataclasses.replace(
+        status, atw=None if features == _NO_ATW_FEATURES else features
+    )
+
+
 def _is_27_byte_atw_status(body: bytearray | bytes) -> bool:
     """Return whether ``body`` has the hardware-validated 27-byte ATW layout."""
     return len(body) == 27 and body[0] == 0x01 and body[3:6] == b"\xa0\x03\x03"
@@ -385,19 +418,19 @@ def apply_atw_silent(
         return status
     flags = body[1]
     if len(body) < ATW_SILENT_FULL_LEN:
-        return dataclasses.replace(
+        return _replace_atw_features(
             status,
-            atw_eco_mode=bool(flags & 0x01),
-            atw_eco_timer=bool(flags & 0x02),
+            eco_mode=bool(flags & 0x01),
+            eco_timer=bool(flags & 0x02),
         )
     silent_on = bool(flags & 0x01)
     super_selected = bool(flags & 0x08)
     silent_level = 0 if not silent_on else (2 if super_selected else 1)
-    return dataclasses.replace(
+    return _replace_atw_features(
         status,
-        atw_silent_mode=silent_on,
-        atw_silent_level=silent_level,
-        atw_silent_super_selected=super_selected,
+        silent_mode=silent_on,
+        silent_level=silent_level,
+        silent_super_selected=super_selected,
     )
 
 
@@ -415,10 +448,10 @@ def apply_atw_eco(
     if body[0] == ATW_SILENT_SUBTYPE and len(body) >= ATW_SILENT_FULL_LEN:
         return status
     flags = body[1]
-    return dataclasses.replace(
+    return _replace_atw_features(
         status,
-        atw_eco_mode=bool(flags & 0x01),
-        atw_eco_timer=bool(flags & 0x02),
+        eco_mode=bool(flags & 0x01),
+        eco_timer=bool(flags & 0x02),
     )
 
 
@@ -546,7 +579,7 @@ def _reconcile_retained_silent(silent_body: bytes, status: ITSStatus) -> ITSStat
     0x01 ``body[3] & 0x02`` carries only binary Silent on/off; the level lives
     in 0x05 (#139). With a 0x05 frame from an earlier poll:
 
-    - 0x01 off: Silent off, level 0; keep ``atw_silent_super_selected`` from
+    - 0x01 off: Silent off, level 0; keep ``silent_super_selected`` from
       0x05 (bit 3 is retained by the unit even when Silent is off).
     - 0x01 on and 0x05 on: keep the 0x05 level.
     - 0x01 on but 0x05 off: the level is unknown, so the silent fields are
@@ -554,18 +587,19 @@ def _reconcile_retained_silent(silent_body: bytes, status: ITSStatus) -> ITSStat
     """
     overlaid = apply_atw_silent(silent_body, status)
     basic = status.c3_basic
-    if basic is None or overlaid.atw_silent_mode is None:
+    silent_mode = atw_features(overlaid).silent_mode
+    if basic is None or silent_mode is None:
         # Short (<= 6-byte) 0x05 ECO fallback or an invalid frame.
         return overlaid
     if not basic.silent_mode:
-        return dataclasses.replace(overlaid, atw_silent_mode=False, atw_silent_level=0)
-    if overlaid.atw_silent_mode:
+        return _replace_atw_features(overlaid, silent_mode=False, silent_level=0)
+    if silent_mode:
         return overlaid
-    return dataclasses.replace(
+    return _replace_atw_features(
         overlaid,
-        atw_silent_mode=None,
-        atw_silent_level=None,
-        atw_silent_super_selected=None,
+        silent_mode=None,
+        silent_level=None,
+        silent_super_selected=None,
     )
 
 

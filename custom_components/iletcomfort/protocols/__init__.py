@@ -21,7 +21,7 @@ from .base import HeatPumpState, ProtocolAdapter, profile_climate_temp_bounds
 from .kjrh120l import Kjrh120lAdapter
 from .probes import OptionalProbe
 from .profile import ModelProfile, resolve_profile
-from .snapshot import build_snapshot, merge_atw_energy_notify
+from .snapshot import build_snapshot, flatten_status, merge_atw_energy_notify
 from .standard import StandardAdapter
 from .views import (
     REMOVABLE_CAPABILITIES,
@@ -118,6 +118,7 @@ __all__ = [
     "ProtocolAdapter",
     "StandardAdapter",
     "build_snapshot",
+    "flatten_status",
     "WriteContext",
     "WritePlan",
     "WriteRefused",

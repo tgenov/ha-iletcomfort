@@ -9,9 +9,11 @@ from typing import Protocol
 from ..api import ITSSensors, ITSStatus
 from ..c3_basic import C3BasicStatus
 from ..commands import HeatPumpCommand
+from .atw import atw_features
 from .kjrh120l import (
     KJRH120L_RUN_MODE_COOL,
     KJRH120L_RUN_MODE_HEAT,
+    kjrh120l_status,
     kjrh120l_zone1_range,
 )
 from .probes import OptionalProbe
@@ -81,7 +83,7 @@ class HeatPumpState:
         """Outdoor ambient temperature in °C."""
         if self.sensors is not None and self.sensors.t4_temp is not None:
             return self.sensors.t4_temp
-        return self.status.kjrh120l_outdoor_temp
+        return kjrh120l_status(self.status).outdoor_temp
 
     @property
     def condenser_temp(self) -> float | None:
@@ -235,7 +237,7 @@ class HeatPumpState:
 
         0 = off, 1 = Level 1, 2 = Level 2 (Super Silent).
         """
-        return self.status.atw_silent_level
+        return atw_features(self.status).silent_level
 
     @property
     def silent_level(self) -> int:
@@ -244,8 +246,9 @@ class HeatPumpState:
         ATW 0x05 level first, then the C3 basic binary Silent flag (Level 1),
         then the legacy ctrl_flag/mute_level pair.
         """
-        if self.status.atw_silent_level is not None:
-            return self.status.atw_silent_level
+        silent_level = atw_features(self.status).silent_level
+        if silent_level is not None:
+            return silent_level
         basic = self.atw_c3_basic
         if basic is not None:
             return 1 if basic.silent_mode else 0
@@ -257,8 +260,9 @@ class HeatPumpState:
     @property
     def silent_enabled(self) -> bool | None:
         """Whether silent mode is on (ATW 0x05, else C3 basic flag, else legacy)."""
-        if self.status.atw_silent_mode is not None:
-            return self.status.atw_silent_mode
+        silent_mode = atw_features(self.status).silent_mode
+        if silent_mode is not None:
+            return silent_mode
         basic = self.atw_c3_basic
         if basic is not None:
             return basic.silent_mode
@@ -269,8 +273,9 @@ class HeatPumpState:
     @property
     def eco_enabled(self) -> bool | None:
         """Whether ECO is on (ATW 0x07/0x05, else C3 basic flag); None if unknown."""
-        if self.status.atw_eco_mode is not None:
-            return self.status.atw_eco_mode
+        eco_mode = atw_features(self.status).eco_mode
+        if eco_mode is not None:
+            return eco_mode
         basic = self.atw_c3_basic
         return basic.eco_mode if basic is not None else None
 
@@ -279,15 +284,16 @@ class HeatPumpState:
     @property
     def zone1_power(self) -> bool | None:
         """Whether Zone 1 is switched on; None when the dialect does not report it."""
-        if self.status.kjrh120l_zone1_power is not None:
-            return self.status.kjrh120l_zone1_power
+        zone1_power = kjrh120l_status(self.status).zone1_power
+        if zone1_power is not None:
+            return zone1_power
         basic = self.atw_c3_basic
         return basic.zone1_power if basic is not None else None
 
     @property
     def zone1_run_mode(self) -> str | None:
         """Zone 1 run mode ``"heat"`` / ``"cool"``; None for other or unknown codes."""
-        run_mode = self.status.kjrh120l_run_mode
+        run_mode = kjrh120l_status(self.status).run_mode
         if run_mode == KJRH120L_RUN_MODE_HEAT:
             return "heat"
         if run_mode == KJRH120L_RUN_MODE_COOL:
@@ -297,8 +303,9 @@ class HeatPumpState:
     @property
     def zone1_target_temp(self) -> float | None:
         """Zone 1 target in °C (KJRH-120L body[12], else the C3 basic target)."""
-        if self.status.kjrh120l_zone1_setpoint is not None:
-            return self.status.kjrh120l_zone1_setpoint
+        zone1_setpoint = kjrh120l_status(self.status).zone1_setpoint
+        if zone1_setpoint is not None:
+            return zone1_setpoint
         basic = self.atw_c3_basic
         if basic is None:
             return None
@@ -350,8 +357,9 @@ class HeatPumpState:
     @property
     def dhw_power(self) -> bool | None:
         """Whether DHW heating is switched on; None when not reported."""
-        if self.status.kjrh120l_dhw_power is not None:
-            return self.status.kjrh120l_dhw_power
+        dhw_power = kjrh120l_status(self.status).dhw_power
+        if dhw_power is not None:
+            return dhw_power
         basic = self.atw_c3_basic
         return basic.dhw_power if basic is not None else None
 

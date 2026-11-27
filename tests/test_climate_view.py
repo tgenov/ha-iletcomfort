@@ -145,7 +145,7 @@ def test_kjrh120l_dual_view_is_a_read_only_zone1_card(body, ctx):
     assert not view.supports_target_temperature
     assert not view.supports_turn_on_off
     # The Zone 1 setpoint, even while Zone 1 is off (snapshot B).
-    assert view.target_temperature == status.kjrh120l_zone1_setpoint
+    assert view.target_temperature == status.kjrh120l.zone1_setpoint
 
 
 def test_kjrh120l_latched_without_status_is_read_only():

@@ -31,6 +31,7 @@ from custom_components.iletcomfort.protocols import get_adapter
 from custom_components.iletcomfort.protocols.atw import (
     apply_atw_eco,
     apply_atw_silent,
+    atw_features,
     decode_atw_status,
 )
 from custom_components.iletcomfort.protocols.profile import ATW_SN8, ModelProfile
@@ -75,9 +76,9 @@ def test_apply_atw_silent_decodes_airwell_captures(
     """All 5 controlled Airwell 0x05 Silent captures (#139 C8) decode cleanly."""
     status = decode_atw_status(AIRWELL_0X01)
     out = apply_atw_silent(_bytes(frame_hex), status)
-    assert out.atw_silent_mode is expected_on
-    assert out.atw_silent_level == expected_level
-    assert out.atw_silent_super_selected is expected_super_sel
+    assert out.atw.silent_mode is expected_on
+    assert out.atw.silent_level == expected_level
+    assert out.atw.silent_super_selected is expected_super_sel
 
 
 @pytest.mark.parametrize(
@@ -96,8 +97,8 @@ def test_apply_atw_eco_decodes_airwell_captures(
     """All 3 controlled Airwell 0x07 ECO captures (#139 C8) decode cleanly."""
     status = decode_atw_status(AIRWELL_0X01)
     out = apply_atw_eco(_bytes(frame_hex), status)
-    assert out.atw_eco_mode is expected_on
-    assert out.atw_eco_timer is expected_timer
+    assert out.atw.eco_mode is expected_on
+    assert out.atw.eco_timer is expected_timer
 
 
 def test_0x05_short_payload_length_discriminator_decodes_eco_fallback() -> None:
@@ -105,13 +106,13 @@ def test_0x05_short_payload_length_discriminator_decodes_eco_fallback() -> None:
     status = decode_atw_status(AIRWELL_0X01)
     short_eco = _bytes("05,03,00,00,00,00")
     out1 = apply_atw_silent(short_eco, status)
-    assert out1.atw_eco_mode is True
-    assert out1.atw_eco_timer is True
-    assert out1.atw_silent_level is None
+    assert out1.atw.eco_mode is True
+    assert out1.atw.eco_timer is True
+    assert atw_features(out1).silent_level is None
 
     out2 = apply_atw_eco(short_eco, status)
-    assert out2.atw_eco_mode is True
-    assert out2.atw_eco_timer is True
+    assert out2.atw.eco_mode is True
+    assert out2.atw.eco_timer is True
 
     # Conversely, a full 10-byte Silence 0x05 frame is ignored by apply_atw_eco.
     full_silent = _bytes("05,09,06,1e,09,1e,16,00,07,00")
@@ -188,8 +189,8 @@ async def test_coordinator_probes_silent_and_eco_and_wires_entities_and_diagnost
 
     assert coord.capabilities.atw_silent.supported is True
     assert coord.capabilities.atw_eco.supported is True
-    assert data.status.atw_silent_level == 2
-    assert data.status.atw_eco_mode is True
+    assert data.status.atw.silent_level == 2
+    assert data.status.atw.eco_mode is True
 
     mute = ILetComfortMuteSelect(coord)
     assert mute.current_option == "Level 2"
@@ -234,9 +235,9 @@ async def test_coordinator_disables_0x05_and_0x07_on_initial_api_error_and_retri
     assert coord.capabilities.atw_silent.supported is False
     assert client.query_atw_eco.call_count == 3
     assert coord.capabilities.atw_eco.supported is True
-    assert d1.status.atw_eco_mode is True
-    assert d2.status.atw_eco_mode is True  # cached fallback on transient error
-    assert d3.status.atw_eco_mode is False
+    assert d1.status.atw.eco_mode is True
+    assert d2.status.atw.eco_mode is True  # cached fallback on transient error
+    assert d3.status.atw.eco_mode is False
 
 
 def test_select_falls_back_to_c3_basic_silent_flag_when_0x05_not_probed(

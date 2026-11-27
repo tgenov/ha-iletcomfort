@@ -14,18 +14,49 @@ coordinator) only records successful replies in ``raw_frames``.
 from __future__ import annotations
 
 from collections.abc import Mapping
+import dataclasses
+from typing import Any
 
 from ..api import ITSSensors, ITSStatus
 from .atw import (
     ATW_ENERGY_NOTIFY_MIN_LEN,
     ATW_ENERGY_NOTIFY_SUBTYPE,
+    AtwFeatureStatus,
     _atw_unit_s8,
     valid_energy_counter,
 )
 from .base import HeatPumpState, ProtocolAdapter
+from .kjrh120l import Kjrh120lStatus
 
 _ENERGY_COUNTER_SLICES = (slice(2, 6), slice(6, 10))
 _ENERGY_OUTDOOR_INDEX = 10
+
+# ITSStatus per-dialect sub-structs flattened to ``<member>_<field>`` keys.
+_FLATTENED_STATUS_MEMBERS: dict[str, type[Any]] = {
+    "kjrh120l": Kjrh120lStatus,
+    "atw": AtwFeatureStatus,
+}
+
+
+def flatten_status(status: ITSStatus) -> dict[str, Any]:
+    """Return ``asdict(status)`` with the per-dialect sub-structs flattened (#236).
+
+    ``status.kjrh120l`` / ``status.atw`` become the flat ``kjrh120l_*`` /
+    ``atw_*`` keys at the sub-struct's position (``None`` values when the
+    sub-struct is absent), keeping the key layout diagnostics has always had.
+    ``c3_basic`` stays a nested dict.
+    """
+    flat: dict[str, Any] = {}
+    for key, value in dataclasses.asdict(status).items():
+        member = _FLATTENED_STATUS_MEMBERS.get(key)
+        if member is None:
+            flat[key] = value
+            continue
+        for sub_field in dataclasses.fields(member):
+            flat[f"{key}_{sub_field.name}"] = (
+                value[sub_field.name] if value is not None else None
+            )
+    return flat
 
 
 def build_snapshot(

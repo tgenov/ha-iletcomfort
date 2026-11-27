@@ -32,6 +32,7 @@ from custom_components.iletcomfort.protocols.atw import (
 from custom_components.iletcomfort.protocols.kjrh120l import (
     build_kjrh120l_set_temperature,
     decode_kjrh120l_status,
+    kjrh120l_status,
     KJRH120L_DHW_OFF,
     KJRH120L_DHW_ON,
     KJRH120L_TEMP_MAX,
@@ -683,7 +684,7 @@ def test_kjrh120l_dual_variant_splits_zone1_and_dhw_setpoints():
 
     assert status.t5s_def == 19.0
     assert status.set_temperature == 19
-    assert status.kjrh120l_dhw_setpoint == 51.0
+    assert status.kjrh120l.dhw_setpoint == 51.0
 
 
 def test_kjrh120l_status_power_off_from_body10():
@@ -810,7 +811,7 @@ def test_kjrh120l_outdoor_temp_from_status_body57(raw_t4, expected):
         status,
     )
 
-    assert status.kjrh120l_outdoor_temp == expected
+    assert status.kjrh120l.outdoor_temp == expected
     assert sensors.t4_temp == expected
 
 
@@ -821,7 +822,7 @@ def test_kjrh120l_short_status_leaves_outdoor_temp_none():
         status,
     )
 
-    assert status.kjrh120l_outdoor_temp is None
+    assert kjrh120l_status(status).outdoor_temp is None
     assert sensors.t4_temp is None
 
 
@@ -960,18 +961,18 @@ def test_kjrh120l_decode_snapshot_a_zone1_fields():
 
     status = decode_kjrh120l_status(KJRH120L_SNAPSHOT_A)
 
-    assert status.kjrh120l_zone1_power is True
-    assert status.kjrh120l_run_mode == 3
-    assert status.kjrh120l_zone1_setpoint == 50.0
-    assert status.kjrh120l_zone1_heat_max == 75
-    assert status.kjrh120l_zone1_heat_min == 35
-    assert status.kjrh120l_zone1_cool_max == 25
-    assert status.kjrh120l_zone1_cool_min == 5
+    assert status.kjrh120l.zone1_power is True
+    assert status.kjrh120l.run_mode == 3
+    assert status.kjrh120l.zone1_setpoint == 50.0
+    assert status.kjrh120l.zone1_heat_max == 75
+    assert status.kjrh120l.zone1_heat_min == 35
+    assert status.kjrh120l.zone1_cool_max == 25
+    assert status.kjrh120l.zone1_cool_min == 5
     assert kjrh120l_zone1_range(status) == (35, 75)
     assert kjrh120l_zone1_range(status, 2) == (5, 25)
     # Existing fields keep their behaviour: dual gate holds, DHW is body[15].
     assert status.t5s_def == 50.0
-    assert status.kjrh120l_dhw_setpoint == 40.0
+    assert status.kjrh120l.dhw_setpoint == 40.0
 
 
 def test_kjrh120l_decode_snapshot_b_zone_off_still_decodes_zone1_fields():
@@ -983,14 +984,14 @@ def test_kjrh120l_decode_snapshot_b_zone_off_still_decodes_zone1_fields():
     status = decode_kjrh120l_status(KJRH120L_SNAPSHOT_B)
 
     assert not kjrh120l_has_zone1(KJRH120L_SNAPSHOT_B)
-    assert status.kjrh120l_zone1_power is False
-    assert status.kjrh120l_run_mode == 3
-    assert status.kjrh120l_zone1_setpoint == 37.0
+    assert status.kjrh120l.zone1_power is False
+    assert status.kjrh120l.run_mode == 3
+    assert status.kjrh120l.zone1_setpoint == 37.0
     assert kjrh120l_zone1_range(status) == (35, 75)
     # Existing fields unchanged: with the dual gate false, body[15] stays the
     # climate setpoint and the DHW number field stays empty.
     assert status.t5s_def == 35.0
-    assert status.kjrh120l_dhw_setpoint is None
+    assert kjrh120l_status(status).dhw_setpoint is None
 
 
 def test_kjrh120l_decode_cool_mode_uses_cool_range():
@@ -998,7 +999,7 @@ def test_kjrh120l_decode_cool_mode_uses_cool_range():
 
     status = decode_kjrh120l_status(_with(KJRH120L_SNAPSHOT_A, b11=2, b12=20))
 
-    assert status.kjrh120l_run_mode == 2
+    assert status.kjrh120l.run_mode == 2
     assert kjrh120l_zone1_range(status) == (5, 25)
 
 
@@ -1007,10 +1008,10 @@ def test_kjrh120l_zone1_fields_absent_on_short_frame():
 
     status = decode_kjrh120l_status(KJRH120L_SNAPSHOT_A[:40])
 
-    assert status.kjrh120l_zone1_setpoint == 50.0
-    assert status.kjrh120l_zone1_cool_min is None
+    assert status.kjrh120l.zone1_setpoint == 50.0
+    assert kjrh120l_status(status).zone1_cool_min is None
     assert kjrh120l_zone1_range(status) is None
-    assert decode_kjrh120l_status(bytes([0x01, 0x00])).kjrh120l_run_mode is None
+    assert kjrh120l_status(decode_kjrh120l_status(bytes([0x01, 0x00]))).run_mode is None
 
 
 @pytest.mark.parametrize(
@@ -1040,10 +1041,12 @@ def test_kjrh120l_zone1_range_rejects_non_finite_and_non_byte_limits(low, high):
 
     from custom_components.iletcomfort.protocols.kjrh120l import kjrh120l_zone1_range
 
+    decoded = decode_kjrh120l_status(KJRH120L_SNAPSHOT_A)
     status = dataclasses.replace(
-        decode_kjrh120l_status(KJRH120L_SNAPSHOT_A),
-        kjrh120l_zone1_heat_min=low,
-        kjrh120l_zone1_heat_max=high,
+        decoded,
+        kjrh120l=dataclasses.replace(
+            decoded.kjrh120l, zone1_heat_min=low, zone1_heat_max=high
+        ),
     )
 
     assert kjrh120l_zone1_range(status) is None

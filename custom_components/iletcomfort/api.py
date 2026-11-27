@@ -8,8 +8,9 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING
 
+from .c3_basic import C3BasicStatus
 from .c3_frame import (
     DEVICE_TYPE_C3,
     SENSOR_DISCONNECTED,
@@ -39,6 +40,12 @@ from .cloud import (
     sign_v1,
     sign_v2,
 )
+
+if TYPE_CHECKING:
+    # The dialect modules import this one, so their sub-structs are only
+    # imported for type checking (annotations are lazy).
+    from .protocols.atw import AtwFeatureStatus
+    from .protocols.kjrh120l import Kjrh120lStatus
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -193,29 +200,16 @@ class ITSStatus:
     total_thermal_kwh: int | None = None
     comp_total_run_hours: int | None = None
     fan_total_run_hours: int = 0
-    # KJRH-120L dual variant's separate DHW target (status body[15], issue #5).
-    kjrh120l_dhw_setpoint: float | None = None
-    # KJRH-120L Zone 1 fields from the subtype 0x01 body, decoded on every
-    # KJRH-120L frame regardless of body[8:10] (app capture 2026-11-12/14).
-    kjrh120l_zone1_power: bool | None = None  # body[8]
-    kjrh120l_dhw_power: bool | None = None  # body[10]
-    kjrh120l_run_mode: int | None = None  # body[11], heat=3, cool=2
-    kjrh120l_zone1_setpoint: float | None = None  # body[12]
-    kjrh120l_zone1_heat_max: int | None = None  # body[37]
-    kjrh120l_zone1_heat_min: int | None = None  # body[38]
-    kjrh120l_zone1_cool_max: int | None = None  # body[39]
-    kjrh120l_zone1_cool_min: int | None = None  # body[40]
-    # KJRH-120L outdoor ambient temp (status body[57] - 196; #148/#142/#136/#119).
-    kjrh120l_outdoor_temp: float | None = None
-    # ATW subtype 0x05 (Silent/Super-Silent) and 0x07/0x05 (ECO) decoded state (#139/#188).
-    atw_silent_mode: bool | None = None
-    atw_silent_level: int | None = None  # 0=Off, 1=Level 1, 2=Level 2 (Super Silent)
-    atw_silent_super_selected: bool | None = None  # raw bit 3 (retained even when OFF)
-    atw_eco_mode: bool | None = None
-    atw_eco_timer: bool | None = None
-    # Standard Midea C3 basic status (``c3_basic.C3BasicStatus``) when an ATW
-    # (sn8 171H120F) status frame matches that layout; None otherwise.
-    c3_basic: Any = None
+    # Per-dialect sub-structs (#236). Diagnostics flattens them back to the
+    # flat ``kjrh120l_*`` / ``atw_*`` keys (``protocols.flatten_status``).
+    # KJRH-120L (sn8 17100003) subtype 0x01 fields; None on other dialects.
+    kjrh120l: Kjrh120lStatus | None = None
+    # ATW subtype 0x05 (Silent/Super-Silent) and 0x07/0x05 (ECO) state
+    # (#139/#188); None until one of those frames is overlaid.
+    atw: AtwFeatureStatus | None = None
+    # Standard Midea C3 basic status when an ATW (sn8 171H120F) status frame
+    # matches that layout; None otherwise.
+    c3_basic: C3BasicStatus | None = None
     raw_body: bytes = field(default_factory=bytes, repr=False)
 
 
