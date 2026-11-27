@@ -375,6 +375,125 @@ async def test_push_client_debug_logs_unhandled_scoped_command_frame(
     assert "APPL1" not in caplog.text
 
 
+def _issue129_real_energy_frame_hex() -> str:
+    """Real 0x04 push body from the #129 diagnostics (v0.33.3), as a full frame.
+
+    The body is 175 bytes, so the frame is 186 bytes and the length byte 0xb9
+    is correct. (``HYUNDAI_MQTT_0X04_HEX`` was copied from an issue comment
+    and has a longer zero run, so it is not byte-exact.)
+    """
+    body = bytes.fromhex(
+        "04000000374a00007e0b012f1e3230ffff01"
+        + "00" * 138
+        + "ed" + "00" * 15 + "1e0000"
+    )
+    assert len(body) == 175
+    frame = bytes([0xAA, 0xB9, 0xC3, 0, 0, 0, 0, 0, 0, 0x04]) + body
+    return (frame + bytes([(~sum(frame[1:]) + 1) & 0xFF])).hex()
+
+
+async def test_push_client_debug_logs_handled_frames_with_retain_flag(
+    hass, fake_paho, caplog
+):
+    """Each applied push frame is logged with the MQTT retain flag (#129)."""
+    import logging
+
+    api = MagicMock()
+    api.create_app_cert.return_value = _cert()
+    client = ILetComfortPushClient(
+        hass,
+        api,
+        region="eu",
+        appliance_code="APPL1",
+        on_status=lambda *_: None,
+        on_energy=lambda *_: None,
+        on_connected_change=lambda *_: None,
+    )
+    energy_hex = _issue129_real_energy_frame_hex()
+
+    with caplog.at_level(logging.DEBUG):
+        await client.async_start()
+        transport = fake_paho["client"]
+        transport.fire_connect()
+        retained = MagicMock()
+        retained.payload = json.dumps(
+            {"messageType": "status", "data": {"commandHex": energy_hex}}
+        ).encode()
+        retained.retain = True
+        transport.on_message(transport, None, retained)
+        live = MagicMock()
+        live.payload = _push_payload().encode()
+        live.retain = False
+        transport.on_message(transport, None, live)
+
+    assert f"kind=energy retain=True command_hex={energy_hex}" in caplog.text
+    assert (
+        f"kind=status retain=False command_hex={LIVE_C3_COMMAND_HEX.lower()}"
+        in caplog.text
+    )
+    assert "unhandled scoped frame" not in caplog.text
+    assert "APPL1" not in caplog.text
+    await client.async_stop()
+
+
+async def test_push_frame_log_normalises_paho16_int_retain_and_comma_hex(
+    hass, fake_paho, caplog
+):
+    """paho 1.6 gives retain as an int; a comma-separated frame is still logged."""
+    import logging
+
+    api = MagicMock()
+    api.create_app_cert.return_value = _cert()
+    client = ILetComfortPushClient(
+        hass,
+        api,
+        region="eu",
+        appliance_code="APPL1",
+        on_status=lambda *_: None,
+        on_connected_change=lambda *_: None,
+    )
+    comma_hex = ",".join(
+        LIVE_C3_COMMAND_HEX[i : i + 2] for i in range(0, len(LIVE_C3_COMMAND_HEX), 2)
+    )
+    with caplog.at_level(logging.DEBUG):
+        await client.async_start()
+        transport = fake_paho["client"]
+        transport.fire_connect()
+        msg = MagicMock()
+        msg.payload = _push_payload(comma_hex).encode()
+        msg.retain = 1
+        transport.on_message(transport, None, msg)
+
+    assert (
+        f"kind=status retain=True command_hex={LIVE_C3_COMMAND_HEX.lower()}"
+        in caplog.text
+    )
+    await client.async_stop()
+
+
+async def test_push_frame_log_does_not_invent_a_retain_flag(hass, fake_paho, caplog):
+    """A message object without a real retain flag logs retain=None."""
+    import logging
+
+    api = MagicMock()
+    api.create_app_cert.return_value = _cert()
+    client = ILetComfortPushClient(
+        hass,
+        api,
+        region="eu",
+        appliance_code="APPL1",
+        on_status=lambda *_: None,
+        on_connected_change=lambda *_: None,
+    )
+    with caplog.at_level(logging.DEBUG):
+        await client.async_start()
+        fake_paho["client"].fire_connect()
+        fake_paho["client"].fire_message("eu/midea/dev/APPL1", _push_payload())
+
+    assert "kind=status retain=None command_hex=aa" in caplog.text
+    await client.async_stop()
+
+
 async def test_push_client_reports_disconnect(hass, fake_paho):
     conn = []
     api = MagicMock()
