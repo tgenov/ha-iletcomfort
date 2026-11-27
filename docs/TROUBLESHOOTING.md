@@ -147,6 +147,22 @@ it means the phone app probably publishes commands on a different topic. The
 probe listens only to your appliance's existing status topic; it never uses an
 MQTT wildcard.
 
+### Capturing push frames that the integration applies
+
+In the read-only push mode, debug logging also records every status (`0x01`)
+and energy (`0x04`) frame that the integration applies:
+
+```
+MQTT push frame kind=energy retain=False command_hex=aab9c3...
+```
+
+`retain=True` means that the broker sent a stored (retained) message because
+the integration subscribed, for example at start-up or after a reconnect. It is
+then possibly an older message, and not a new message from the heat pump.
+`retain=False` means a message that the broker forwarded when it arrived. When a maintainer
+asks for push frames, attach the log lines together with the time and what the
+app or the unit controller showed at that moment.
+
 ## 5. Read the ground-truth values from the app
 
 Open the official **iLetComfort / BTRI** app and note what it shows for the

@@ -542,6 +542,14 @@ making one official-app change at a time. If no line appears, the next step is a
 app's exact publish topic. Never widen the integration subscription to a broker wildcard: the broker
 does not enforce per-appliance topic ACLs.
 
+The push client also debug-logs every frame that it applies, as `MQTT push frame kind=status|energy
+retain=<flag> command_hex=…`. Before v0.33.0 the `0x04` frames were logged only as unhandled frames;
+after #217 they were applied and not logged, so a debug log had no energy frames. The retain flag is
+logged because on #129 both energy counters went back to a pair from about two hours earlier. The
+integration keeps only the newest pushed values, so the older frame came from MQTT. A retained message
+that the broker replays on subscribe is the likely cause, but it is not confirmed. Do not add a
+counter guard until a log line shows the cause.
+
 ---
 
 ## 5. Code map

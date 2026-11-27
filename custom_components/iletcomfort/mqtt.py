@@ -94,6 +94,41 @@ def _extract_push_frame(payload: str) -> tuple[int, bytearray] | None:
         return None
 
 
+def _log_handled_push_frame(kind: str, msg: object, payload: str) -> None:
+    """Debug-log a push frame that the integration decodes and applies.
+
+    The ``0x04`` energy frames are change-driven, and the broker can deliver an
+    older frame again (#129: both counters went back to values from two hours
+    earlier). The line records the frame and the MQTT retain flag, so a debug
+    log shows which frame was applied and whether the broker replayed a stored
+    (retained) message. The payload has no account or appliance identifiers.
+    """
+    if not _LOGGER.isEnabledFor(logging.DEBUG):
+        return
+    # paho 2.x gives a bool, paho 1.6 an int (0/1); log True/False for both.
+    raw_retain = getattr(msg, "retain", None)
+    retain = bool(raw_retain) if isinstance(raw_retain, (bool, int)) else None
+    try:
+        message = json.loads(payload)
+        data = message.get("data") if isinstance(message, dict) else None
+        command_hex = data.get("commandHex") if isinstance(data, dict) else None
+        # The frame was already decoded, so parse_hex_response accepts it. Log
+        # it in one normal form (also for comma-separated or long frames).
+        frame_hex = parse_hex_response(command_hex).hex() if isinstance(
+            command_hex, str
+        ) else None
+    except (TypeError, ValueError):
+        return
+    if frame_hex is None:
+        return
+    _LOGGER.debug(
+        "MQTT push frame kind=%s retain=%s command_hex=%s",
+        kind,
+        retain,
+        frame_hex,
+    )
+
+
 def decode_push_payload(payload: str) -> ITSStatus | None:
     """Decode a ``dev`` push payload into an :class:`ITSStatus`, or None."""
     extracted = _extract_push_frame(payload)
@@ -247,6 +282,7 @@ class MqttBrokerTransport:
         if status is None:
             energy_body = decode_push_energy_payload(payload)
             if energy_body is not None and self._on_energy is not None:
+                _log_handled_push_frame("energy", msg, payload)
                 self._on_energy(energy_body)
                 return
             try:
@@ -263,6 +299,7 @@ class MqttBrokerTransport:
                     command_hex.lower(),
                 )
             return
+        _log_handled_push_frame("status", msg, payload)
         self._on_status(status)
 
 
