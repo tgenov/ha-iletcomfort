@@ -436,3 +436,37 @@ async def test_dialect_change_after_metadata_fetch_invalidates_caches(
         assert seen["data_at_query"] is sentinel
         assert coord._last_atw_subtypes[0x10] == b"\x10stale"
         assert coord.capabilities.atw_unit_params.supported is False
+
+
+async def test_every_optional_probe_subtype_has_a_coordinator_target(
+    hass: HomeAssistant,
+) -> None:
+    """Guard the coordinator's subtype → (ProbeState, fetcher) map (#110 review).
+
+    A dialect decides *which* optional subtypes to probe; the coordinator owns
+    the ProbeState and client fetcher per subtype. An unmapped subtype would
+    raise KeyError in ``_poll`` and fail every poll, so every subtype any
+    registered adapter can return for any corpus capture must be mapped, and
+    every ``requires`` must name a probe returned earlier in the same tuple.
+    """
+    from custom_components.iletcomfort.protocols import _ADAPTERS
+
+    coord, _, _ = _make_coordinator(hass, CASES[0])
+    seen: set[int] = set()
+    for adapter in _ADAPTERS.values():
+        for case in CASES:
+            frames = _frames(case)
+            status = adapter.decode_status(decode_its_status(bytearray(frames[0x01])))
+            probes = adapter.optional_probes(status, frames)
+            earlier: set[int] = set()
+            for spec in probes:
+                coord._probe_target(spec.subtype)  # raises KeyError if unmapped
+                if spec.requires is not None:
+                    assert spec.requires in earlier, (
+                        f"{adapter.profile}: 0x{spec.subtype:02x} requires "
+                        f"0x{spec.requires:02x}, which is not probed before it"
+                    )
+                earlier.add(spec.subtype)
+                seen.add(spec.subtype)
+    # The corpus exercises every optional subtype the coordinator maps.
+    assert seen == set(FETCHERS)
