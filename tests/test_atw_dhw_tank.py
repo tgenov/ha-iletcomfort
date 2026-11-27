@@ -3,8 +3,9 @@
 The C3 basic status carries the tank reading at ``body[22]`` and the DHW
 capability at ``body[2] & 0x04`` (``cap_dhw``). Units without DHW still fill
 ``body[22]``: the Italtherm Hydrablock 12 M (#138) sends ``0xf1`` (241 °C),
-and three other no-DHW captures (#123 Kaisai, #128 Airwell Wellea M, #139
-Airwell Wellea Split) all send a constant ``0x19`` (25 °C). The byte is not a
+and five other no-DHW captures (#47 Dantex DN-30CEV/AG, whose reporter says it
+has no DHW tank; #123 Kaisai; #124 "western"; #139 Airwell Wellea Split; #142)
+all send a constant ``0x19`` (25 °C). The byte is not a
 tank reading on those units, so the "DHW Tank Temperature" sensor, the water
 heater (not created anyway) and the climate fallback must all see ``None``.
 """
@@ -57,7 +58,13 @@ ISSUE139_STATUS = _bytes(
     "01,09,73,90,03,03,28,1e,32,30,41,23,19,05,37,19,19,05,3c,22,3c,14,19,00,e0,05,00"
 )
 
+# Dantex DN-30CEV/AG (#47), reporter: "no DHW tank". body[2]=0x13, Cool mode.
+ISSUE47_STATUS = _bytes(
+    "01,01,13,00,02,02,17,17,32,30,41,23,19,05,37,19,19,05,3c,22,3c,14,19,00,80"
+)
+
 NO_DHW_FRAMES = {
+    "issue47_dantex_no_tank": ISSUE47_STATUS,
     "issue138_italtherm_hydrablock": ISSUE138_STATUS,
     "issue123_kaisai_kmk100ry": ISSUE123_STATUS,
     "issue139_airwell_split": ISSUE139_STATUS,

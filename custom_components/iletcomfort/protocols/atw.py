@@ -228,7 +228,7 @@ def decode_atw_status(body: bytearray | bytes) -> ITSStatus:
     basic = decode_c3_basic(body)
     status.c3_basic = basic
     # A C3 basic unit without DHW (cap_dhw False) still fills body[22] with a
-    # non-reading (#138: 0xf1 = 241 °C; #123/#128/#139: constant 0x19), so the
+    # non-reading (#138: 0xf1 = 241 °C; #47/#123/#139: constant 0x19), so the
     # tank is unavailable. Without a C3 match there is no capability evidence.
     if basic is None or basic.cap_dhw:
         status.box_bottom_temp = float(body[ATW_DHW_TANK_TEMP_INDEX])
