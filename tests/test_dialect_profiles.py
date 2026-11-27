@@ -578,9 +578,9 @@ def test_aquapura_tank_temp_from_box_bottom_temp_on_th_temp():
 
     out = get_adapter(ModelProfile.AQUAPURA).decode_sensors(sensors, status)
     assert out.th_temp == 40.0
-    # Water Inlet left honest (not populated with the tank value).
-    assert out.twin_temp == sensors.twin_temp
-    assert out.twin_temp != 40.0
+    # Water Inlet left honest: not populated with the tank value, and unknown
+    # (not 0.0 °C) because the whole body[23..27] block is 0x23 null-fill.
+    assert out.twin_temp is None
 
 
 def test_aquapura_ambient_unchanged():
