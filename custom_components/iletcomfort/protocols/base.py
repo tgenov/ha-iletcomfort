@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Protocol
 
@@ -18,6 +18,7 @@ from .kjrh120l import (
 )
 from .probes import OptionalProbe
 from .profile import ModelProfile
+from .read import ReadPlan
 from .views import ClimateView, EntityCapabilities, ViewContext, status_active_setpoint
 from .write import WriteContext, WritePlan
 
@@ -424,16 +425,11 @@ class ProtocolAdapter(Protocol):
     def build_query(self, subtype: int) -> str:
         """Build the wire hex query command for ``subtype``."""
 
-    def read_status(self, send: Callable[[str], str]) -> ITSStatus | None:
-        """Run a dialect-owned status read over ``send``; None → subtype 0x01 query.
+    def plan_status_read(self) -> ReadPlan[ITSStatus]:
+        """Return the declarative, sans-I/O read plan for device status."""
 
-        For controllers that do not answer the C3 subtype queries at all
-        (KJR-86T3 table reads, #126). The returned status is already
-        dialect-decoded.
-        """
-
-    def read_sensors(self, send: Callable[[str], str]) -> ITSSensors | None:
-        """Run a dialect-owned sensors read over ``send``; None → subtype 0x02 query."""
+    def plan_sensors_read(self) -> ReadPlan[ITSSensors]:
+        """Return the declarative, sans-I/O read plan for device sensors."""
 
     def decode_status(self, status: ITSStatus) -> ITSStatus:
         """Return the profile-canonical ITSStatus for ``status``."""

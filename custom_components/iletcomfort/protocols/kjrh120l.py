@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 import dataclasses
 import math
 from typing import Any
@@ -28,6 +28,7 @@ from ..commands import (
 )
 from .probes import OptionalProbe
 from .profile import ModelProfile
+from .read import ReadPlan, c3_sensors_read_plan, c3_status_read_plan
 from .views import (
     KJRH120L_ZONE1_READ_ONLY,
     NO_ZONE2_VIEW,
@@ -424,11 +425,11 @@ class Kjrh120lAdapter:
     def build_query(self, subtype: int) -> str:
         return "ffff%02x%02x%02xff" % (subtype, subtype, subtype)
 
-    def read_status(self, send: Callable[[str], str]) -> ITSStatus | None:
-        return None
+    def plan_status_read(self) -> ReadPlan[ITSStatus]:
+        return c3_status_read_plan(self)
 
-    def read_sensors(self, send: Callable[[str], str]) -> ITSSensors | None:
-        return None
+    def plan_sensors_read(self) -> ReadPlan[ITSSensors]:
+        return c3_sensors_read_plan(self)
 
     def decode_status(self, status: ITSStatus) -> ITSStatus:
         return decode_kjrh120l_status(status.raw_body)

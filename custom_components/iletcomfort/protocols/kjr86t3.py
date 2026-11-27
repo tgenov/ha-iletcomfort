@@ -25,7 +25,7 @@ mode and SG stay app-only.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 import dataclasses
 
 from ..api import ITSSensors, ITSStatus
@@ -45,6 +45,7 @@ from ..commands import (
 )
 from .probes import OptionalProbe
 from .profile import ModelProfile
+from .read import ReadPlan
 from .views import (
     HEAT_OFF_MODES,
     LEGACY_BOOST_MUTE,
@@ -242,9 +243,8 @@ def decode_kjr86t3_sensors(
     return sensors
 
 
-def read_kjr86t3_table(send: Callable[[str], str], table: int) -> bytes:
-    """Query one table over ``send`` and return its validated reply body."""
-    response_hex = send(build_kjr86t3_table_query(table))
+def parse_kjr86t3_table_reply(response_hex: str, table: int) -> bytes:
+    """Parse and validate a single KJR-86T3 table reply hex frame."""
     _body_type, body = extract_c3_body(parse_hex_response(response_hex))
     if not kjr86t3_table_matches(body, table):
         raise ApiError(
@@ -298,15 +298,31 @@ class Kjr86t3Adapter:
     def build_query(self, subtype: int) -> str:
         return build_c3_query(subtype)
 
-    def read_status(self, send: Callable[[str], str]) -> ITSStatus | None:
-        settings = read_kjr86t3_table(send, KJR86T3_TABLE_SETTINGS)
-        params = read_kjr86t3_table(send, KJR86T3_TABLE_PARAMS)
-        return decode_kjr86t3_status(settings, params)
+    def plan_status_read(self) -> ReadPlan[ITSStatus]:
+        return ReadPlan(
+            commands=(
+                build_kjr86t3_table_query(KJR86T3_TABLE_SETTINGS),
+                build_kjr86t3_table_query(KJR86T3_TABLE_PARAMS),
+            ),
+            decode=lambda replies: decode_kjr86t3_status(
+                parse_kjr86t3_table_reply(replies[0], KJR86T3_TABLE_SETTINGS),
+                parse_kjr86t3_table_reply(replies[1], KJR86T3_TABLE_PARAMS),
+            ),
+            description="kjr86t3_status_tables_500_1000",
+        )
 
-    def read_sensors(self, send: Callable[[str], str]) -> ITSSensors | None:
-        params = read_kjr86t3_table(send, KJR86T3_TABLE_PARAMS)
-        icons = read_kjr86t3_table(send, KJR86T3_TABLE_ICONS)
-        return decode_kjr86t3_sensors(params, icons)
+    def plan_sensors_read(self) -> ReadPlan[ITSSensors]:
+        return ReadPlan(
+            commands=(
+                build_kjr86t3_table_query(KJR86T3_TABLE_PARAMS),
+                build_kjr86t3_table_query(KJR86T3_TABLE_ICONS),
+            ),
+            decode=lambda replies: decode_kjr86t3_sensors(
+                parse_kjr86t3_table_reply(replies[0], KJR86T3_TABLE_PARAMS),
+                parse_kjr86t3_table_reply(replies[1], KJR86T3_TABLE_ICONS),
+            ),
+            description="kjr86t3_sensors_tables_1000_900",
+        )
 
     def decode_status(self, status: ITSStatus) -> ITSStatus:
         # Table reads return an already-decoded status; pushes are ignored

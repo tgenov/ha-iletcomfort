@@ -170,3 +170,30 @@ def test_diagnostics_uses_public_coordinator_projections() -> None:
         "diagnostics.py must consume public projections (e.g. coordinator.health_snapshot) "
         "instead of private coordinator attributes:\n" + "\n".join(private_reads)
     )
+
+
+def test_protocol_adapter_is_sans_io() -> None:
+    """ProtocolAdapter methods must never accept I/O callbacks (use ReadPlan / WritePlan)."""
+    tree = _parse(PROTOCOLS_DIR / "base.py")
+    adapter_cls = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "ProtocolAdapter"
+    )
+    violations: list[str] = []
+    for item in adapter_cls.body:
+        if isinstance(item, ast.AsyncFunctionDef):
+            violations.append(f"ProtocolAdapter.{item.name} is async def")
+            continue
+        if not isinstance(item, ast.FunctionDef):
+            continue
+        for arg in (*item.args.posonlyargs, *item.args.args, *item.args.kwonlyargs):
+            if arg.annotation is None:
+                continue
+            ann_src = ast.unparse(arg.annotation)
+            if "Callable" in ann_src:
+                violations.append(f"ProtocolAdapter.{item.name}({arg.arg}: {ann_src})")
+    assert not violations, (
+        "ProtocolAdapter dialects must remain pure / sans-I/O (return ReadPlan / WritePlan "
+        "instead of taking transport Callable parameters):\n" + "\n".join(violations)
+    )

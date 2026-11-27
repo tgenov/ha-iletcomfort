@@ -442,58 +442,29 @@ class ILetComfortClient(DollinCloudClient):
         the dialect's ``build_query``. Other profiles keep the standard frame.
         """
         # Imported lazily to avoid a circular import (protocols imports api).
-        from .protocols import get_adapter
+        from .protocols import get_adapter, run_read_plan
 
-        adapter = get_adapter(sn8)
-        dialect_status = adapter.read_status(
-            lambda command: self.send_hex_command(appliance_code, command)
+        plan = get_adapter(sn8).plan_status_read()
+        return run_read_plan(
+            plan, lambda command: self.send_hex_command(appliance_code, command)
         )
-        if dialect_status is not None:
-            return dialect_status
-        command = adapter.build_query(0x01)
-        response_hex = self.send_hex_command(appliance_code, command)
-        _LOGGER.debug("query_status raw response: %s", response_hex)
-        raw = parse_hex_response(response_hex)
-        _body_type, body = extract_c3_body(raw)
-        if len(body) < STATUS_MIN_BODY_LEN:
-            raise ApiError(
-                f"Status query returned a truncated frame "
-                f"({len(body)} body bytes); device may be offline or "
-                f"unsupported. Raw: {response_hex}"
-            )
-        status = decode_its_status(body)
-        return adapter.decode_status(status)
 
     def query_sensors(
         self, appliance_code: str, sn8: str | None = None,
     ) -> ITSSensors:
-        """Query heat pump sensors (subtype 0x02).
+        """Query heat pump sensors (subtype 0x02 or dialect-owned read plan).
 
-        ``sn8`` selects the query-command encoding: the KJRH-120L's cloud
-        rejects the standard long C3 query frame (code 1214) and needs a short
-        ``ffff<ss><ss><ss>ff`` form. Unknown/None sn8 uses the standard frame.
+        ``sn8`` selects the dialect's read plan: standard/ATW/AQUAPURA query
+        subtype 0x02, KJRH-120L uses the short ``ffff020202ff`` form, and
+        KJR-86T3 reads tables 1000 + 900.
         """
         # Imported lazily to avoid a circular import (protocols imports api).
-        from .protocols import get_adapter
+        from .protocols import get_adapter, run_read_plan
 
-        adapter = get_adapter(sn8)
-        dialect_sensors = adapter.read_sensors(
-            lambda command: self.send_hex_command(appliance_code, command)
+        plan = get_adapter(sn8).plan_sensors_read()
+        return run_read_plan(
+            plan, lambda command: self.send_hex_command(appliance_code, command)
         )
-        if dialect_sensors is not None:
-            return dialect_sensors
-        command = adapter.build_query(0x02)
-        response_hex = self.send_hex_command(appliance_code, command)
-        _LOGGER.debug("query_sensors raw response: %s", response_hex)
-        raw = parse_hex_response(response_hex)
-        _body_type, body = extract_c3_body(raw)
-        if len(body) < SENSORS_MIN_BODY_LEN:
-            raise ApiError(
-                f"Sensors query returned a truncated frame "
-                f"({len(body)} body bytes); device may be offline or "
-                f"unsupported. Raw: {response_hex}"
-            )
-        return decode_its_sensors(body)
 
     def _query_c3_subtype(
         self,

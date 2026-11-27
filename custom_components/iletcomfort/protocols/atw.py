@@ -17,7 +17,7 @@ C3BasicBody layout (see ``c3_basic.py``):
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 import dataclasses
 from typing import Any
 
@@ -61,6 +61,7 @@ from ..commands import (
 from .kjrh120l import zone1_run_mode_setpoint
 from .probes import OptionalProbe
 from .profile import ModelProfile
+from .read import ReadPlan, c3_sensors_read_plan, c3_status_read_plan
 from .standard import default_climate_temp_bounds
 from .views import (
     ATW_CONTROL_DISABLED,
@@ -929,11 +930,11 @@ class AtwAdapter:
     def build_query(self, subtype: int) -> str:
         return build_c3_query(subtype)
 
-    def read_status(self, send: Callable[[str], str]) -> ITSStatus | None:
-        return None
+    def plan_status_read(self) -> ReadPlan[ITSStatus]:
+        return c3_status_read_plan(self)
 
-    def read_sensors(self, send: Callable[[str], str]) -> ITSSensors | None:
-        return None
+    def plan_sensors_read(self) -> ReadPlan[ITSSensors]:
+        return c3_sensors_read_plan(self)
 
     def decode_status(self, status: ITSStatus) -> ITSStatus:
         return decode_atw_status(status.raw_body)

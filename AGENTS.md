@@ -332,8 +332,9 @@ Status `raw_body` (0-indexed; STANDARD misreads this 25-byte frame):
   power, `[14]` mode (`0x40` Eco), `[15..16]` DHW setpoint, `[17]` silence, `[20]` SG-ready; table 900
   `[30]` tank temp (→ `th_temp`); table 1000 `[31]` voltage, `[43]` Tp, `[45]` Th, `[47]` T3, `[49]` T4,
   `[85..88]` energy u32 /100 kWh. Table 100 reports the 38–70 °C DHW range.
-- **Reads are dialect-owned:** `ProtocolAdapter.read_status` / `read_sensors` (None on every other
-  dialect, which keeps the subtype 0x01/0x02 query) read tables 500+1000 and 1000+900.
+- **Reads are declarative (`ReadPlan`):** `ProtocolAdapter.plan_status_read` / `plan_sensors_read`
+  (pure/sans-I/O, mirrored after `WritePlan`) return table 500+1000 and 1000+900 read plans for
+  KJR-86T3 and standard subtype 0x01/0x02 read plans for every other dialect.
 - **Writes:** message type `0x02`, body `00 <table> ff ff 83 ff 00` + data; a field read at reply
   body[k] is written at body[k−4], `0xff` leaves a byte unchanged, and the body keeps the table length
   (a 35-byte table-500 write is echoed). The device replies with the updated table; an **echo of the
