@@ -39,6 +39,19 @@ warn_unused_ignores = true
 warn_redundant_casts = true
 no_implicit_optional = true
 
+[[tool.mypy.overrides]]
+module = [
+  "custom_components.iletcomfort.c3_basic",
+  "custom_components.iletcomfort.c3_frame",
+  "custom_components.iletcomfort.capabilities",
+  "custom_components.iletcomfort.commands",
+  "custom_components.iletcomfort.health",
+  "custom_components.iletcomfort.mqtt_credentials",
+  "custom_components.iletcomfort.protocols.*",
+  "custom_components.iletcomfort.session",
+]
+disallow_untyped_defs = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
