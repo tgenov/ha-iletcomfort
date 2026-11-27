@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 import dataclasses
 
 from ..api import ITSSensors, ITSStatus
@@ -10,6 +10,7 @@ from ..c3_basic import C3BasicStatus
 from ..c3_frame import build_c3_query
 from .probes import OptionalProbe
 from .profile import ModelProfile
+from .read import ReadPlan, c3_sensors_read_plan, c3_status_read_plan
 from ..commands import HeatPumpCommand
 from .standard import default_climate_temp_bounds, plan_legacy_its_write
 from .views import (
@@ -44,11 +45,11 @@ class AquapuraAdapter:
     def build_query(self, subtype: int) -> str:
         return build_c3_query(subtype)
 
-    def read_status(self, send: Callable[[str], str]) -> ITSStatus | None:
-        return None
+    def plan_status_read(self) -> ReadPlan[ITSStatus]:
+        return c3_status_read_plan(self)
 
-    def read_sensors(self, send: Callable[[str], str]) -> ITSSensors | None:
-        return None
+    def plan_sensors_read(self) -> ReadPlan[ITSSensors]:
+        return c3_sensors_read_plan(self)
 
     def decode_status(self, status: ITSStatus) -> ITSStatus:
         return status

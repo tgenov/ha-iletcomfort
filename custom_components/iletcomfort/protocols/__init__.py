@@ -22,6 +22,7 @@ from .kjr86t3 import Kjr86t3Adapter
 from .kjrh120l import Kjrh120lAdapter
 from .probes import OptionalProbe
 from .profile import ModelProfile, resolve_profile
+from .read import ReadPlan, run_read_plan
 from .snapshot import build_snapshot, flatten_status, merge_atw_energy_notify
 from .standard import StandardAdapter
 from .views import (
@@ -119,6 +120,8 @@ __all__ = [
     "Kjrh120lAdapter",
     "OptionalProbe",
     "ProtocolAdapter",
+    "ReadPlan",
+    "run_read_plan",
     "StandardAdapter",
     "build_snapshot",
     "flatten_status",
